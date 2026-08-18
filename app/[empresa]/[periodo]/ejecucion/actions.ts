@@ -146,8 +146,18 @@ type ResultadoImportar =
       ok: true;
       filasImportadas: number;
       posiblesDuplicados: { fila: number; fecha: string; importe: number }[];
+      // Solo viene seteado cuando la hoja se resolvió por selección explícita del
+      // usuario (ver requiereSeleccionHoja) — así el mensaje de éxito puede dejar
+      // trazado con qué hoja se cargó. En el caso normal (una sola hoja, o "Hoja1")
+      // queda undefined a propósito, para no agregar ruido al mensaje de siempre.
+      hoja?: string;
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string }
+  // Archivo con más de una hoja y ninguna llamada "Hoja1": antes se tomaba
+  // worksheets[0] en silencio, lo que podía atribuirle a una empresa los
+  // movimientos de otra hoja/empresa sin ningún aviso. Este resultado no importa
+  // nada todavía — el panel le muestra las hojas al usuario para que elija.
+  | { ok: false; requiereSeleccionHoja: true; hojas: string[] };
 
 function claveDuplicado(fecha: Date, importe: number) {
   return `${fecha.toISOString().slice(0, 10)}|${importe.toFixed(2)}`;
@@ -223,7 +233,8 @@ export async function subirExtracto(
   empresaSlug: string,
   periodo: string,
   numeroSemana: number,
-  formData: FormData
+  formData: FormData,
+  hojaElegida?: string
 ): Promise<ResultadoImportar> {
   const archivo = formData.get("archivo");
 
@@ -252,7 +263,33 @@ export async function subirExtracto(
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer);
 
-  const hoja = workbook.getWorksheet(NOMBRE_HOJA_EXTRACTO) ?? workbook.worksheets[0];
+  // Si el usuario ya eligió una hoja explícitamente (reintento tras el selector de abajo),
+  // se usa esa directo sin volver a evaluar nada.
+  let hoja = hojaElegida ? workbook.getWorksheet(hojaElegida) : undefined;
+  if (hojaElegida && !hoja) {
+    return { ok: false, error: `No encontré la hoja "${hojaElegida}" en el archivo.` };
+  }
+
+  if (!hoja) {
+    if (workbook.worksheets.length === 1) {
+      hoja = workbook.worksheets[0];
+    } else {
+      const hojaPorNombre = workbook.getWorksheet(NOMBRE_HOJA_EXTRACTO);
+      if (hojaPorNombre) {
+        hoja = hojaPorNombre;
+      } else {
+        // Más de una hoja y ninguna se llama "Hoja1": antes se tomaba worksheets[0]
+        // en silencio, lo que podía traer los movimientos de la empresa equivocada
+        // sin ningún aviso. Ahora se corta acá y se le pide al usuario que elija.
+        return {
+          ok: false,
+          requiereSeleccionHoja: true,
+          hojas: workbook.worksheets.map((h) => h.name),
+        };
+      }
+    }
+  }
+
   if (!hoja) {
     return { ok: false, error: "El archivo no tiene ninguna hoja." };
   }
@@ -354,7 +391,9 @@ export async function subirExtracto(
       bancoYCuenta: valores.bancoYCuenta ? String(valores.bancoYCuenta) : "(sin banco)",
       clasificacion: valores.clasificacion ? String(valores.clasificacion) : "SIN CLASIFICAR",
       clasificacion2: valores.clasificacion2 ? String(valores.clasificacion2) : null,
-      unidadNegocio: valores.unidadNegocio ? String(valores.unidadNegocio) : "SIN ASIGNAR",
+      // .trim(): un mismo valor puede llegar con espacio final por archivo (ej. "SIERRA "
+      // vs "SIERRA") y sin esto quedaban como dos unidades de negocio distintas en la base.
+      unidadNegocio: valores.unidadNegocio ? String(valores.unidadNegocio).trim() : "SIN ASIGNAR",
       detalle: valores.detalle ? String(valores.detalle) : null,
       detalle2: valores.detalle2 ? String(valores.detalle2) : null,
     });
@@ -383,7 +422,12 @@ export async function subirExtracto(
   });
 
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
-  return { ok: true, filasImportadas: filas.length, posiblesDuplicados };
+  return {
+    ok: true,
+    filasImportadas: filas.length,
+    posiblesDuplicados,
+    hoja: hojaElegida ? hoja.name : undefined,
+  };
 }
 
 export async function actualizarMovimiento(

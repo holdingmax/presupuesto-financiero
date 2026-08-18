@@ -69,6 +69,11 @@ export default function PanelImputacion({
   const [posiblesDuplicados, setPosiblesDuplicados] = useState<
     { fila: number; fecha: string; importe: number }[]
   >([]);
+  // Archivo con más de una hoja y ninguna llamada "Hoja1": se guarda acá el File ya elegido
+  // del disco para poder reenviarlo con la hoja que el usuario elija, sin que tenga que
+  // volver a seleccionarlo desde el input.
+  const [hojasDisponibles, setHojasDisponibles] = useState<string[]>([]);
+  const [archivoAmbiguo, setArchivoAmbiguo] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [, startTransition] = useTransition();
 
@@ -87,6 +92,8 @@ export default function PanelImputacion({
     setErrorSubida("");
     setMensajeExito("");
     setPosiblesDuplicados([]);
+    setHojasDisponibles([]);
+    setArchivoAmbiguo(null);
 
     const formData = new FormData();
     formData.append("archivo", archivo);
@@ -94,12 +101,70 @@ export default function PanelImputacion({
     const resultado = await subirExtracto(empresaSlug, periodo, numeroSemana, formData);
 
     setSubiendo(false);
+
     if (!resultado.ok) {
+      if ("requiereSeleccionHoja" in resultado) {
+        setHojasDisponibles(resultado.hojas);
+        setArchivoAmbiguo(archivo);
+        return;
+      }
       setErrorSubida(resultado.error);
       return;
     }
 
-    setMensajeExito(`Se importaron ${resultado.filasImportadas} movimientos.`);
+    setMensajeExito(
+      resultado.hoja
+        ? `Se importaron ${resultado.filasImportadas} movimientos de la hoja "${resultado.hoja}".`
+        : `Se importaron ${resultado.filasImportadas} movimientos.`
+    );
+    setPosiblesDuplicados(resultado.posiblesDuplicados);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    router.refresh();
+  }
+
+  // Reintento tras el selector de hoja: reenvía el mismo archivo ya elegido del disco,
+  // ahora con el nombre de hoja explícito para que subirExtracto no vuelva a ambigüar.
+  async function elegirHoja(nombreHoja: string) {
+    if (!archivoAmbiguo) return;
+    const archivo = archivoAmbiguo;
+
+    setSubiendo(true);
+    setErrorSubida("");
+    setMensajeExito("");
+    setPosiblesDuplicados([]);
+    setHojasDisponibles([]);
+    setArchivoAmbiguo(null);
+
+    const formData = new FormData();
+    formData.append("archivo", archivo);
+
+    const resultado = await subirExtracto(
+      empresaSlug,
+      periodo,
+      numeroSemana,
+      formData,
+      nombreHoja
+    );
+
+    setSubiendo(false);
+
+    if (!resultado.ok) {
+      // requiereSeleccionHoja no debería poder repetirse acá (ya se mandó un nombre de
+      // hoja explícito), pero el chequeo queda por las dudas de que el archivo cambie.
+      if ("requiereSeleccionHoja" in resultado) {
+        setHojasDisponibles(resultado.hojas);
+        setArchivoAmbiguo(archivo);
+        return;
+      }
+      setErrorSubida(resultado.error);
+      return;
+    }
+
+    setMensajeExito(
+      resultado.hoja
+        ? `Se importaron ${resultado.filasImportadas} movimientos de la hoja "${resultado.hoja}".`
+        : `Se importaron ${resultado.filasImportadas} movimientos.`
+    );
     setPosiblesDuplicados(resultado.posiblesDuplicados);
     if (fileInputRef.current) fileInputRef.current.value = "";
     router.refresh();
@@ -195,6 +260,27 @@ export default function PanelImputacion({
               {subiendo ? "Subiendo..." : "Subir extracto"}
             </button>
           </div>
+          {hojasDisponibles.length > 0 && (
+            <div className="mt-3 text-sm bg-marino-tint text-marino rounded-md px-3 py-2">
+              <p>
+                Este archivo tiene varias hojas y ninguna se llama &quot;Hoja1&quot;. ¿Cuál
+                corresponde a esta semana?
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {hojasDisponibles.map((nombreHoja) => (
+                  <button
+                    key={nombreHoja}
+                    type="button"
+                    disabled={subiendo}
+                    onClick={() => elegirHoja(nombreHoja)}
+                    className="h-8 px-3 rounded-md bg-marino text-white text-xs font-medium hover:bg-marino-dark active:scale-[0.99] transition disabled:opacity-50"
+                  >
+                    {nombreHoja}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {errorSubida && (
             <p className="mt-3 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
               {errorSubida}
