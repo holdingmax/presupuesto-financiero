@@ -12,6 +12,13 @@ import { calcularClasificacionesDisponibles } from "@/lib/clasificaciones";
 const NOMBRE_HOJA_EXTRACTO = "Hoja1";
 const FILAS_POR_PAGINA = 200;
 
+// Coincidencia exacta de string (post-normalización), no fuzzy — cada clave nueva es un
+// sinónimo puntual confirmado contra un archivo real, no una adivinanza. Varias claves
+// pueden apuntar al mismo campo (ver NRO REFERENCIA/NRO. DE REFERENCIA/NRO DE REFERENCIA):
+// si algún archivo futuro trajera dos de esas columnas a la vez para el mismo campo (ej.
+// "Descripcion" Y "Concepto" juntas), gana la que se procese después en la fila de
+// encabezados — no hay merge ni prioridad definida. No es el caso de ningún archivo visto
+// hasta ahora, así que no se resolvió; queda documentado acá para quien lo retome.
 const COLUMNAS: Record<string, string> = {
   "FECHA": "fecha",
   "NRO REFERENCIA": "nroReferencia",
@@ -19,10 +26,13 @@ const COLUMNAS: Record<string, string> = {
   "NRO DE REFERENCIA": "nroReferencia",
   "CAUSAL": "causal",
   "CONCEPTO": "concepto",
+  "DESCRIPCION": "concepto", // ej. HWC: "Descripcion" es el texto completo del movimiento
   "IMPORTE": "importe",
   "SALDO": "saldo",
   "BANCO Y CTA": "bancoYCuenta",
+  "BANCO": "bancoYCuenta", // ej. HWC: solo trae "Banco" a secas, sin el número de cuenta
   "DETALLE": "detalle",
+  "DESC": "detalle", // ej. HWC: "Desc" (abreviado) es una aclaración corta, no la Descripcion completa
   "CLASIFICACION": "clasificacion",
   "CLASIF 2": "clasificacion2",
   "UNIDAD DE NEG": "unidadNegocio",
