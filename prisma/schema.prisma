@@ -1,0 +1,178 @@
+// Presupuesto y Ejecución Financiera — Toolbox / HoldingMax
+// Modelo de datos validado con Leticia (ver resumen en README.md)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Rol {
+  ADMIN
+  GERENTE
+  FINANZAS
+}
+
+enum EstadoPresupuesto {
+  ABIERTO
+  VALIDADO
+}
+
+enum EstadoEjecucion {
+  ABIERTA
+  CERRADA
+}
+
+// Empresa o unidad de negocio. El CUIT es un atributo, no una clave,
+// porque un mismo CUIT puede corresponder a más de una unidad de negocio
+// (ej. CREAR = Fredy + Mantenor) y una unidad puede tener varios CUIT (ej. Fredy).
+model Empresa {
+  id        String   @id @default(uuid())
+  nombre    String   // ej: "Havanna", "Fredy Publicidad", "Brillante", "HWC"
+  cuit      String?
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  presupuestos PresupuestoMensual[]
+  usuarios     UsuarioEmpresa[]
+
+  @@index([cuit])
+}
+
+model Usuario {
+  id           String   @id @default(uuid())
+  nombre       String
+  email        String   @unique
+  passwordHash String? // null = todavía no tiene contraseña asignada, no puede loguearse
+  debeActualizarPassword Boolean @default(false) // true tras alta o reset por un admin: fuerza pasar por /cuenta antes de cualquier otra pantalla
+  rol          Rol      @default(GERENTE)
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  empresas UsuarioEmpresa[]
+  sesiones Sesion[]
+}
+
+// Sesión en base (no JWT sin estado): borrar la fila invalida esa sesión al
+// instante, lo que da un logout real sin necesidad de un blocklist aparte.
+model Sesion {
+  id        String   @id @default(uuid())
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id])
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([usuarioId])
+}
+
+// Permisos: un usuario puede tener acceso a varias empresas/UN.
+// Un ADMIN no necesita filas acá — ve todo (se resuelve en la capa de autorización).
+model UsuarioEmpresa {
+  usuarioId String
+  empresaId String
+  usuario   Usuario @relation(fields: [usuarioId], references: [id])
+  empresa   Empresa @relation(fields: [empresaId], references: [id])
+
+  @@id([usuarioId, empresaId])
+}
+
+// Presupuesto de una empresa/UN para un mes determinado.
+// Una vez VALIDADO no se edita más: cualquier corrección se carga
+// como parte del período siguiente (regla explícita de Vigo).
+model PresupuestoMensual {
+  id               String            @id @default(uuid())
+  empresaId        String
+  periodo          String            // formato "YYYY-MM", ej "2026-09"
+  estado           EstadoPresupuesto @default(ABIERTO)
+  fechaValidacion  DateTime?
+  validadoPorId    String?
+  createdAt        DateTime          @default(now())
+
+  empresa   Empresa              @relation(fields: [empresaId], references: [id])
+  lineas    LineaPresupuesto[]
+  semanas   EjecucionSemanal[]
+
+  @@unique([empresaId, periodo])
+}
+
+// Concepto (texto libre por ahora — todavía no hay un listado curado de
+// conceptos válidos) es el campo estructurado pensado para más adelante
+// cruzarse contra listados auxiliares y automatizar la clasificación.
+// Detalle sigue existiendo como aclaración libre, en un rol secundario.
+// Reglas de Vigo: importe no puede ser 0 ni vacío; clasificacion no puede estar vacía.
+// El nivel de apertura del "detalle" queda a criterio de cada gerente.
+model LineaPresupuesto {
+  id              String   @id @default(uuid())
+  presupuestoId   String
+  concepto        String
+  detalle         String
+  importe         Decimal  @db.Decimal(18, 2)
+  clasificacion   String   // rubro: sueldos, impuestos, proveedores, gasto bancario, etc.
+  clasificacion2  String?  // sub-rubro opcional, por si algún gerente lo necesita
+  createdAt       DateTime @default(now())
+
+  presupuesto PresupuestoMensual @relation(fields: [presupuestoId], references: [id])
+  adjuntos    Adjunto[]
+
+  @@index([presupuestoId])
+}
+
+// Ejecución semanal de un presupuesto. Una vez CERRADA, no se edita
+// retroactivamente — cualquier corrección entra en la semana siguiente.
+model EjecucionSemanal {
+  id             String          @id @default(uuid())
+  presupuestoId  String
+  numeroSemana   Int
+  estado         EstadoEjecucion @default(ABIERTA)
+  fechaCierre    DateTime?
+  cerradoPorId   String?
+  createdAt      DateTime        @default(now())
+
+  presupuesto PresupuestoMensual  @relation(fields: [presupuestoId], references: [id])
+  movimientos MovimientoBancario[]
+
+  @@unique([presupuestoId, numeroSemana])
+}
+
+// Un movimiento importado desde un extracto bancario, ya imputado
+// (clasificado y asignado a una unidad de negocio) vía el panel de imputación.
+model MovimientoBancario {
+  id              String   @id @default(uuid())
+  ejecucionId     String
+  fecha           DateTime
+  nroReferencia   String?
+  causal          String?
+  concepto        String
+  importe         Decimal  @db.Decimal(18, 2)
+  saldo           Decimal? @db.Decimal(18, 2)
+  bancoYCuenta    String   // ej "MACRO 599", "GALICIA 891"
+  clasificacion   String   // ej COBRANZAS, PROV Y SERV, SUELDOS, IMP Y PREVISIONALES...
+  clasificacion2  String?
+  unidadNegocio   String   // puede diferir de la empresa dueña de la cuenta bancaria
+  detalle         String?
+  detalle2        String?
+  createdAt       DateTime @default(now())
+
+  ejecucion EjecucionSemanal @relation(fields: [ejecucionId], references: [id])
+  adjuntos  Adjunto[]
+
+  @@index([ejecucionId])
+  @@index([unidadNegocio])
+  @@index([clasificacion])
+}
+
+// Comprobante/imagen de respaldo. Puede colgar de una línea de presupuesto
+// o de un movimiento bancario (el "ícono de ojo" que mencionó Vigo).
+model Adjunto {
+  id                  String   @id @default(uuid())
+  urlArchivo          String
+  lineaPresupuestoId  String?
+  movimientoId        String?
+  createdAt           DateTime @default(now())
+
+  lineaPresupuesto LineaPresupuesto?   @relation(fields: [lineaPresupuestoId], references: [id])
+  movimiento       MovimientoBancario? @relation(fields: [movimientoId], references: [id])
+}

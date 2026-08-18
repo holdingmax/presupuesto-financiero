@@ -1,0 +1,143 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #f5f6f3;
+  --paper-raised: #ffffff;
+  --paper-cool: #edeff2;
+  --ink: #1e2422;
+  --ink-secondary: #5b645f;
+  --ink-muted: #8b9189;
+  --line: #dad8ce;
+  --line-strong: #b9b6a8;
+  --marino: #2c3e5c;
+  --marino-dark: #1b2a40;
+  --marino-tint: #e8ebf0;
+  --marino-mist: #b3bdc9;
+  --plata: #8b99ac;
+  --terracota: #d85a30;
+  --terracota-tint: #faece7;
+  --verde: #2f7d52; /* solo para feedback de "correcto" puntual (ej. confirmación de contraseña) */
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-raised: var(--paper-raised);
+  --color-paper-cool: var(--paper-cool);
+  --color-ink: var(--ink);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-muted: var(--ink-muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-marino: var(--marino);
+  --color-marino-dark: var(--marino-dark);
+  --color-marino-tint: var(--marino-tint);
+  --color-marino-mist: var(--marino-mist);
+  --color-plata: var(--plata);
+  --color-terracota: var(--terracota);
+  --color-terracota-tint: var(--terracota-tint);
+  --color-verde: var(--verde);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-plex-mono);
+  --font-serif: var(--font-source-serif);
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+.tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+  Sombra de la tarjeta de login: una capa chica y neutra para "apoyar" la
+  tarjeta sobre la superficie, más una capa grande, difusa y con el tinte de
+  --marino para que la sombra se sienta parte de la paleta en vez de un gris
+  genérico de librería de UI.
+
+  TEMPORAL — intensidad subida a propósito (anillo sólido + difusa muy fuerte)
+  para confirmar visibilidad en el navegador. Bajar después de probarlo.
+*/
+.login-card-shadow {
+  box-shadow:
+    0 1px 2px rgba(30, 36, 34, 0.06),
+    0 0 0 8px rgba(44, 62, 92, 0.5),
+    0 60px 100px -10px rgba(44, 62, 92, 0.9);
+}
+
+.login-backdrop {
+  background: var(--paper);
+}
+
+@media (min-width: 1024px) {
+  .login-backdrop {
+    background: linear-gradient(
+      92deg,
+      var(--marino) 0%,
+      var(--marino) 40%,
+      var(--marino-mist) 60%,
+      var(--marino-mist) 100%
+    );
+  }
+
+  /* Textura sutil (brillo radial + reglas finas tipo libro contable), acotada a la franja marino */
+  .login-backdrop::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(120% 100% at 10% 0%, rgba(255, 255, 255, 0.08), transparent 55%),
+      repeating-linear-gradient(
+        0deg,
+        rgba(255, 255, 255, 0.05) 0px,
+        rgba(255, 255, 255, 0.05) 1px,
+        transparent 1px,
+        transparent 27px
+      );
+    mask-image: linear-gradient(92deg, #000 0%, #000 40%, transparent 60%, transparent 100%);
+    -webkit-mask-image: linear-gradient(
+      92deg,
+      #000 0%,
+      #000 40%,
+      transparent 60%,
+      transparent 100%
+    );
+  }
+}
+
+/*
+  Variante experimental de .login-backdrop: marino sólido en toda la pantalla
+  (en vez del degradé marino -> marino-mist), con la misma textura pero sin
+  enmascarar (ya no hace falta apagarla en ninguna zona, todo es marino).
+
+  Para probarla: en app/login/page.tsx, cambiar la className del div de fondo
+  de "login-backdrop" a "login-backdrop-solido". El bloque de .login-backdrop
+  de arriba queda intacto para volver atrás con solo revertir ese cambio.
+*/
+.login-backdrop-solido {
+  background: var(--paper);
+}
+
+@media (min-width: 1024px) {
+  .login-backdrop-solido {
+    background: var(--marino);
+  }
+
+  .login-backdrop-solido::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(120% 100% at 10% 0%, rgba(255, 255, 255, 0.08), transparent 55%),
+      repeating-linear-gradient(
+        0deg,
+        rgba(255, 255, 255, 0.05) 0px,
+        rgba(255, 255, 255, 0.05) 1px,
+        transparent 1px,
+        transparent 27px
+      );
+  }
+}
