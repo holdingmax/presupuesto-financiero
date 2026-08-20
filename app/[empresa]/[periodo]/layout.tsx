@@ -57,6 +57,9 @@ export default async function EmpresaPeriodoLayout({ children, params }: Props) 
     <>
       <div className="border-b border-line-strong">
         <div className="flex items-center justify-end gap-3 px-6 pt-4 pb-2 text-xs text-ink-muted">
+          <Link href="/" className="underline underline-offset-2 hover:text-ink-secondary">
+            ← Mis empresas
+          </Link>
           <span>{usuario.nombre}</span>
           <form action={logout}>
             <button type="submit" className="underline underline-offset-2 hover:text-ink-secondary">

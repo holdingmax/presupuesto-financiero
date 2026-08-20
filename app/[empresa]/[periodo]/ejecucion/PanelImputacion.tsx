@@ -191,7 +191,7 @@ export default function PanelImputacion({
   async function handleCerrarSemana() {
     if (
       !confirm(
-        `¿Cerrar la semana ${numeroSemana}? Después de cerrarla no se puede editar para atrás — cualquier corrección va a la semana siguiente.`
+        `¿Confirmás el cierre semanal de la semana ${numeroSemana}? Después de cerrarla no se puede editar para atrás — cualquier corrección va a la semana siguiente.`
       )
     ) {
       return;
@@ -364,7 +364,7 @@ export default function PanelImputacion({
             disabled={totalMovimientos === 0}
             className="h-14 px-6 rounded-md bg-ink text-paper text-base font-semibold tracking-wide disabled:opacity-30 disabled:cursor-not-allowed hover:bg-ink/90 active:scale-[0.99] transition shadow-sm hover:shadow-md"
           >
-            Cerrar semana
+            Cierre semanal
           </button>
         </div>
       )}

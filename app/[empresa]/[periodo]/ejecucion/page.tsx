@@ -22,5 +22,18 @@ export default async function EjecucionIndexPage({ params }: Props) {
     throw error;
   }
 
+  // Quien no puede operar no dispara la creación de una semana nueva (ver
+  // obtenerNumeroSemanaAbierta) — si el presupuesto todavía no tiene ninguna, no hay
+  // adónde redirigir.
+  if (numeroSemana === null) {
+    return (
+      <div className="mx-auto w-full max-w-5xl px-6 py-10">
+        <p className="text-sm text-ink-muted">
+          Todavía no hay ninguna semana cargada para esta empresa.
+        </p>
+      </div>
+    );
+  }
+
   redirect(`/${empresa}/${periodo}/ejecucion/${numeroSemana}`);
 }

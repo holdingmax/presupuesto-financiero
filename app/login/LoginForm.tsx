@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { login, type ResultadoLogin } from "./actions";
+import CampoPassword from "@/components/CampoPassword";
 
 const ESTADO_INICIAL: ResultadoLogin | null = null;
 
@@ -24,19 +25,14 @@ export default function LoginForm() {
         />
       </div>
 
-      <div>
-        <label htmlFor="password" className="block text-sm text-ink-secondary mb-1.5">
-          Contraseña
-        </label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          required
-          placeholder="••••••••"
-          className="w-full h-12 rounded-md border border-line bg-paper-raised px-3.5 text-[15px] outline-none focus:border-marino focus:ring-2 focus:ring-marino/15"
-        />
-      </div>
+      <CampoPassword
+        id="password"
+        name="password"
+        label="Contraseña"
+        required
+        placeholder="••••••••"
+        size="lg"
+      />
 
       {estado && !estado.ok && (
         <p className="text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">

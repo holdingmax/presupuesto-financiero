@@ -123,6 +123,29 @@ export const requireAccesoEmpresa = cache(async (empresaId: string): Promise<Usu
   return usuario;
 });
 
+// Ver acceder vs. operar: tener acceso a una empresa (arriba) no implica poder
+// operar su Ejecución — subir extracto, reclasificar, cerrar semana. Es un
+// permiso más granular, por fila de UsuarioEmpresa (ver comentario en
+// schema.prisma). Mismo bypass de ADMIN que puedeAccederEmpresa.
+export async function puedeOperarEjecucion(usuario: Usuario, empresaId: string) {
+  if (usuario.rol === "ADMIN") return true;
+  const acceso = await prisma.usuarioEmpresa.findUnique({
+    where: { usuarioId_empresaId: { usuarioId: usuario.id, empresaId } },
+  });
+  return acceso?.puedeOperarEjecucion ?? false;
+}
+
+// Único punto de autorización para las Server Actions que MUTAN Ejecución
+// (subirExtracto/actualizarMovimiento/eliminarMovimiento/cerrarSemana). Ver
+// solo requiere requireAccesoEmpresa; esto es estrictamente más estricto.
+export const requireOperadorEjecucion = cache(async (empresaId: string): Promise<Usuario> => {
+  const usuario = await requireUsuario();
+  if (!(await puedeOperarEjecucion(usuario, empresaId))) {
+    throw new AccesoDenegadoError("No tenés permiso para operar Ejecución de esta empresa.");
+  }
+  return usuario;
+});
+
 // Hermana de AccesoDenegadoError, para el mismo propósito: los page.tsx de
 // lectura bajo /admin/usuarios la atrapan y devuelven null en vez de dejar
 // que se vea como un error sin manejar (ver comentario en esos archivos).

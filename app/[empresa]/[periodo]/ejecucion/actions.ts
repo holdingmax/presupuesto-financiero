@@ -5,8 +5,12 @@ import { revalidatePath } from "next/cache";
 import ExcelJS from "exceljs";
 import { resolverEmpresaPorSlug, quitarDiacriticos } from "@/lib/slug";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
-import { obtenerOCrearEjecucionAbierta, obtenerEjecucionPorSemana } from "@/lib/ejecucion";
-import { requireAccesoEmpresa } from "@/lib/auth";
+import {
+  obtenerOCrearEjecucionAbierta,
+  obtenerEjecucionPorSemana,
+  obtenerUltimaEjecucion,
+} from "@/lib/ejecucion";
+import { requireAccesoEmpresa, requireOperadorEjecucion, puedeOperarEjecucion } from "@/lib/auth";
 import { calcularClasificacionesDisponibles } from "@/lib/clasificaciones";
 
 const NOMBRE_HOJA_EXTRACTO = "Hoja1";
@@ -56,7 +60,20 @@ async function resolverPresupuesto(empresaSlug: string, periodo: string) {
   if (!empresa) {
     throw new Error(`No existe una empresa para "${empresaSlug}".`);
   }
-  await requireAccesoEmpresa(empresa.id);
+  const usuario = await requireAccesoEmpresa(empresa.id);
+  const presupuesto = await obtenerOCrearPresupuesto(empresa.id, periodo);
+  return { empresa, presupuesto, usuario };
+}
+
+// Como resolverPresupuesto, pero exige poder OPERAR Ejecución (no solo verla) —
+// para las Server Actions que mutan datos. Ver vs. operar es un permiso más
+// granular que el acceso a la empresa (ver comentario en lib/auth.ts).
+async function resolverPresupuestoParaOperar(empresaSlug: string, periodo: string) {
+  const empresa = await resolverEmpresaPorSlug(empresaSlug);
+  if (!empresa) {
+    throw new Error(`No existe una empresa para "${empresaSlug}".`);
+  }
+  await requireOperadorEjecucion(empresa.id);
   const presupuesto = await obtenerOCrearPresupuesto(empresa.id, periodo);
   return { empresa, presupuesto };
 }
@@ -85,10 +102,20 @@ function mapearMovimiento(m: {
 
 // Único punto que crea una EjecucionSemanal: resuelve-o-crea la semana abierta y
 // devuelve su número, para que la página índice (sin segmento numérico) redirija ahí.
+// Solo para quien puede OPERAR — alguien con acceso de solo lectura no debe disparar
+// la creación de una semana nueva con el simple hecho de navegar acá. Para ese caso
+// se busca la última semana existente sin crear ninguna; null si todavía no hay
+// ninguna (el índice le muestra un mensaje en vez de redirigir a algo inexistente).
 export async function obtenerNumeroSemanaAbierta(empresaSlug: string, periodo: string) {
-  const { presupuesto } = await resolverPresupuesto(empresaSlug, periodo);
-  const ejecucion = await obtenerOCrearEjecucionAbierta(presupuesto.id);
-  return ejecucion.numeroSemana;
+  const { empresa, presupuesto, usuario } = await resolverPresupuesto(empresaSlug, periodo);
+
+  if (await puedeOperarEjecucion(usuario, empresa.id)) {
+    const ejecucion = await obtenerOCrearEjecucionAbierta(presupuesto.id);
+    return ejecucion.numeroSemana;
+  }
+
+  const ultima = await obtenerUltimaEjecucion(presupuesto.id);
+  return ultima?.numeroSemana ?? null;
 }
 
 // Solo lectura: nunca crea nada. Devuelve null si esa semana no existe todavía.
@@ -105,7 +132,8 @@ export async function obtenerDatosSemana(
   // en vez de sumar un round-trip secuencial más contra la base.
   const clasificacionesPromise = calcularClasificacionesDisponibles();
 
-  const { empresa, presupuesto } = await resolverPresupuesto(empresaSlug, periodo);
+  const { empresa, presupuesto, usuario } = await resolverPresupuesto(empresaSlug, periodo);
+  const puedeOperar = await puedeOperarEjecucion(usuario, empresa.id);
   const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
 
   if (!ejecucion) {
@@ -142,6 +170,7 @@ export async function obtenerDatosSemana(
     empresaNombre: empresa.nombre,
     numeroSemana: ejecucion.numeroSemana,
     estado: ejecucion.estado,
+    puedeOperar,
     clasificacionesDisponibles: await clasificacionesPromise,
     movimientos: movimientos.map(mapearMovimiento),
     totalMovimientos,
@@ -256,7 +285,7 @@ export async function subirExtracto(
     return { ok: false, error: "El archivo tiene que ser un .xlsx." };
   }
 
-  const { empresa, presupuesto } = await resolverPresupuesto(empresaSlug, periodo);
+  const { empresa, presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
   const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
   if (!ejecucion) {
     return { ok: false, error: `No encontré la semana ${numeroSemana}.` };
@@ -447,7 +476,7 @@ export async function actualizarMovimiento(
   id: string,
   datos: { clasificacion?: string; unidadNegocio?: string }
 ) {
-  await resolverPresupuesto(empresaSlug, periodo);
+  await resolverPresupuestoParaOperar(empresaSlug, periodo);
   await prisma.movimientoBancario.update({
     where: { id },
     data: datos,
@@ -461,13 +490,13 @@ export async function eliminarMovimiento(
   numeroSemana: number,
   id: string
 ) {
-  await resolverPresupuesto(empresaSlug, periodo);
+  await resolverPresupuestoParaOperar(empresaSlug, periodo);
   await prisma.movimientoBancario.delete({ where: { id } });
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
 }
 
 export async function cerrarSemana(empresaSlug: string, periodo: string, numeroSemana: number) {
-  const { presupuesto } = await resolverPresupuesto(empresaSlug, periodo);
+  const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
   const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
   if (!ejecucion) {
     throw new Error(`No encontré la semana ${numeroSemana}.`);

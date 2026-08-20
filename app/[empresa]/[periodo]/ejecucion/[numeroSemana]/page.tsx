@@ -16,9 +16,10 @@ function parsearPagina(paginaParam: string | undefined) {
 }
 
 // Solo lectura en la consulta: nunca crea una semana (eso lo hace únicamente
-// el índice en ../page.tsx). Renderiza editable si la semana está ABIERTA, o
-// de solo lectura si está CERRADA — la decisión es una función pura de estado,
-// no de cómo se llegó a esta URL.
+// el índice en ../page.tsx). Renderiza editable solo si la semana está ABIERTA
+// Y el usuario puede operar Ejecución de esta empresa — cualquier otra
+// combinación (cerrada, o abierta pero sin permiso de operar) cae en el mismo
+// bloque de solo lectura.
 export default async function EjecucionSemanaPage({ params, searchParams }: Props) {
   const { empresa, periodo, numeroSemana: numeroSemanaParam } = await params;
   const { pagina: paginaParam } = await searchParams;
@@ -55,7 +56,7 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
     );
   }
 
-  if (datos.estado === "ABIERTA") {
+  if (datos.estado === "ABIERTA" && datos.puedeOperar) {
     return (
       <PanelImputacion
         empresaNombre={datos.empresaNombre}
@@ -80,11 +81,17 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
             {datos.empresaNombre} · Semana {datos.numeroSemana}
           </p>
           <h1 className="text-4xl font-serif font-semibold tracking-tight">
-            Historial de ejecución
+            {datos.estado === "CERRADA" ? "Historial de ejecución" : "Ejecución (solo lectura)"}
           </h1>
         </div>
-        <span className="text-xs px-2.5 py-1 rounded-md bg-terracota-tint text-terracota">
-          Cerrada
+        <span
+          className={`text-xs px-2.5 py-1 rounded-md ${
+            datos.estado === "CERRADA"
+              ? "bg-terracota-tint text-terracota"
+              : "bg-marino-tint text-marino"
+          }`}
+        >
+          {datos.estado === "CERRADA" ? "Cerrada" : "Abierta"}
         </span>
       </div>
 

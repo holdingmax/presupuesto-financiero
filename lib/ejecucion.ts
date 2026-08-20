@@ -31,3 +31,14 @@ export const obtenerEjecucionPorSemana = cache(
     });
   }
 );
+
+// Solo lectura: busca la última semana existente sin crear ninguna — a
+// diferencia de obtenerOCrearEjecucionAbierta, nunca escribe. Para usuarios
+// sin permiso de operar, cuya sola navegación no debe generar una semana
+// nueva (devuelve null si el presupuesto todavía no tiene ninguna).
+export const obtenerUltimaEjecucion = cache(async (presupuestoId: string) => {
+  return prisma.ejecucionSemanal.findFirst({
+    where: { presupuestoId },
+    orderBy: { numeroSemana: "desc" },
+  });
+});

@@ -73,6 +73,11 @@ model Sesion {
 model UsuarioEmpresa {
   usuarioId String
   empresaId String
+  // Independiente del acceso en sí: ver una empresa no implica poder operar
+  // su Ejecución (subir extracto, reclasificar, cerrar semana). Por fila
+  // (usuario+empresa), no un rol global — la misma persona puede operar
+  // algunas empresas y solo consultar otras.
+  puedeOperarEjecucion Boolean @default(false)
   usuario   Usuario @relation(fields: [usuarioId], references: [id])
   empresa   Empresa @relation(fields: [empresaId], references: [id])
 
