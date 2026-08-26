@@ -159,6 +159,10 @@ model MovimientoBancario {
   unidadNegocio   String   // puede diferir de la empresa dueña de la cuenta bancaria
   detalle         String?
   detalle2        String?
+  // No-destructivo: excluye la línea de cálculos/reportes/chequeos sin borrar
+  // ni modificar el resto de sus datos. Default false para no afectar ninguna
+  // fila existente al migrar.
+  ignorado        Boolean  @default(false)
   createdAt       DateTime @default(now())
 
   ejecucion EjecucionSemanal @relation(fields: [ejecucionId], references: [id])

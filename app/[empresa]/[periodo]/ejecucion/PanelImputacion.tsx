@@ -13,6 +13,17 @@ import TablaMovimientos from "./TablaMovimientos";
 import Paginacion from "./Paginacion";
 import { formatearImporte } from "./formato";
 
+// Sin librería de íconos en el proyecto — SVG a mano, mismo criterio que
+// IconoOjo/IconoMenu.
+function IconoFlechaArriba() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 19V5" />
+      <path d="M6 11l6-6 6 6" />
+    </svg>
+  );
+}
+
 type Movimiento = {
   id: string;
   fecha: string;
@@ -22,6 +33,7 @@ type Movimiento = {
   clasificacion: string;
   unidadNegocio: string;
   detalle: string;
+  ignorado: boolean;
 };
 
 type Props = {
@@ -53,6 +65,12 @@ export default function PanelImputacion({
     periodo: string;
   }>();
   const [movimientos, setMovimientos] = useState(movimientosIniciales);
+  // Jerarquía visual: con movimientos ya cargados, la tarjeta grande de subida
+  // estorba más de lo que ayuda — colapsa a un botón compacto junto al Total.
+  // Solo el estado inicial se deriva de si ya había datos al entrar; a partir
+  // de ahí el toggle es manual (mostrarSubida), no se auto-colapsa después de
+  // subir un archivo para no tapar el mensaje de éxito/duplicados.
+  const [mostrarSubida, setMostrarSubida] = useState(movimientosIniciales.length === 0);
 
   // Al cambiar de página (o tras un router.refresh() con datos nuevos del servidor),
   // el segmento de ruta es el mismo — React puede reconciliar este componente como una
@@ -188,6 +206,18 @@ export default function PanelImputacion({
     router.refresh();
   }
 
+  // A diferencia de guardarCampo (clasificación/unidad de negocio), esto sí espera la
+  // respuesta del server y refresca — ignorar una línea cambia el Total $ del header
+  // (que viene del aggregate del server, no de este estado local), así que necesita
+  // el mismo router.refresh() que quitar().
+  async function toggleIgnorado(id: string, valorNuevo: boolean) {
+    setMovimientos((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, ignorado: valorNuevo } : m))
+    );
+    await actualizarMovimiento(empresaSlug, periodo, numeroSemana, id, { ignorado: valorNuevo });
+    router.refresh();
+  }
+
   async function handleCerrarSemana() {
     if (
       !confirm(
@@ -235,12 +265,37 @@ export default function PanelImputacion({
         </p>
       )}
 
-      {!cerrada && (
+      {!cerrada && !mostrarSubida && (
+        <div className="mb-10">
+          <button
+            type="button"
+            onClick={() => setMostrarSubida(true)}
+            className="flex h-10 items-center gap-2 rounded-md bg-marino px-4 text-sm font-medium text-white hover:bg-marino-dark active:scale-[0.99] transition"
+          >
+            <IconoFlechaArriba />
+            Subir extracto
+          </button>
+        </div>
+      )}
+
+      {!cerrada && mostrarSubida && (
         <form
           onSubmit={handleSubir}
           className="mb-10 rounded-lg border border-line-strong border-l-4 border-l-marino bg-paper-raised shadow-md shadow-ink/10 px-6 py-6"
         >
-          <p className="text-sm font-medium mb-1">Subir extracto bancario</p>
+          <div className="flex items-start justify-between mb-1">
+            <p className="text-sm font-medium">Subir extracto bancario</p>
+            {totalMovimientos > 0 && (
+              <button
+                type="button"
+                onClick={() => setMostrarSubida(false)}
+                aria-label="Cerrar"
+                className="text-ink-muted hover:text-ink transition"
+              >
+                ✕
+              </button>
+            )}
+          </div>
           <p className="text-xs text-ink-muted mb-4">
             Archivo .xlsx con las columnas Fecha, Concepto, Importe, Clasificacion, Unidad de
             Neg, etc.
@@ -313,13 +368,22 @@ export default function PanelImputacion({
       )}
 
       <div>
-        <div className="flex items-baseline justify-between mb-2">
-          <h2 className="text-sm font-medium text-ink-secondary">
+        <div className="flex items-start justify-between mb-2">
+          <h2 className="pt-1 text-sm font-medium text-ink-secondary">
             Movimientos ({totalMovimientos})
           </h2>
-          <span className="tabular text-sm text-ink-secondary">
-            Total ${formatearImporte(totalImporte)}
-          </span>
+          <div className="text-right">
+            <p className="text-xs font-medium uppercase tracking-wide text-ink-faint mb-0.5">
+              Total
+            </p>
+            <p
+              className={`tabular text-2xl font-semibold ${
+                totalImporte < 0 ? "text-negative" : totalImporte > 0 ? "text-positive" : "text-ink"
+              }`}
+            >
+              ${formatearImporte(totalImporte)}
+            </p>
+          </div>
         </div>
 
         {totalMovimientos === 0 ? (
@@ -340,6 +404,7 @@ export default function PanelImputacion({
                 onCambiarUnidadNegocio={(id, valor) => actualizarCampoLocal(id, "unidadNegocio", valor)}
                 onGuardarUnidadNegocio={(id, valor) => guardarCampo(id, "unidadNegocio", valor)}
                 onQuitar={quitar}
+                onToggleIgnorado={toggleIgnorado}
               />
             </div>
             <Paginacion

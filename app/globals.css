@@ -17,6 +17,15 @@
   --terracota: #d85a30;
   --terracota-tint: #faece7;
   --verde: #2f7d52; /* solo para feedback de "correcto" puntual (ej. confirmación de contraseña) */
+
+  /* Refinamiento visual de Ejecución (Panel de imputación) — no se tocan --ink
+     ni --ink-muted, que ya existen con otros valores y se usan en toda la app;
+     ver comentario en la sesión que agregó estos tokens. */
+  --ink-faint: #9ca3af; /* labels de columna (FECHA, CONCEPTO...), un escalón más tenue que ink-muted */
+  --line-hairline: #edeef1; /* bordes de fila, más finos que --line */
+  --surface-hover: #f6f7fa; /* hover de fila en tablas */
+  --negative: #b23a3a; /* importes negativos — reemplaza terracota solo para este uso puntual */
+  --positive: #2f7d5c; /* importes positivos */
 }
 
 @theme inline {
@@ -36,6 +45,11 @@
   --color-terracota: var(--terracota);
   --color-terracota-tint: var(--terracota-tint);
   --color-verde: var(--verde);
+  --color-ink-faint: var(--ink-faint);
+  --color-line-hairline: var(--line-hairline);
+  --color-surface-hover: var(--surface-hover);
+  --color-negative: var(--negative);
+  --color-positive: var(--positive);
   --font-sans: var(--font-inter);
   --font-mono: var(--font-plex-mono);
   --font-serif: var(--font-source-serif);

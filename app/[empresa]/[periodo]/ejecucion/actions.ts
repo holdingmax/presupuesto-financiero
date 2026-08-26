@@ -87,6 +87,7 @@ function mapearMovimiento(m: {
   clasificacion: string;
   unidadNegocio: string;
   detalle: string | null;
+  ignorado: boolean;
 }) {
   return {
     id: m.id,
@@ -97,6 +98,7 @@ function mapearMovimiento(m: {
     clasificacion: m.clasificacion,
     unidadNegocio: m.unidadNegocio,
     detalle: m.detalle ?? "",
+    ignorado: m.ignorado,
   };
 }
 
@@ -144,13 +146,24 @@ export async function obtenerDatosSemana(
   // tienen que representar TODA la semana, no solo la página que se está mostrando.
   // Esta sí tiene que ir antes del findMany (no en paralelo con él): el skip correcto
   // depende de totalPaginas, que depende de este resultado.
-  const agregado = await prisma.movimientoBancario.aggregate({
-    where: { ejecucionId: ejecucion.id },
-    _sum: { importe: true },
-    _count: true,
-  });
+  //
+  // Dos aggregates, no uno: totalMovimientos (conteo, para paginación) tiene que incluir
+  // las filas "ignorado" — siguen visibles en la tabla, así que la paginación tiene que
+  // seguir contándolas o el skip/take del findMany de abajo (que tampoco las filtra)
+  // quedaría desalineado. totalImporte (el $ que se reporta) sí las excluye — es
+  // justamente el cálculo que "ignorado" existe para poder sacar de los reportes.
+  const [agregadoTotal, agregadoSumaReal] = await Promise.all([
+    prisma.movimientoBancario.aggregate({
+      where: { ejecucionId: ejecucion.id },
+      _count: true,
+    }),
+    prisma.movimientoBancario.aggregate({
+      where: { ejecucionId: ejecucion.id, ignorado: false },
+      _sum: { importe: true },
+    }),
+  ]);
 
-  const totalMovimientos = agregado._count;
+  const totalMovimientos = agregadoTotal._count;
   const totalPaginas = Math.max(1, Math.ceil(totalMovimientos / FILAS_POR_PAGINA));
   const paginaEfectiva = Math.min(Math.max(1, pagina), totalPaginas);
 
@@ -174,7 +187,7 @@ export async function obtenerDatosSemana(
     clasificacionesDisponibles: await clasificacionesPromise,
     movimientos: movimientos.map(mapearMovimiento),
     totalMovimientos,
-    totalImporte: Number(agregado._sum.importe ?? 0),
+    totalImporte: Number(agregadoSumaReal._sum.importe ?? 0),
     pagina: paginaEfectiva,
     totalPaginas,
   };
@@ -474,7 +487,7 @@ export async function actualizarMovimiento(
   periodo: string,
   numeroSemana: number,
   id: string,
-  datos: { clasificacion?: string; unidadNegocio?: string }
+  datos: { clasificacion?: string; unidadNegocio?: string; ignorado?: boolean }
 ) {
   await resolverPresupuestoParaOperar(empresaSlug, periodo);
   await prisma.movimientoBancario.update({

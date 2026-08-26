@@ -96,13 +96,26 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
       </div>
 
       <div>
-        <div className="flex items-baseline justify-between mb-2">
-          <h2 className="text-sm font-medium text-ink-secondary">
+        <div className="flex items-start justify-between mb-2">
+          <h2 className="pt-1 text-sm font-medium text-ink-secondary">
             Movimientos ({datos.totalMovimientos})
           </h2>
-          <span className="tabular text-sm text-ink-secondary">
-            Total ${formatearImporte(datos.totalImporte)}
-          </span>
+          <div className="text-right">
+            <p className="text-xs font-medium uppercase tracking-wide text-ink-faint mb-0.5">
+              Total
+            </p>
+            <p
+              className={`tabular text-2xl font-semibold ${
+                datos.totalImporte < 0
+                  ? "text-negative"
+                  : datos.totalImporte > 0
+                    ? "text-positive"
+                    : "text-ink"
+              }`}
+            >
+              ${formatearImporte(datos.totalImporte)}
+            </p>
+          </div>
         </div>
 
         {datos.totalMovimientos === 0 ? (
