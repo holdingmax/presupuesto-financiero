@@ -199,6 +199,10 @@ export type ResultadoChequeo = {
   clasificacion: string;
   neto: number;
   ok: boolean;
+  // Siempre poblado (conteo real), a diferencia de `lineas` — así la UI puede
+  // mostrar "N líneas" sin tener que mandar el detalle completo cuando el
+  // usuario todavía no lo pidió (colapsado por defecto).
+  cantidad: number;
   lineas: { id: string; fecha: string; concepto: string; importe: number }[];
 };
 
@@ -244,6 +248,7 @@ export async function calcularChequeosSumaCero(
       clasificacion,
       neto,
       ok,
+      cantidad: movimientos.length,
       lineas: ok
         ? []
         : movimientos.map((m) => ({
