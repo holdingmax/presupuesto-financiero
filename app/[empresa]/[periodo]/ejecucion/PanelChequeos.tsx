@@ -4,9 +4,9 @@ import { useState } from "react";
 import { formatearImporte } from "./formato";
 import type { ResultadoChequeo } from "./actions";
 
-// Sin librería de íconos en el proyecto — SVG a mano, mismo criterio que
-// IconoOjo/IconoMenu/IconoFlechaArriba.
-function IconoFlechaDerecha({ expandido }: { expandido: boolean }) {
+// Mismo trazo que el resto de los íconos a mano (IconoOjo, IconoMenu) — alineado
+// con el chevron que ya usa el <select> de Clasificación en TablaMovimientos.
+function IconoChevronDerecha({ expandido }: { expandido: boolean }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -26,37 +26,52 @@ function IconoFlechaDerecha({ expandido }: { expandido: boolean }) {
 
 // Colapsado por defecto — incluso cuando no da $0. El detalle solo llega del
 // server cuando !ok (ver calcularChequeosSumaCero), así que acá no hay nada
-// que expandir para los que sí dan $0 (el botón queda deshabilitado, sin
-// flecha, para no sugerir una acción que no hace nada).
-function FilaChequeo({ chequeo }: { chequeo: ResultadoChequeo }) {
+// que expandir para los que sí dan $0 (sin chevron, botón deshabilitado). La
+// fila OK mantiene el mismo alto/tipografía que las demás a propósito — un
+// spacer del ancho del chevron ocupa su lugar, y el label "NETO" + el número
+// se renderizan igual, para que no se sienta "menos" que las otras dos.
+function FilaChequeo({ chequeo, esUltima }: { chequeo: ResultadoChequeo; esUltima: boolean }) {
   const [expandido, setExpandido] = useState(false);
   const tieneDetalle = chequeo.lineas.length > 0;
 
   return (
-    <div className={`rounded-md text-sm ${chequeo.ok ? "bg-positive/10 text-positive" : "bg-terracota-tint text-terracota"}`}>
+    <div className={`border-l-2 ${chequeo.ok ? "border-l-positive" : "border-l-negative"}`}>
       <button
         type="button"
         onClick={() => tieneDetalle && setExpandido((v) => !v)}
         disabled={!tieneDetalle}
-        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left disabled:cursor-default"
+        className={`flex w-full items-center justify-between gap-3 py-2.5 pl-3 pr-3 text-left transition-colors ${
+          tieneDetalle ? "cursor-pointer hover:bg-surface-hover" : "cursor-default"
+        } ${!esUltima ? "border-b border-line-hairline" : ""}`}
       >
-        <span className="flex items-center gap-1.5 font-medium">
+        <span className="flex min-w-0 items-center gap-2">
           {tieneDetalle ? (
-            <IconoFlechaDerecha expandido={expandido} />
+            <IconoChevronDerecha expandido={expandido} />
           ) : (
-            <span className="inline-block w-[12px]" />
+            <span className="inline-block w-[12px] shrink-0" />
           )}
-          {chequeo.nombre}
-        </span>
-        <span className="flex items-center gap-2 whitespace-nowrap tabular">
-          <span className="text-xs font-normal opacity-75">
+          <span className="truncate text-sm font-medium text-ink">{chequeo.nombre}</span>
+          <span className="whitespace-nowrap text-xs text-ink-muted">
             {chequeo.cantidad} línea{chequeo.cantidad === 1 ? "" : "s"}
           </span>
-          {chequeo.ok ? "✓ $0" : `Neto: $${formatearImporte(chequeo.neto)}`}
+        </span>
+        <span className="shrink-0 text-right">
+          <span className="block text-[10px] font-medium uppercase tracking-wide text-ink-faint">
+            Neto
+          </span>
+          <span
+            className={`tabular text-base font-semibold ${chequeo.ok ? "text-positive" : "text-negative"}`}
+          >
+            {chequeo.ok && "✓ "}${formatearImporte(chequeo.neto)}
+          </span>
         </span>
       </button>
       {expandido && tieneDetalle && (
-        <ul className="list-disc pl-9 pb-3 pr-3 text-xs">
+        <ul
+          className={`list-disc pl-9 pb-3 pr-3 text-xs text-ink-secondary ${
+            !esUltima ? "border-b border-line-hairline" : ""
+          }`}
+        >
           {chequeo.lineas.map((l) => (
             <li key={l.id}>
               {l.fecha} — {l.concepto}: ${formatearImporte(l.importe)}
@@ -72,11 +87,11 @@ export default function PanelChequeos({ chequeos }: { chequeos: ResultadoChequeo
   if (chequeos.length === 0) return null;
 
   return (
-    <div className="mb-10 rounded-lg border border-line-strong bg-paper-raised px-6 py-6">
-      <p className="text-sm font-medium mb-4">Chequeos de suma-cero</p>
-      <div className="space-y-2">
-        {chequeos.map((c) => (
-          <FilaChequeo key={c.clasificacion} chequeo={c} />
+    <div className="mb-10 rounded-lg border border-line-strong bg-paper-raised px-6 py-5">
+      <p className="mb-3 text-sm font-medium">Chequeos de suma-cero</p>
+      <div>
+        {chequeos.map((c, i) => (
+          <FilaChequeo key={c.clasificacion} chequeo={c} esUltima={i === chequeos.length - 1} />
         ))}
       </div>
     </div>
