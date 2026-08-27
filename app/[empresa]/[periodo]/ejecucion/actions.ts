@@ -28,6 +28,7 @@ const COLUMNAS: Record<string, string> = {
   "NRO REFERENCIA": "nroReferencia",
   "NRO. DE REFERENCIA": "nroReferencia",
   "NRO DE REFERENCIA": "nroReferencia",
+  "NRO, DE REFERENCIA": "nroReferencia", // ej. archivo de prueba de Macchi: coma en vez de espacio después de "Nro"
   "CAUSAL": "causal",
   "CONCEPTO": "concepto",
   "DESCRIPCION": "concepto", // ej. HWC: "Descripcion" es el texto completo del movimiento
