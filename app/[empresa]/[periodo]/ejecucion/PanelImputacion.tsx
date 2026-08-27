@@ -390,6 +390,8 @@ export default function PanelImputacion({
           </div>
         </div>
 
+        {!cerrada && <PanelChequeos chequeos={chequeos} />}
+
         {totalMovimientos === 0 ? (
           <p className="text-sm text-ink-muted py-6 border-t border-line-strong">
             Todavía no hay movimientos cargados en esta semana. Subí un extracto para empezar.
@@ -421,8 +423,6 @@ export default function PanelImputacion({
           </>
         )}
       </div>
-
-      {!cerrada && <PanelChequeos chequeos={chequeos} />}
 
       {!cerrada && (
         <div className="mt-10 flex items-center justify-between border-t border-line-strong pt-6">
