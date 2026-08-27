@@ -6,7 +6,7 @@ import ExcelJS from "exceljs";
 import { resolverEmpresaPorSlug, quitarDiacriticos } from "@/lib/slug";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
 import { requireAccesoEmpresa } from "@/lib/auth";
-import { calcularClasificacionesDisponibles } from "@/lib/clasificaciones";
+import { calcularClasificacionesDisponibles, normalizarClasificacion } from "@/lib/clasificaciones";
 
 // Mismo mapeo por nombre de columna que ya usa subirExtracto en
 // ejecucion/actions.ts, adaptado a las 4 columnas de LineaPresupuesto.
@@ -80,7 +80,7 @@ export async function agregarLinea(
 ): Promise<ResultadoAgregar> {
   const concepto = datos.concepto.trim();
   const detalle = datos.detalle.trim();
-  const clasificacion = datos.clasificacion.trim();
+  const clasificacion = normalizarClasificacion(datos.clasificacion.trim());
   const importe = Number(datos.importe);
 
   const errores: Record<string, string> = {};
@@ -227,7 +227,7 @@ export async function subirLineasMasivo(
 
     const concepto = String(valores.concepto ?? "").trim();
     const detalle = String(valores.detalle ?? "").trim();
-    const clasificacion = String(valores.clasificacion ?? "").trim();
+    const clasificacion = normalizarClasificacion(String(valores.clasificacion ?? "").trim());
     const importeCrudo = valores.importe;
 
     // Fila completamente vacía (típico al final de una planilla): se saltea sin error.

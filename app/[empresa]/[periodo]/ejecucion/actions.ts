@@ -11,7 +11,7 @@ import {
   obtenerUltimaEjecucion,
 } from "@/lib/ejecucion";
 import { requireAccesoEmpresa, requireOperadorEjecucion, puedeOperarEjecucion } from "@/lib/auth";
-import { calcularClasificacionesDisponibles } from "@/lib/clasificaciones";
+import { calcularClasificacionesDisponibles, normalizarClasificacion } from "@/lib/clasificaciones";
 
 const NOMBRE_HOJA_EXTRACTO = "Hoja1";
 const FILAS_POR_PAGINA = 200;
@@ -441,7 +441,9 @@ export async function subirExtracto(
       importe: importeExtraido,
       saldo: saldoExtraido,
       bancoYCuenta: valores.bancoYCuenta ? String(valores.bancoYCuenta) : "(sin banco)",
-      clasificacion: valores.clasificacion ? String(valores.clasificacion) : "SIN CLASIFICAR",
+      clasificacion: valores.clasificacion
+        ? normalizarClasificacion(String(valores.clasificacion))
+        : "SIN CLASIFICAR",
       clasificacion2: valores.clasificacion2 ? String(valores.clasificacion2) : null,
       // .trim(): un mismo valor puede llegar con espacio final por archivo (ej. "SIERRA "
       // vs "SIERRA") y sin esto quedaban como dos unidades de negocio distintas en la base.
