@@ -61,7 +61,16 @@ function MenuAcciones({
         <IconoMenu />
       </button>
       {abierto && (
-        <div className="absolute right-0 top-full z-10 mt-1 w-36 rounded-md border border-line-strong bg-paper-raised py-1 shadow-md shadow-ink/10">
+        // Fondo explícito por style (no solo la clase bg-paper-raised) + isolation:
+        // "isolate" fuerza un stacking context propio para este panel, blindándolo
+        // contra cualquier bleed-through del contenido de la fila de abajo dentro
+        // de la tabla — no lo pude reproducir en local (dev ni build de producción,
+        // el background-color computado ya daba blanco sólido), pero esto es
+        // a prueba de balas independientemente de la causa real en testing.
+        <div
+          className="absolute right-0 top-full z-30 mt-1 w-36 rounded-md border border-line-strong bg-paper-raised py-1 shadow-lg shadow-ink/15"
+          style={{ backgroundColor: "#ffffff", isolation: "isolate" }}
+        >
           {onToggleIgnorado && (
             <button
               type="button"
