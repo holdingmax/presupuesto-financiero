@@ -2,7 +2,7 @@ import PanelImputacion from "../PanelImputacion";
 import TablaMovimientos from "../TablaMovimientos";
 import Paginacion from "../Paginacion";
 import { formatearImporte } from "../formato";
-import { obtenerDatosSemana } from "../actions";
+import { obtenerDatosSemana, calcularChequeosSumaCero } from "../actions";
 import { AccesoDenegadoError } from "@/lib/auth";
 
 type Props = {
@@ -57,6 +57,7 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
   }
 
   if (datos.estado === "ABIERTA" && datos.puedeOperar) {
+    const chequeos = await calcularChequeosSumaCero(empresa, periodo, numeroSemana);
     return (
       <PanelImputacion
         empresaNombre={datos.empresaNombre}
@@ -68,6 +69,7 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
         totalImporte={datos.totalImporte}
         pagina={datos.pagina}
         totalPaginas={datos.totalPaginas}
+        chequeos={chequeos}
       />
     );
   }

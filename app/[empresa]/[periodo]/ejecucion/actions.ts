@@ -194,6 +194,69 @@ export async function obtenerDatosSemana(
   };
 }
 
+export type ResultadoChequeo = {
+  nombre: string;
+  clasificacion: string;
+  neto: number;
+  ok: boolean;
+  lineas: { id: string; fecha: string; concepto: string; importe: number }[];
+};
+
+// Controles de suma-cero que Macchi ya hace a mano hoy (confirmado 2026-08-27):
+// para estas 3 clasificaciones puntuales, el neto del período tiene que dar $0
+// — si un movimiento de ingreso no encuentra su contraparte de salida (o
+// viceversa), el neto queda desbalanceado y es señal de algo mal cargado o
+// pendiente. No bloquea el cierre, es solo una alerta visual (mismo criterio
+// que la detección de posibles duplicados en subirExtracto). Nombres exactos
+// confirmados con Macchi — "PREST BRIOS Y TC"/"PRESTAMOS MS" quedan afuera de
+// Préstamos a propósito, y "CHEQUES DIFERIDOS"/"CH DIFERIDOS IVA" quedan
+// afuera de cheques de terceros — son categorías reales pero distintas.
+const CHEQUEOS_SUMA_CERO: { nombre: string; clasificacion: string }[] = [
+  { nombre: "Préstamos", clasificacion: "PRESTAMOS" },
+  { nombre: "Transferencias entre bancos", clasificacion: "TRANSF ENTRE BCOS" },
+  { nombre: "Depósito de cheques de terceros", clasificacion: "DEP CH 3°" },
+];
+
+// Mismo filtro por ejecucionId que obtenerDatosSemana (no cruza otras semanas
+// del período) — así el chequeo siempre mira exactamente el mismo conjunto de
+// filas que el usuario ve en pantalla para esa semana, sea o no acumulativo el
+// archivo que se subió. ignorado:false por el mismo motivo que en
+// obtenerDatosSemana: una línea ignorada no debe pesar en ningún cálculo.
+export async function calcularChequeosSumaCero(
+  empresaSlug: string,
+  periodo: string,
+  numeroSemana: number
+): Promise<ResultadoChequeo[]> {
+  const { presupuesto } = await resolverPresupuesto(empresaSlug, periodo);
+  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  if (!ejecucion) return [];
+
+  const resultados: ResultadoChequeo[] = [];
+  for (const { nombre, clasificacion } of CHEQUEOS_SUMA_CERO) {
+    const movimientos = await prisma.movimientoBancario.findMany({
+      where: { ejecucionId: ejecucion.id, clasificacion, ignorado: false },
+      orderBy: [{ fecha: "asc" }, { id: "asc" }],
+    });
+    const neto = movimientos.reduce((acc, m) => acc + Number(m.importe), 0);
+    const ok = Math.abs(neto) < 0.01;
+    resultados.push({
+      nombre,
+      clasificacion,
+      neto,
+      ok,
+      lineas: ok
+        ? []
+        : movimientos.map((m) => ({
+            id: m.id,
+            fecha: m.fecha.toISOString().slice(0, 10),
+            concepto: m.concepto,
+            importe: Number(m.importe),
+          })),
+    });
+  }
+  return resultados;
+}
+
 type ResultadoImportar =
   | {
       ok: true;

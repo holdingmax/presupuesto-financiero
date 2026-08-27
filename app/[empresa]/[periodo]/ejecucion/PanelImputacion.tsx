@@ -8,9 +8,11 @@ import {
   actualizarMovimiento,
   eliminarMovimiento,
   cerrarSemana,
+  type ResultadoChequeo,
 } from "./actions";
 import TablaMovimientos from "./TablaMovimientos";
 import Paginacion from "./Paginacion";
+import PanelChequeos from "./PanelChequeos";
 import { formatearImporte } from "./formato";
 
 // Sin librería de íconos en el proyecto — SVG a mano, mismo criterio que
@@ -46,6 +48,7 @@ type Props = {
   totalImporte: number;
   pagina: number;
   totalPaginas: number;
+  chequeos: ResultadoChequeo[];
 };
 
 export default function PanelImputacion({
@@ -58,6 +61,7 @@ export default function PanelImputacion({
   totalImporte,
   pagina,
   totalPaginas,
+  chequeos,
 }: Props) {
   const router = useRouter();
   const { empresa: empresaSlug, periodo } = useParams<{
@@ -417,6 +421,8 @@ export default function PanelImputacion({
           </>
         )}
       </div>
+
+      {!cerrada && <PanelChequeos chequeos={chequeos} />}
 
       {!cerrada && (
         <div className="mt-10 flex items-center justify-between border-t border-line-strong pt-6">
