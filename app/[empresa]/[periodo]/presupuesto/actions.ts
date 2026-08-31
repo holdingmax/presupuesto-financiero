@@ -6,7 +6,11 @@ import ExcelJS from "exceljs";
 import { resolverEmpresaPorSlug, quitarDiacriticos } from "@/lib/slug";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
 import { requireAccesoEmpresa } from "@/lib/auth";
-import { calcularClasificacionesDisponibles, normalizarClasificacion } from "@/lib/clasificaciones";
+import {
+  calcularClasificacionesDisponibles,
+  normalizarClasificacion,
+  esElegibleParaDesglose,
+} from "@/lib/clasificaciones";
 
 // Mismo mapeo por nombre de columna que ya usa subirExtracto en
 // ejecucion/actions.ts, adaptado a las 4 columnas de LineaPresupuesto.
@@ -52,6 +56,7 @@ export async function obtenerDatos(empresaSlug: string, periodo: string) {
   const lineas = await prisma.lineaPresupuesto.findMany({
     where: { presupuestoId: presupuesto.id },
     orderBy: { createdAt: "asc" },
+    include: { desglose: { orderBy: { createdAt: "asc" } } },
   });
 
   return {
@@ -65,6 +70,11 @@ export async function obtenerDatos(empresaSlug: string, periodo: string) {
       detalle: l.detalle,
       importe: Number(l.importe),
       clasificacion: l.clasificacion,
+      desglose: l.desglose.map((d) => ({
+        id: d.id,
+        detalle: d.detalle,
+        importe: Number(d.importe),
+      })),
     })),
   };
 }
@@ -115,6 +125,91 @@ export async function agregarLinea(
 export async function eliminarLinea(empresaSlug: string, periodo: string, id: string) {
   await resolverEmpresaYPresupuesto(empresaSlug, periodo);
   await prisma.lineaPresupuesto.delete({ where: { id } });
+  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+}
+
+type ResultadoDesglose =
+  | { ok: true }
+  | { ok: false; errores: Record<string, string> };
+
+// Reemplaza el desglose completo de una línea (simplifica editar: el cliente
+// siempre manda el estado final, no hace falta diffear sub-líneas existentes
+// contra nuevas). La suma tiene que dar exactamente el importe de la línea
+// padre — misma tolerancia (0.01) que ya usan los chequeos de suma-cero de
+// Ejecución. Re-valida la elegibilidad server-side: no confiar en que el
+// cliente no mande esto para una clasificación no habilitada.
+export async function guardarDesglose(
+  empresaSlug: string,
+  periodo: string,
+  lineaId: string,
+  sublineas: { detalle: string; importe: string }[]
+): Promise<ResultadoDesglose> {
+  const { presupuesto } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+
+  const linea = await prisma.lineaPresupuesto.findUnique({ where: { id: lineaId } });
+  if (!linea || linea.presupuestoId !== presupuesto.id) {
+    return { ok: false, errores: { general: "No encontré esa línea." } };
+  }
+  if (presupuesto.estado === "VALIDADO") {
+    return {
+      ok: false,
+      errores: { general: "Este presupuesto ya está validado, no se puede editar." },
+    };
+  }
+  if (!esElegibleParaDesglose(linea.clasificacion)) {
+    return {
+      ok: false,
+      errores: { general: "Esta clasificación no admite desglose." },
+    };
+  }
+
+  const limpias = sublineas.map((s) => ({
+    detalle: s.detalle.trim(),
+    importe: Number(s.importe),
+    importeCrudo: s.importe,
+  }));
+
+  const errores: Record<string, string> = {};
+  if (limpias.length === 0) {
+    errores.general = "Agregá al menos una sub-línea.";
+  }
+  limpias.forEach((s, i) => {
+    if (!s.detalle) errores[`detalle_${i}`] = "Completá el detalle.";
+    if (!s.importeCrudo.trim() || s.importe === 0 || Number.isNaN(s.importe)) {
+      errores[`importe_${i}`] = "El importe no puede estar vacío ni ser 0.";
+    }
+  });
+
+  if (Object.keys(errores).length === 0) {
+    const suma = limpias.reduce((acc, s) => acc + s.importe, 0);
+    const importeLinea = Number(linea.importe);
+    if (Math.abs(suma - importeLinea) >= 0.01) {
+      errores.general = `La suma del desglose ($${suma.toLocaleString("es-AR")}) tiene que coincidir con el importe de la línea ($${importeLinea.toLocaleString("es-AR")}).`;
+    }
+  }
+
+  if (Object.keys(errores).length > 0) {
+    return { ok: false, errores };
+  }
+
+  await prisma.$transaction([
+    prisma.lineaPresupuestoDesglose.deleteMany({ where: { lineaPresupuestoId: lineaId } }),
+    prisma.lineaPresupuestoDesglose.createMany({
+      data: limpias.map((s) => ({
+        lineaPresupuestoId: lineaId,
+        detalle: s.detalle,
+        importe: s.importe,
+      })),
+    }),
+  ]);
+
+  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  return { ok: true };
+}
+
+export async function eliminarDesglose(empresaSlug: string, periodo: string, lineaId: string) {
+  await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+  await prisma.lineaPresupuestoDesglose.deleteMany({ where: { lineaPresupuestoId: lineaId } });
   revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
 }
 

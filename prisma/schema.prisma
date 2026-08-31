@@ -121,8 +121,27 @@ model LineaPresupuesto {
 
   presupuesto PresupuestoMensual @relation(fields: [presupuestoId], references: [id])
   adjuntos    Adjunto[]
+  desglose    LineaPresupuestoDesglose[]
 
   @@index([presupuestoId])
+}
+
+// Apertura opcional de una LineaPresupuesto en varios conceptos (solo para
+// clasificaciones habilitadas — ver esElegibleParaDesglose en lib/clasificaciones.ts).
+// La suma de sus importes tiene que dar exactamente el importe de la línea
+// padre (se valida en guardarDesglose); la línea padre sigue siendo la única
+// fuente de verdad para el total del presupuesto — el desglose es anotación
+// de detalle, nunca se suma aparte.
+model LineaPresupuestoDesglose {
+  id                 String   @id @default(uuid())
+  lineaPresupuestoId String
+  detalle            String
+  importe            Decimal  @db.Decimal(18, 2)
+  createdAt          DateTime @default(now())
+
+  lineaPresupuesto LineaPresupuesto @relation(fields: [lineaPresupuestoId], references: [id], onDelete: Cascade)
+
+  @@index([lineaPresupuestoId])
 }
 
 // Ejecución semanal de un presupuesto. Una vez CERRADA, no se edita

@@ -24,6 +24,26 @@ export function normalizarClasificacion(valorCrudo: string): string {
   return MAPEO_CLASIFICACION[clave] ?? valorCrudo;
 }
 
+// Rubros habilitados para desglosar una línea de presupuesto en varios
+// conceptos (pedido explícito: solo Impuestos/Proveedores, no el resto).
+// Valores canónicos reales de CLASIFICACIONES_SUGERIDAS, no los nombres
+// amigables "Impuestos"/"Proveedores" — esos no existen como valor en el
+// sistema hoy (ver comentario arriba sobre por qué siguen separados).
+//
+// Clasificación es texto libre (datalist, no un <select> cerrado): si algún
+// día aparece una variante real no detectada de estos dos valores (revisado
+// 2026-08-31: 0 variantes en ~29.000 filas reales de MovimientoBancario +
+// LineaPresupuesto en testing), agregarla a normalizarClasificacion() como
+// caso confirmado — mismo criterio que se usó con "Gastos bancarios". No
+// implementar detección difusa (similitud/distancia) de forma especulativa
+// sin un caso real primero.
+const CLASIFICACIONES_CON_DESGLOSE = ["IMP Y PREVISIONALES", "PROV Y SERV"];
+
+export function esElegibleParaDesglose(clasificacion: string): boolean {
+  const clave = quitarDiacriticos(clasificacion).trim().toUpperCase().replace(/\s+/g, " ");
+  return CLASIFICACIONES_CON_DESGLOSE.includes(clave);
+}
+
 // Lista curada de clasificaciones habituales, compartida entre el <select>
 // de ejecución (TablaMovimientos.tsx) y el <datalist> de presupuesto
 // (PresupuestoForm.tsx) — unificada a pedido explícito. "Gastos bancarios" y

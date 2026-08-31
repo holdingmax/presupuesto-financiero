@@ -3,6 +3,8 @@
 import { useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { agregarLinea, eliminarLinea, validarPresupuesto, subirLineasMasivo } from "./actions";
+import { esElegibleParaDesglose } from "@/lib/clasificaciones";
+import DesglosePanel from "./DesglosePanel";
 
 type Linea = {
   id: string;
@@ -10,7 +12,29 @@ type Linea = {
   detalle: string;
   importe: number;
   clasificacion: string;
+  desglose: { id: string; detalle: string; importe: number }[];
 };
+
+// Mismo trazo que el resto de los íconos a mano del sistema (IconoChevronDerecha
+// en PanelChequeos.tsx) — reutilizado tal cual para no introducir un lenguaje
+// visual nuevo para "expandir/colapsar".
+function IconoChevronDerecha({ expandido }: { expandido: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="12"
+      height="12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`shrink-0 transition-transform ${expandido ? "rotate-90" : ""}`}
+    >
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  );
+}
 
 type Props = {
   empresaNombre: string;
@@ -50,6 +74,7 @@ export default function PresupuestoForm({
   const [modo, setModo] = useState<"linea" | "masiva">("linea");
   const [eliminando, setEliminando] = useState<Set<string>>(new Set());
   const [guardando, setGuardando] = useState(false);
+  const [desgloseAbiertoId, setDesgloseAbiertoId] = useState<string | null>(null);
 
   const [concepto, setConcepto] = useState("");
   const [detalle, setDetalle] = useState("");
@@ -429,37 +454,66 @@ export default function PresupuestoForm({
           </p>
         ) : (
           <div className="border-t border-line-strong">
-            {lineas.map((linea) => (
-              <div
-                key={linea.id}
-                className="group grid grid-cols-[1fr_auto_auto_auto] items-baseline gap-x-5 py-3 border-b border-line"
-              >
-                <div>
-                  <p className="text-sm">{linea.concepto}</p>
-                  <p className="text-xs text-ink-muted mt-0.5">
-                    {linea.detalle} · {linea.clasificacion}
-                  </p>
+            {lineas.map((linea) => {
+              const elegible = esElegibleParaDesglose(linea.clasificacion);
+              const desglosada = linea.desglose.length > 0;
+              const expandida = desgloseAbiertoId === linea.id;
+              return (
+                <div key={linea.id} className="border-b border-line">
+                  <div className="group grid grid-cols-[auto_1fr_auto_auto_auto] items-baseline gap-x-3 py-3">
+                    {elegible && !validado ? (
+                      <button
+                        type="button"
+                        onClick={() => setDesgloseAbiertoId(expandida ? null : linea.id)}
+                        className="text-ink-muted hover:text-marino transition"
+                        aria-label={expandida ? "Colapsar desglose" : "Desglosar línea"}
+                      >
+                        <IconoChevronDerecha expandido={expandida} />
+                      </button>
+                    ) : (
+                      <span className="inline-block w-[12px]" />
+                    )}
+                    <div>
+                      <p className="text-sm">{linea.concepto}</p>
+                      <p className="text-xs text-ink-muted mt-0.5">
+                        {linea.detalle} · {linea.clasificacion}
+                        {desglosada && (
+                          <span className="text-marino"> · desglosada en {linea.desglose.length}</span>
+                        )}
+                      </p>
+                    </div>
+                    <span
+                      className={`tabular text-sm text-right ${
+                        linea.importe < 0 ? "text-terracota" : "text-ink"
+                      }`}
+                    >
+                      ${formatearImporte(linea.importe)}
+                    </span>
+                    <span className="w-0" />
+                    {!validado ? (
+                      <button
+                        onClick={() => quitar(linea.id)}
+                        className="text-xs text-ink-muted opacity-0 group-hover:opacity-100 hover:text-terracota transition"
+                      >
+                        Quitar
+                      </button>
+                    ) : (
+                      <span />
+                    )}
+                  </div>
+                  {expandida && (
+                    <div className="pb-3 pl-6">
+                      <DesglosePanel
+                        lineaId={linea.id}
+                        importeLinea={linea.importe}
+                        desgloseInicial={linea.desglose}
+                        onCerrar={() => setDesgloseAbiertoId(null)}
+                      />
+                    </div>
+                  )}
                 </div>
-                <span
-                  className={`tabular text-sm text-right ${
-                    linea.importe < 0 ? "text-terracota" : "text-ink"
-                  }`}
-                >
-                  ${formatearImporte(linea.importe)}
-                </span>
-                <span className="w-0" />
-                {!validado ? (
-                  <button
-                    onClick={() => quitar(linea.id)}
-                    className="text-xs text-ink-muted opacity-0 group-hover:opacity-100 hover:text-terracota transition"
-                  >
-                    Quitar
-                  </button>
-                ) : (
-                  <span />
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
