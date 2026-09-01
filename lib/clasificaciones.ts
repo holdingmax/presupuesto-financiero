@@ -54,6 +54,18 @@ export function esElegibleParaDesglose(clasificacion: string): boolean {
 // "CH DIFERIDOS IVA", "COMISIONES ESPECIALES", "DEP CH 3°" y "JPS" son
 // categorías reales del proceso manual de Macchi — "CH DIFERIDOS IVA" es
 // distinta de "CHEQUES DIFERIDOS", no fusionar.
+// "OTROS" y "PAGOS ESPECIALES" (agregadas 2026-09-01): igual que las de
+// Macchi arriba, ya existen como valor real en Ejecución (63+11 filas en
+// local) — se agregan en la misma grafía real (mayúsculas) para no
+// fragmentar el rubro en dos versiones distintas. "OTROS" es exclusiva de
+// Fredy Publicidad (reintegros de obra social y fondo fijo de los chicos de
+// Fredy); "PAGOS ESPECIALES" son personas que cobran prestando su
+// nombre/CUIL.
+// "COMISIONES ESPECIALES" es un caso pendiente de definir, no un olvido: a
+// diferencia de "Gastos bancarios"/"OTROS"/"PAGOS ESPECIALES" de acá arriba,
+// NO tiene alias en MAPEO_CLASIFICACION ni entrada en
+// CLASIFICACIONES_CON_DESGLOSE — no sumarla a ninguna de las dos sin
+// confirmar antes con el negocio.
 export const CLASIFICACIONES_SUGERIDAS = [
   "COBRANZAS",
   "COM Y GTOS BRIOS",
@@ -74,6 +86,8 @@ export const CLASIFICACIONES_SUGERIDAS = [
   "COMISIONES ESPECIALES",
   "DEP CH 3°",
   "JPS",
+  "OTROS",
+  "PAGOS ESPECIALES",
 ];
 
 // TEMPORAL / hallazgo fuera del alcance original de la paginación: el `distinct` de Prisma
