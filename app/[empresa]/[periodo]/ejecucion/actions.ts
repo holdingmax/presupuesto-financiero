@@ -11,7 +11,11 @@ import {
   obtenerUltimaEjecucion,
 } from "@/lib/ejecucion";
 import { requireAccesoEmpresa, requireOperadorEjecucion, puedeOperarEjecucion } from "@/lib/auth";
-import { calcularClasificacionesDisponibles, normalizarClasificacion } from "@/lib/clasificaciones";
+import {
+  calcularClasificacionesDisponibles,
+  normalizarClasificacion,
+  proponerClasificacionAutomatica,
+} from "@/lib/clasificaciones";
 
 const NOMBRE_HOJA_EXTRACTO = "Hoja1";
 const FILAS_POR_PAGINA = 200;
@@ -501,18 +505,20 @@ export async function subirExtracto(
         ? fechaValor
         : new Date(String(fechaValor ?? new Date().toISOString()));
 
+    const concepto = String(valores.concepto ?? "(sin concepto)");
+
     filas.push({
       numeroFila,
       fecha,
       nroReferencia: valores.nroReferencia ? String(valores.nroReferencia) : null,
       causal: valores.causal ? String(valores.causal) : null,
-      concepto: String(valores.concepto ?? "(sin concepto)"),
+      concepto,
       importe: importeExtraido,
       saldo: saldoExtraido,
       bancoYCuenta: valores.bancoYCuenta ? String(valores.bancoYCuenta) : "(sin banco)",
       clasificacion: valores.clasificacion
         ? normalizarClasificacion(String(valores.clasificacion))
-        : "SIN CLASIFICAR",
+        : proponerClasificacionAutomatica(concepto) ?? "SIN CLASIFICAR",
       clasificacion2: valores.clasificacion2 ? String(valores.clasificacion2) : null,
       // .trim(): un mismo valor puede llegar con espacio final por archivo (ej. "SIERRA "
       // vs "SIERRA") y sin esto quedaban como dos unidades de negocio distintas en la base.

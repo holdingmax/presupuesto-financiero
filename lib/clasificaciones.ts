@@ -24,6 +24,49 @@ export function normalizarClasificacion(valorCrudo: string): string {
   return MAPEO_CLASIFICACION[clave] ?? valorCrudo;
 }
 
+type ReglaClasificacionAutomatica = {
+  clasificacion: string;
+  contiene: string[];
+};
+
+// Reglas confirmadas por Kike (2026-09-01) que proponen una Clasificación a
+// partir de la leyenda (MovimientoBancario.concepto) cuando el archivo no
+// trae una explícita — ver proponerClasificacionAutomatica más abajo, y su
+// único punto de uso en subirExtracto (ejecucion/actions.ts), donde
+// reemplaza el fallback "SIN CLASIFICAR" sin pisar nunca un valor ya
+// cargado. Cada keyword acá es un caso puntual confirmado, mismo criterio
+// que MAPEO_CLASIFICACION arriba — no agregar keywords especulativas.
+// Match por "contiene" (substring), no por clave exacta como
+// MAPEO_CLASIFICACION: acá se busca la keyword DENTRO de la leyenda
+// completa del movimiento, que trae mucho más texto alrededor.
+const REGLAS_CLASIFICACION_AUTOMATICA: ReglaClasificacionAutomatica[] = [
+  {
+    clasificacion: "Gastos bancarios",
+    contiene: [
+      "IMPUESTO AL DEBITO Y CREDITO BANCARIO LEY",
+      "RETENCION DE INGRESOS BRUTOS",
+      "DEBITO FISCAL IVA BASICO",
+    ],
+  },
+  {
+    clasificacion: "IMP Y PREVISIONALES",
+    contiene: ["IMPUESTO AFIP", "TRANSFERENCIA B2B", "AUTOMOTOR", "PADRON INMOBILIARIO"],
+  },
+];
+
+// Si la leyenda matchea más de una regla, gana la primera en orden de
+// definición arriba (determinístico) — con las keywords confirmadas hoy no
+// hay overlap real entre ellas, pero queda documentado el desempate para
+// cuando se agreguen más. Devuelve null si ninguna matchea (el llamador cae
+// a "SIN CLASIFICAR", igual que siempre).
+export function proponerClasificacionAutomatica(leyenda: string): string | null {
+  const texto = quitarDiacriticos(leyenda).trim().toUpperCase().replace(/\s+/g, " ");
+  const regla = REGLAS_CLASIFICACION_AUTOMATICA.find((r) =>
+    r.contiene.some((kw) => texto.includes(kw))
+  );
+  return regla?.clasificacion ?? null;
+}
+
 // Rubros habilitados para desglosar una línea de presupuesto en varios
 // conceptos (pedido explícito: solo Impuestos/Proveedores, no el resto).
 // Valores canónicos reales de CLASIFICACIONES_SUGERIDAS, no los nombres
