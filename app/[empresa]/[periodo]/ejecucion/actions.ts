@@ -266,11 +266,26 @@ export async function calcularChequeosSumaCero(
   return resultados;
 }
 
+export type ResultadoContinuidadSaldo = {
+  bancoYCuenta: string;
+  cantidad: number;
+  rupturas: {
+    fechaAnterior: string;
+    saldoAnterior: number;
+    fechaSiguiente: string;
+    concepto: string;
+    saldoEsperado: number;
+    saldoReal: number;
+    diferencia: number;
+  }[];
+};
+
 type ResultadoImportar =
   | {
       ok: true;
       filasImportadas: number;
       posiblesDuplicados: { fila: number; fecha: string; importe: number }[];
+      continuidadSaldo: ResultadoContinuidadSaldo[];
       // Solo viene seteado cuando la hoja se resolvió por selección explícita del
       // usuario (ver requiereSeleccionHoja) — así el mensaje de éxito puede dejar
       // trazado con qué hoja se cargó. En el caso normal (una sola hoja, o "Hoja1")
@@ -286,6 +301,71 @@ type ResultadoImportar =
 
 function claveDuplicado(fecha: Date, importe: number) {
   return `${fecha.toISOString().slice(0, 10)}|${importe.toFixed(2)}`;
+}
+
+// Kike sube el extracto acumulativo completo cada semana (todo el período hasta la
+// fecha, no solo lo nuevo) — así que no hace falta comparar contra ninguna semana ya
+// persistida en la base: alcanza con validar que el saldo corrido sea consistente
+// DENTRO del archivo recién subido, antes de guardar nada. Agrupa por bancoYCuenta
+// normalizado (mismo criterio que normalizarClasificacion: tolera mayúsculas/tildes/
+// espacios) — es el hecho físico de la cuenta bancaria, agnóstico a unidadNegocio/
+// empresa, así que una cuenta troncal como CREAR (mezcla Fredy y Mantenor) se valida
+// igual de bien sin necesitar ningún caso especial. Usa numeroFila (orden real del
+// Excel, todavía disponible acá porque corre antes de que subirExtracto lo descarte
+// para el createMany) para desempatar varios movimientos con la misma fecha — a
+// diferencia de una consulta contra la base ya persistida, donde ese orden se pierde.
+// No bloquea la carga — solo avisa, mismo criterio que posiblesDuplicados.
+function verificarContinuidadSaldo(
+  filas: {
+    numeroFila: number;
+    fecha: Date;
+    concepto: string;
+    importe: number;
+    saldo: number | null;
+    bancoYCuenta: string;
+  }[]
+): ResultadoContinuidadSaldo[] {
+  const porCuenta = new Map<string, typeof filas>();
+  for (const fila of filas) {
+    const clave = quitarDiacriticos(fila.bancoYCuenta).trim().toUpperCase().replace(/\s+/g, " ");
+    const grupo = porCuenta.get(clave);
+    if (grupo) grupo.push(fila);
+    else porCuenta.set(clave, [fila]);
+  }
+
+  const resultados: ResultadoContinuidadSaldo[] = [];
+  for (const grupo of porCuenta.values()) {
+    const ordenado = [...grupo].sort((a, b) => a.numeroFila - b.numeroFila);
+    const rupturas: ResultadoContinuidadSaldo["rupturas"] = [];
+
+    for (let i = 1; i < ordenado.length; i++) {
+      const anterior = ordenado[i - 1];
+      const actual = ordenado[i];
+      // Saldo null en cualquiera de los dos extremos: no verificable, se salta sin
+      // marcar ni como ok ni como ruptura (no es lo mismo "no sé" que "está mal").
+      if (anterior.saldo === null || actual.saldo === null) continue;
+
+      const saldoEsperado = anterior.saldo + actual.importe;
+      const diferencia = actual.saldo - saldoEsperado;
+      if (Math.abs(diferencia) >= 0.01) {
+        rupturas.push({
+          fechaAnterior: anterior.fecha.toISOString().slice(0, 10),
+          saldoAnterior: anterior.saldo,
+          fechaSiguiente: actual.fecha.toISOString().slice(0, 10),
+          concepto: actual.concepto,
+          saldoEsperado,
+          saldoReal: actual.saldo,
+          diferencia,
+        });
+      }
+    }
+
+    if (rupturas.length > 0) {
+      resultados.push({ bancoYCuenta: grupo[0].bancoYCuenta, cantidad: rupturas.length, rupturas });
+    }
+  }
+
+  return resultados.sort((a, b) => a.bancoYCuenta.localeCompare(b.bancoYCuenta, "es"));
 }
 
 // Un solo round-trip para TODA la empresa (no por fila del Excel) — evita que un
@@ -546,6 +626,9 @@ export async function subirExtracto(
       importe: f.importe,
     }));
 
+  // Sobre las mismas filas en memoria, antes de descartar numeroFila para el createMany.
+  const continuidadSaldo = verificarContinuidadSaldo(filas);
+
   await prisma.movimientoBancario.createMany({
     data: filas.map(({ numeroFila, ...resto }) => ({ ...resto, ejecucionId: ejecucion.id })),
   });
@@ -555,6 +638,7 @@ export async function subirExtracto(
     ok: true,
     filasImportadas: filas.length,
     posiblesDuplicados,
+    continuidadSaldo,
     hoja: hojaElegida ? hoja.name : undefined,
   };
 }

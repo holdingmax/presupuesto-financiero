@@ -9,10 +9,12 @@ import {
   eliminarMovimiento,
   cerrarSemana,
   type ResultadoChequeo,
+  type ResultadoContinuidadSaldo,
 } from "./actions";
 import TablaMovimientos from "./TablaMovimientos";
 import Paginacion from "./Paginacion";
 import PanelChequeos from "./PanelChequeos";
+import AlertaContinuidadSaldo from "./AlertaContinuidadSaldo";
 import { formatearImporte } from "./formato";
 
 // Sin librería de íconos en el proyecto — SVG a mano, mismo criterio que
@@ -91,6 +93,7 @@ export default function PanelImputacion({
   const [posiblesDuplicados, setPosiblesDuplicados] = useState<
     { fila: number; fecha: string; importe: number }[]
   >([]);
+  const [continuidadSaldo, setContinuidadSaldo] = useState<ResultadoContinuidadSaldo[]>([]);
   // Archivo con más de una hoja y ninguna llamada "Hoja1": se guarda acá el File ya elegido
   // del disco para poder reenviarlo con la hoja que el usuario elija, sin que tenga que
   // volver a seleccionarlo desde el input.
@@ -114,6 +117,7 @@ export default function PanelImputacion({
     setErrorSubida("");
     setMensajeExito("");
     setPosiblesDuplicados([]);
+    setContinuidadSaldo([]);
     setHojasDisponibles([]);
     setArchivoAmbiguo(null);
 
@@ -140,6 +144,7 @@ export default function PanelImputacion({
         : `Se importaron ${resultado.filasImportadas} movimientos.`
     );
     setPosiblesDuplicados(resultado.posiblesDuplicados);
+    setContinuidadSaldo(resultado.continuidadSaldo);
     if (fileInputRef.current) fileInputRef.current.value = "";
     router.refresh();
   }
@@ -154,6 +159,7 @@ export default function PanelImputacion({
     setErrorSubida("");
     setMensajeExito("");
     setPosiblesDuplicados([]);
+    setContinuidadSaldo([]);
     setHojasDisponibles([]);
     setArchivoAmbiguo(null);
 
@@ -188,6 +194,7 @@ export default function PanelImputacion({
         : `Se importaron ${resultado.filasImportadas} movimientos.`
     );
     setPosiblesDuplicados(resultado.posiblesDuplicados);
+    setContinuidadSaldo(resultado.continuidadSaldo);
     if (fileInputRef.current) fileInputRef.current.value = "";
     router.refresh();
   }
@@ -368,6 +375,7 @@ export default function PanelImputacion({
               </ul>
             </div>
           )}
+          <AlertaContinuidadSaldo continuidadSaldo={continuidadSaldo} />
         </form>
       )}
 
