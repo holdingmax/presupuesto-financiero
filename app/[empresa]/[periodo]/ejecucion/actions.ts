@@ -266,6 +266,71 @@ export async function calcularChequeosSumaCero(
   return resultados;
 }
 
+export type ResultadoLiquidacionAmbigua = {
+  fila: number;
+  fecha: string;
+  importe: number;
+  candidatos: string[];
+};
+
+// Cruza contra PagoReferencia (planilla de Macchi, ver lib/pagoReferencia.ts)
+// para discriminar "Liquidación final" de "Sueldos" cuando la leyenda
+// bancaria por sí sola no alcanza — mismo criterio que usa Macchi a mano:
+// fecha exacta + importe (reusa claveDuplicado, misma tolerancia de
+// centavos que ya usa el resto del proyecto). Corre DESPUÉS de que la
+// clasificación normal ya se resolvió (archivo / reglas automáticas / SIN
+// CLASIFICAR) y la pisa solo cuando corresponde — nunca la deja peor de lo
+// que ya estaba. Si hay más de un candidato posible para la misma clave y
+// al menos uno es liquidación, no se aplica ningún override (no forzar una
+// asignación ambigua) — se junta para la alerta en vez de arriesgar
+// asignarlo a la persona equivocada.
+async function aplicarCruceLiquidacionFinal(
+  filas: { numeroFila: number; fecha: Date; importe: number; clasificacion: string }[]
+): Promise<ResultadoLiquidacionAmbigua[]> {
+  if (filas.length === 0) return [];
+
+  // Acotado al rango de fechas del archivo recién subido — PagoReferencia
+  // puede tener 13.000+ filas (todo el holding, varios meses) mientras que
+  // una carga semanal normal cubre unos pocos días; sin este filtro, cada
+  // subirExtracto traía la tabla entera (~15s medido contra Neon).
+  const fechas = filas.map((f) => f.fecha.getTime());
+  const referencias = await prisma.pagoReferencia.findMany({
+    where: { fecha: { gte: new Date(Math.min(...fechas)), lte: new Date(Math.max(...fechas)) } },
+  });
+  if (referencias.length === 0) return [];
+
+  const porClave = new Map<string, typeof referencias>();
+  for (const r of referencias) {
+    const clave = claveDuplicado(r.fecha, Number(r.importe));
+    const grupo = porClave.get(clave);
+    if (grupo) grupo.push(r);
+    else porClave.set(clave, [r]);
+  }
+
+  const ambiguas: ResultadoLiquidacionAmbigua[] = [];
+
+  for (const fila of filas) {
+    const candidatos = porClave.get(claveDuplicado(fila.fecha, fila.importe));
+    if (!candidatos) continue;
+
+    if (candidatos.length === 1) {
+      if (candidatos[0].esLiquidacionFinal) fila.clasificacion = "Liquidación final";
+      continue;
+    }
+
+    if (candidatos.some((c) => c.esLiquidacionFinal)) {
+      ambiguas.push({
+        fila: fila.numeroFila,
+        fecha: fila.fecha.toISOString().slice(0, 10),
+        importe: fila.importe,
+        candidatos: candidatos.map((c) => c.proveedor),
+      });
+    }
+  }
+
+  return ambiguas;
+}
+
 export type ResultadoContinuidadSaldo = {
   bancoYCuenta: string;
   cantidad: number;
@@ -286,6 +351,7 @@ type ResultadoImportar =
       filasImportadas: number;
       posiblesDuplicados: { fila: number; fecha: string; importe: number }[];
       continuidadSaldo: ResultadoContinuidadSaldo[];
+      liquidacionesAmbiguas: ResultadoLiquidacionAmbigua[];
       // Solo viene seteado cuando la hoja se resolvió por selección explícita del
       // usuario (ver requiereSeleccionHoja) — así el mensaje de éxito puede dejar
       // trazado con qué hoja se cargó. En el caso normal (una sola hoja, o "Hoja1")
@@ -629,6 +695,10 @@ export async function subirExtracto(
   // Sobre las mismas filas en memoria, antes de descartar numeroFila para el createMany.
   const continuidadSaldo = verificarContinuidadSaldo(filas);
 
+  // Muta fila.clasificacion in-place cuando corresponde — tiene que correr
+  // antes del createMany de abajo.
+  const liquidacionesAmbiguas = await aplicarCruceLiquidacionFinal(filas);
+
   await prisma.movimientoBancario.createMany({
     data: filas.map(({ numeroFila, ...resto }) => ({ ...resto, ejecucionId: ejecucion.id })),
   });
@@ -639,6 +709,7 @@ export async function subirExtracto(
     filasImportadas: filas.length,
     posiblesDuplicados,
     continuidadSaldo,
+    liquidacionesAmbiguas,
     hoja: hojaElegida ? hoja.name : undefined,
   };
 }

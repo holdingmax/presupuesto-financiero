@@ -192,6 +192,27 @@ model MovimientoBancario {
   @@index([clasificacion])
 }
 
+// Snapshot de PAGOS_2025-2026.xlsx (planilla real de Macchi, no ligada a una
+// sola empresa — cubre todo el holding). Se reemplaza COMPLETA en cada carga
+// desde /admin (ver subirPagoReferencia) — no acumula entre cargas, porque la
+// planilla de origen ya es su propia versión consolidada/corregida. Usada
+// como cruce en subirExtracto para discriminar "Liquidación final" de
+// "Sueldos" cuando la leyenda bancaria por sí sola no alcanza (ver
+// lib/pagoReferencia.ts). fecha+importe es la clave de matching que ya usa
+// Macchi a mano — @@index para esa consulta.
+model PagoReferencia {
+  id                 String   @id @default(uuid())
+  fecha              DateTime
+  proveedor          String
+  leyenda            String
+  unidadNegocio      String
+  importe            Decimal  @db.Decimal(18, 2)
+  esLiquidacionFinal Boolean
+  createdAt          DateTime @default(now())
+
+  @@index([fecha, importe])
+}
+
 // Comprobante/imagen de respaldo. Puede colgar de una línea de presupuesto
 // o de un movimiento bancario (el "ícono de ojo" que mencionó Vigo).
 model Adjunto {

@@ -109,6 +109,10 @@ export function esElegibleParaDesglose(clasificacion: string): boolean {
 // NO tiene alias en MAPEO_CLASIFICACION ni entrada en
 // CLASIFICACIONES_CON_DESGLOSE — no sumarla a ninguna de las dos sin
 // confirmar antes con el negocio.
+// "Liquidación final" (agregada 2026-09-02): la asigna aplicarCruceLiquidacionFinal
+// en ejecucion/actions.ts, cruzando contra PagoReferencia — nunca la escribe un
+// archivo ni el usuario a mano, pero tiene que estar acá para que el <select> de
+// TablaMovimientos la muestre bien cuando alguien la corrige manualmente.
 export const CLASIFICACIONES_SUGERIDAS = [
   "COBRANZAS",
   "COM Y GTOS BRIOS",
@@ -131,6 +135,7 @@ export const CLASIFICACIONES_SUGERIDAS = [
   "JPS",
   "OTROS",
   "PAGOS ESPECIALES",
+  "Liquidación final",
 ];
 
 // TEMPORAL / hallazgo fuera del alcance original de la paginación: el `distinct` de Prisma

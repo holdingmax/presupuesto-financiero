@@ -31,9 +31,14 @@ export default async function MisEmpresasPage() {
         </div>
         <div className="flex items-center gap-4 text-sm text-ink-secondary">
           {usuario.rol === "ADMIN" && (
-            <Link href="/admin/usuarios" className="underline underline-offset-2 hover:text-ink">
-              Gestión de usuarios
-            </Link>
+            <>
+              <Link href="/admin/usuarios" className="underline underline-offset-2 hover:text-ink">
+                Gestión de usuarios
+              </Link>
+              <Link href="/admin/pago-referencia" className="underline underline-offset-2 hover:text-ink">
+                Pagos de referencia
+              </Link>
+            </>
           )}
           <Link href="/cuenta" className="underline underline-offset-2 hover:text-ink">
             Cambiar contraseña

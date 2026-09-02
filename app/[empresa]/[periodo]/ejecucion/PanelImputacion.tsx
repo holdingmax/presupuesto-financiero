@@ -10,6 +10,7 @@ import {
   cerrarSemana,
   type ResultadoChequeo,
   type ResultadoContinuidadSaldo,
+  type ResultadoLiquidacionAmbigua,
 } from "./actions";
 import TablaMovimientos from "./TablaMovimientos";
 import Paginacion from "./Paginacion";
@@ -94,6 +95,9 @@ export default function PanelImputacion({
     { fila: number; fecha: string; importe: number }[]
   >([]);
   const [continuidadSaldo, setContinuidadSaldo] = useState<ResultadoContinuidadSaldo[]>([]);
+  const [liquidacionesAmbiguas, setLiquidacionesAmbiguas] = useState<ResultadoLiquidacionAmbigua[]>(
+    []
+  );
   // Archivo con más de una hoja y ninguna llamada "Hoja1": se guarda acá el File ya elegido
   // del disco para poder reenviarlo con la hoja que el usuario elija, sin que tenga que
   // volver a seleccionarlo desde el input.
@@ -118,6 +122,7 @@ export default function PanelImputacion({
     setMensajeExito("");
     setPosiblesDuplicados([]);
     setContinuidadSaldo([]);
+    setLiquidacionesAmbiguas([]);
     setHojasDisponibles([]);
     setArchivoAmbiguo(null);
 
@@ -145,6 +150,7 @@ export default function PanelImputacion({
     );
     setPosiblesDuplicados(resultado.posiblesDuplicados);
     setContinuidadSaldo(resultado.continuidadSaldo);
+    setLiquidacionesAmbiguas(resultado.liquidacionesAmbiguas);
     if (fileInputRef.current) fileInputRef.current.value = "";
     router.refresh();
   }
@@ -160,6 +166,7 @@ export default function PanelImputacion({
     setMensajeExito("");
     setPosiblesDuplicados([]);
     setContinuidadSaldo([]);
+    setLiquidacionesAmbiguas([]);
     setHojasDisponibles([]);
     setArchivoAmbiguo(null);
 
@@ -195,6 +202,7 @@ export default function PanelImputacion({
     );
     setPosiblesDuplicados(resultado.posiblesDuplicados);
     setContinuidadSaldo(resultado.continuidadSaldo);
+    setLiquidacionesAmbiguas(resultado.liquidacionesAmbiguas);
     if (fileInputRef.current) fileInputRef.current.value = "";
     router.refresh();
   }
@@ -376,6 +384,24 @@ export default function PanelImputacion({
             </div>
           )}
           <AlertaContinuidadSaldo continuidadSaldo={continuidadSaldo} />
+          {liquidacionesAmbiguas.length > 0 && (
+            <div className="mt-3 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
+              <p>
+                {liquidacionesAmbiguas.length === 1
+                  ? "1 movimiento podría ser una liquidación final, pero hay más de una posible"
+                  : `${liquidacionesAmbiguas.length} movimientos podrían ser liquidaciones finales, pero hay más de una posible`}{" "}
+                para la misma fecha e importe — no se asignó la clasificación automática, revisalos:
+              </p>
+              <ul className="mt-2 list-disc pl-5 text-xs">
+                {liquidacionesAmbiguas.map((l) => (
+                  <li key={l.fila}>
+                    Fila {l.fila}: {l.fecha}, ${formatearImporte(l.importe)} — podría ser{" "}
+                    {l.candidatos.join(" o ")}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </form>
       )}
 
