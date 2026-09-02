@@ -15,6 +15,7 @@ import {
   calcularClasificacionesDisponibles,
   normalizarClasificacion,
   proponerClasificacionAutomatica,
+  esElegibleParaDesgloseEjecucion,
 } from "@/lib/clasificaciones";
 
 const NOMBRE_HOJA_EXTRACTO = "Hoja1";
@@ -93,6 +94,7 @@ function mapearMovimiento(m: {
   unidadNegocio: string;
   detalle: string | null;
   ignorado: boolean;
+  desglose: { id: string; unidadNegocio: string; importe: unknown }[];
 }) {
   return {
     id: m.id,
@@ -101,9 +103,18 @@ function mapearMovimiento(m: {
     importe: Number(m.importe),
     bancoYCuenta: m.bancoYCuenta,
     clasificacion: m.clasificacion,
+    // unidadNegocio: valor único del movimiento en sí, editable inline en la tabla
+    // (onCambiarUnidadNegocio/onGuardarUnidadNegocio) — completamente separado de
+    // m.desglose de abajo (el reparto en varias unidades, ver
+    // guardarDesgloseMovimiento). Ninguno de los dos lee ni escribe al otro.
     unidadNegocio: m.unidadNegocio,
     detalle: m.detalle ?? "",
     ignorado: m.ignorado,
+    desglose: m.desglose.map((d) => ({
+      id: d.id,
+      unidadNegocio: d.unidadNegocio,
+      importe: Number(d.importe),
+    })),
   };
 }
 
@@ -182,6 +193,7 @@ export async function obtenerDatosSemana(
     orderBy: [{ fecha: "asc" }, { id: "asc" }],
     skip: (paginaEfectiva - 1) * FILAS_POR_PAGINA,
     take: FILAS_POR_PAGINA,
+    include: { desglose: { orderBy: { createdAt: "asc" } } },
   });
 
   return {
@@ -718,6 +730,11 @@ export async function subirExtracto(
   };
 }
 
+// Escribe únicamente MovimientoBancario.unidadNegocio (el valor único de la
+// fila, editable inline en la tabla) — nunca toca MovimientoBancarioDesglose.
+// Los dos son campos/tablas separados, sin punto de contacto: cambiar acá el
+// valor de la fila no altera ni borra el reparto que pueda existir en
+// guardarDesgloseMovimiento, y viceversa.
 export async function actualizarMovimiento(
   empresaSlug: string,
   periodo: string,
@@ -741,6 +758,105 @@ export async function eliminarMovimiento(
 ) {
   await resolverPresupuestoParaOperar(empresaSlug, periodo);
   await prisma.movimientoBancario.delete({ where: { id } });
+  revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+}
+
+type ResultadoDesgloseMovimiento =
+  | { ok: true }
+  | { ok: false; errores: Record<string, string> };
+
+// Reemplaza el desglose completo de un movimiento — mismo patrón que
+// guardarDesglose en presupuesto/actions.ts. Escribe SOLO
+// MovimientoBancarioDesglose, nunca MovimientoBancario.unidadNegocio (el
+// valor propio de la fila, que se edita aparte vía actualizarMovimiento) —
+// son dos campos/tablas independientes, ver el comentario en el modelo
+// (schema.prisma) y en actualizarMovimiento arriba.
+export async function guardarDesgloseMovimiento(
+  empresaSlug: string,
+  periodo: string,
+  numeroSemana: number,
+  movimientoId: string,
+  sublineas: { unidadNegocio: string; importe: string }[]
+): Promise<ResultadoDesgloseMovimiento> {
+  const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
+  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  if (!ejecucion) {
+    return { ok: false, errores: { general: `No encontré la semana ${numeroSemana}.` } };
+  }
+
+  const movimiento = await prisma.movimientoBancario.findUnique({ where: { id: movimientoId } });
+  if (!movimiento || movimiento.ejecucionId !== ejecucion.id) {
+    return { ok: false, errores: { general: "No encontré ese movimiento." } };
+  }
+  if (ejecucion.estado === "CERRADA") {
+    return { ok: false, errores: { general: "Esta semana ya está cerrada, no se puede editar." } };
+  }
+  if (!esElegibleParaDesgloseEjecucion(movimiento.clasificacion)) {
+    return { ok: false, errores: { general: "Esta clasificación no admite desglose." } };
+  }
+
+  // MovimientoBancario.importe trae el signo del banco (negativo en un
+  // débito — el caso típico de SUELDOS/EXPENSAS), pero cada sub-línea se
+  // tipea y se valida como magnitud positiva ("$2M para Mantenor", no
+  // "-$2M") — mismo criterio que en PanelDesgloseMovimiento.tsx. Al guardar,
+  // se le aplica el signo del movimiento padre, para que un futuro reporte
+  // "por unidad de negocio" que sume esta tabla directamente obtenga el
+  // signo correcto (un desglose de un débito tiene que seguir sumando en
+  // negativo, no en positivo).
+  const importeMovimiento = Number(movimiento.importe);
+  const signoMovimiento = importeMovimiento < 0 ? -1 : 1;
+
+  const limpias = sublineas.map((s) => ({
+    unidadNegocio: s.unidadNegocio.trim(),
+    importe: Math.abs(Number(s.importe)) * signoMovimiento,
+    importeCrudo: s.importe,
+  }));
+
+  const errores: Record<string, string> = {};
+  if (limpias.length === 0) {
+    errores.general = "Agregá al menos una unidad de negocio.";
+  }
+  limpias.forEach((s, i) => {
+    if (!s.unidadNegocio) errores[`unidadNegocio_${i}`] = "Completá la unidad de negocio.";
+    if (!s.importeCrudo.trim() || s.importe === 0 || Number.isNaN(s.importe)) {
+      errores[`importe_${i}`] = "El importe no puede estar vacío ni ser 0.";
+    }
+  });
+
+  if (Object.keys(errores).length === 0) {
+    const suma = limpias.reduce((acc, s) => acc + Math.abs(s.importe), 0);
+    if (Math.abs(suma - Math.abs(importeMovimiento)) >= 0.01) {
+      errores.general = `La suma del desglose ($${suma.toLocaleString("es-AR")}) tiene que coincidir con el importe del movimiento ($${Math.abs(importeMovimiento).toLocaleString("es-AR")}).`;
+    }
+  }
+
+  if (Object.keys(errores).length > 0) {
+    return { ok: false, errores };
+  }
+
+  await prisma.$transaction([
+    prisma.movimientoBancarioDesglose.deleteMany({ where: { movimientoId } }),
+    prisma.movimientoBancarioDesglose.createMany({
+      data: limpias.map((s) => ({
+        movimientoId,
+        unidadNegocio: s.unidadNegocio,
+        importe: s.importe,
+      })),
+    }),
+  ]);
+
+  revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+  return { ok: true };
+}
+
+export async function eliminarDesgloseMovimiento(
+  empresaSlug: string,
+  periodo: string,
+  numeroSemana: number,
+  movimientoId: string
+) {
+  await resolverPresupuestoParaOperar(empresaSlug, periodo);
+  await prisma.movimientoBancarioDesglose.deleteMany({ where: { movimientoId } });
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
 }
 

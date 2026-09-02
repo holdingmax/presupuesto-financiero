@@ -87,6 +87,18 @@ export function esElegibleParaDesglose(clasificacion: string): boolean {
   return CLASIFICACIONES_CON_DESGLOSE.includes(clave);
 }
 
+// Análogo a CLASIFICACIONES_CON_DESGLOSE, pero para MovimientoBancario en
+// Ejecución — mecanismo separado a propósito, no comparte lista con
+// Presupuesto (alcance decidido 2026-09-02: solo Ejecución, no tocar
+// Presupuesto). Habilitadas por el caso real de Macchi: un pago de sueldos
+// que en realidad se reparte entre varias unidades de negocio.
+const CLASIFICACIONES_CON_DESGLOSE_EJECUCION = ["SUELDOS", "EXPENSAS"];
+
+export function esElegibleParaDesgloseEjecucion(clasificacion: string): boolean {
+  const clave = quitarDiacriticos(clasificacion).trim().toUpperCase().replace(/\s+/g, " ");
+  return CLASIFICACIONES_CON_DESGLOSE_EJECUCION.includes(clave);
+}
+
 // Lista curada de clasificaciones habituales, compartida entre el <select>
 // de ejecución (TablaMovimientos.tsx) y el <datalist> de presupuesto
 // (PresupuestoForm.tsx) — unificada a pedido explícito. "Gastos bancarios" y

@@ -186,10 +186,38 @@ model MovimientoBancario {
 
   ejecucion EjecucionSemanal @relation(fields: [ejecucionId], references: [id])
   adjuntos  Adjunto[]
+  desglose  MovimientoBancarioDesglose[]
 
   @@index([ejecucionId])
   @@index([unidadNegocio])
   @@index([clasificacion])
+}
+
+// Apertura opcional de un MovimientoBancario en varias unidades de negocio
+// (solo para clasificaciones habilitadas — ver esElegibleParaDesgloseEjecucion
+// en lib/clasificaciones.ts). Por ahora es ANOTACIÓN, mismo criterio que
+// LineaPresupuestoDesglose: el movimiento padre sigue siendo la única fuente
+// de verdad para cualquier cálculo existente (chequeos de suma-cero,
+// totales de Ejecución, continuidad de saldo) — nada lee esta tabla todavía
+// para sumar nada. unidadNegocio (no clasificacion) es una asunción de
+// trabajo, no una confirmación de Macchi — respaldada por dato real
+// (2026-09-02): en producción "EXPENSAS" tiene 182 filas como unidadNegocio
+// y 0 como clasificacion. Los 3 campos propios (movimientoId, unidadNegocio,
+// importe) ya alcanzan para un futuro reporte "por unidad de negocio" sin
+// agregar columnas — promoverla a fuente real el día de mañana es agregar
+// código que la lea, no una migración. Completamente independiente del
+// MovimientoBancario.unidadNegocio propio de la fila — ver el comentario en
+// ejecucion/actions.ts (guardarDesgloseMovimiento) sobre por qué no se pisan.
+model MovimientoBancarioDesglose {
+  id            String   @id @default(uuid())
+  movimientoId  String
+  unidadNegocio String
+  importe       Decimal  @db.Decimal(18, 2)
+  createdAt     DateTime @default(now())
+
+  movimiento MovimientoBancario @relation(fields: [movimientoId], references: [id], onDelete: Cascade)
+
+  @@index([movimientoId])
 }
 
 // Snapshot de PAGOS_2025-2026.xlsx (planilla real de Macchi, no ligada a una

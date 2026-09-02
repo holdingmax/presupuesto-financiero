@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { formatearImporte } from "./formato";
+import { esElegibleParaDesgloseEjecucion } from "@/lib/clasificaciones";
+import PanelDesgloseMovimiento from "./PanelDesgloseMovimiento";
 
 // Sin librería de íconos en el proyecto — SVG a mano, mismo criterio que
 // IconoOjo (components/CampoPassword.tsx).
@@ -31,10 +33,16 @@ function IconoChevron() {
 // ancho fijo y siempre visible — no depende del viewport ni del hover.
 function MenuAcciones({
   ignorado,
+  elegibleDesglose,
+  desglosado,
+  onDesglosar,
   onToggleIgnorado,
   onQuitar,
 }: {
   ignorado: boolean;
+  elegibleDesglose: boolean;
+  desglosado: boolean;
+  onDesglosar?: () => void;
   onToggleIgnorado?: () => void;
   onQuitar?: () => void;
 }) {
@@ -71,6 +79,18 @@ function MenuAcciones({
           className="absolute right-0 top-full z-30 mt-1 w-36 rounded-md border border-line-strong bg-paper-raised py-1 shadow-lg shadow-ink/15"
           style={{ backgroundColor: "#ffffff", isolation: "isolate" }}
         >
+          {elegibleDesglose && onDesglosar && (
+            <button
+              type="button"
+              onClick={() => {
+                onDesglosar();
+                setAbierto(false);
+              }}
+              className="block w-full px-3 py-1.5 text-left text-xs text-ink-secondary hover:bg-paper-cool hover:text-ink"
+            >
+              {desglosado ? "Editar desglose" : "Desglosar"}
+            </button>
+          )}
           {onToggleIgnorado && (
             <button
               type="button"
@@ -108,13 +128,19 @@ export type MovimientoTabla = {
   importe: number;
   bancoYCuenta: string;
   clasificacion: string;
+  // Valor único de la fila — completamente separado de `desglose` de abajo
+  // (el reparto en varias unidades). Ninguno de los dos lee ni escribe al
+  // otro; ver el comentario en actualizarMovimiento/guardarDesgloseMovimiento
+  // en ejecucion/actions.ts.
   unidadNegocio: string;
   detalle: string;
   ignorado: boolean;
+  desglose: { id: string; unidadNegocio: string; importe: number }[];
 };
 
 type Props = {
   movimientos: MovimientoTabla[];
+  numeroSemana: number;
   soloLectura?: boolean;
   deshabilitado?: boolean;
   clasificacionesDisponibles?: string[];
@@ -127,6 +153,7 @@ type Props = {
 
 export default function TablaMovimientos({
   movimientos,
+  numeroSemana,
   soloLectura = false,
   deshabilitado = false,
   clasificacionesDisponibles = [],
@@ -136,6 +163,9 @@ export default function TablaMovimientos({
   onQuitar,
   onToggleIgnorado,
 }: Props) {
+  const [desgloseAbiertoId, setDesgloseAbiertoId] = useState<string | null>(null);
+  const totalColumnas = soloLectura ? 6 : 7;
+
   return (
     <table className="w-full min-w-[880px] text-sm">
       <thead>
@@ -150,9 +180,14 @@ export default function TablaMovimientos({
         </tr>
       </thead>
       <tbody>
-        {movimientos.map((m) => (
+        {movimientos.map((m) => {
+          const elegibleDesglose = esElegibleParaDesgloseEjecucion(m.clasificacion);
+          const desglosado = m.desglose.length > 0;
+          const expandida = desgloseAbiertoId === m.id;
+
+          return (
+          <Fragment key={m.id}>
           <tr
-            key={m.id}
             className={`group border-t border-line-hairline hover:bg-surface-hover transition-colors ${
               m.ignorado ? "line-through text-ink-muted opacity-60" : ""
             }`}
@@ -209,12 +244,20 @@ export default function TablaMovimientos({
                   className="w-32 rounded-md border border-transparent bg-transparent px-2 py-1 text-sm outline-none transition hover:border-line hover:bg-surface-hover focus:border-marino focus:bg-paper-raised disabled:text-ink-muted"
                 />
               )}
+              {desglosado && (
+                <span className="ml-1.5 whitespace-nowrap text-xs text-marino">
+                  · desglosado en {m.desglose.length}
+                </span>
+              )}
             </td>
             {!soloLectura && (
               <td className="py-2">
                 {!deshabilitado && (
                   <MenuAcciones
                     ignorado={m.ignorado}
+                    elegibleDesglose={elegibleDesglose}
+                    desglosado={desglosado}
+                    onDesglosar={() => setDesgloseAbiertoId(expandida ? null : m.id)}
                     onToggleIgnorado={
                       onToggleIgnorado ? () => onToggleIgnorado(m.id, !m.ignorado) : undefined
                     }
@@ -224,7 +267,22 @@ export default function TablaMovimientos({
               </td>
             )}
           </tr>
-        ))}
+          {expandida && (
+            <tr className="border-t border-line-hairline">
+              <td colSpan={totalColumnas} className="py-3">
+                <PanelDesgloseMovimiento
+                  numeroSemana={numeroSemana}
+                  movimientoId={m.id}
+                  importeMovimiento={m.importe}
+                  desgloseInicial={m.desglose}
+                  onCerrar={() => setDesgloseAbiertoId(null)}
+                />
+              </td>
+            </tr>
+          )}
+          </Fragment>
+          );
+        })}
       </tbody>
     </table>
   );

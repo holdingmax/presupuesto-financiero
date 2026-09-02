@@ -127,7 +127,11 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
         ) : (
           <>
             <div className="border-t border-line-strong overflow-x-auto">
-              <TablaMovimientos movimientos={datos.movimientos} soloLectura />
+              <TablaMovimientos
+                movimientos={datos.movimientos}
+                numeroSemana={datos.numeroSemana}
+                soloLectura
+              />
             </div>
             <Paginacion
               empresaSlug={empresa}

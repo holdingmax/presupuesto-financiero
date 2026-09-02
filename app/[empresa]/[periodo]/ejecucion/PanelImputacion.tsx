@@ -39,6 +39,7 @@ type Movimiento = {
   unidadNegocio: string;
   detalle: string;
   ignorado: boolean;
+  desglose: { id: string; unidadNegocio: string; importe: number }[];
 };
 
 type Props = {
@@ -435,6 +436,7 @@ export default function PanelImputacion({
             <div className="border-t border-line-strong overflow-x-auto">
               <TablaMovimientos
                 movimientos={movimientos}
+                numeroSemana={numeroSemana}
                 deshabilitado={cerrada}
                 clasificacionesDisponibles={clasificacionesDisponibles}
                 onCambiarClasificacion={(id, valor) => {
