@@ -91,7 +91,8 @@ export default function PagoReferenciaForm({ estadoInicial }: Props) {
         className="rounded-md border border-dashed border-line-strong bg-paper px-6 py-8 text-center"
       >
         <p className="text-sm text-ink-secondary mb-1">
-          Subí PAGOS_2025-2026.xlsx (se lee la hoja &quot;DEFINITIVO&quot;).
+          Subí PAGOS_2025-2026.xlsx (se leen todas las hojas mensuales del archivo —
+          &quot;DEFINITIVO&quot; queda afuera, va atrasada).
         </p>
         <p className="text-xs text-ink-muted mb-4">
           Esto reemplaza por completo la carga anterior — no se acumula entre cargas.

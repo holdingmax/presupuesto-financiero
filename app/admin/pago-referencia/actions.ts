@@ -34,7 +34,7 @@ export async function subirPagoReferencia(
   if (filas.length === 0) {
     return {
       ok: false,
-      error: 'No encontré ninguna fila de pago para importar. Revisá que el archivo tenga la hoja "DEFINITIVO".',
+      error: "No encontré ninguna fila de pago para importar. Revisá que el archivo tenga hojas mensuales con datos.",
     };
   }
 
