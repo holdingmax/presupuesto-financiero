@@ -277,13 +277,17 @@ export type ResultadoLiquidacionAmbigua = {
 // para discriminar "Liquidación final" de "Sueldos" cuando la leyenda
 // bancaria por sí sola no alcanza — mismo criterio que usa Macchi a mano:
 // fecha exacta + importe (reusa claveDuplicado, misma tolerancia de
-// centavos que ya usa el resto del proyecto). Corre DESPUÉS de que la
-// clasificación normal ya se resolvió (archivo / reglas automáticas / SIN
-// CLASIFICAR) y la pisa solo cuando corresponde — nunca la deja peor de lo
-// que ya estaba. Si hay más de un candidato posible para la misma clave y
-// al menos uno es liquidación, no se aplica ningún override (no forzar una
-// asignación ambigua) — se junta para la alerta en vez de arriesgar
-// asignarlo a la persona equivocada.
+// centavos que ya usa el resto del proyecto, pero por VALOR ABSOLUTO —
+// PagoReferencia siempre guarda montos positivos, porque es un libro de
+// pagos de Macchi, mientras que MovimientoBancario trae el signo del banco,
+// negativo para un débito/pago. Comparar el signo tal cual, sin abs(),
+// nunca matcheaba nada — bug real encontrado 2026-09-02 reintentando esta
+// prueba). Corre DESPUÉS de que la clasificación normal ya se resolvió
+// (archivo / reglas automáticas / SIN CLASIFICAR) y la pisa solo cuando
+// corresponde — nunca la deja peor de lo que ya estaba. Si hay más de un
+// candidato posible para la misma clave y al menos uno es liquidación, no
+// se aplica ningún override (no forzar una asignación ambigua) — se junta
+// para la alerta en vez de arriesgar asignarlo a la persona equivocada.
 async function aplicarCruceLiquidacionFinal(
   filas: { numeroFila: number; fecha: Date; importe: number; clasificacion: string }[]
 ): Promise<ResultadoLiquidacionAmbigua[]> {
@@ -301,7 +305,7 @@ async function aplicarCruceLiquidacionFinal(
 
   const porClave = new Map<string, typeof referencias>();
   for (const r of referencias) {
-    const clave = claveDuplicado(r.fecha, Number(r.importe));
+    const clave = claveDuplicado(r.fecha, Math.abs(Number(r.importe)));
     const grupo = porClave.get(clave);
     if (grupo) grupo.push(r);
     else porClave.set(clave, [r]);
@@ -310,7 +314,7 @@ async function aplicarCruceLiquidacionFinal(
   const ambiguas: ResultadoLiquidacionAmbigua[] = [];
 
   for (const fila of filas) {
-    const candidatos = porClave.get(claveDuplicado(fila.fecha, fila.importe));
+    const candidatos = porClave.get(claveDuplicado(fila.fecha, Math.abs(fila.importe)));
     if (!candidatos) continue;
 
     if (candidatos.length === 1) {

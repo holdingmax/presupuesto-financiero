@@ -73,10 +73,26 @@ function extraerFechaDeEncabezado(texto: string): Date | null {
   return Number.isNaN(fecha.getTime()) ? null : fecha;
 }
 
-const PATRON_LIQUIDACION = /LIQUIDACION/;
+// Requiere "FINAL" (o "FINALES") después de "LIQ"/"LIQUIDACION" — no alcanza
+// con la sola palabra "LIQUIDACION"/"LIQ". Dos hallazgos reales que corrigieron
+// esto (2026-09-02, contra el archivo completo):
+// 1) "LIQ" abreviado es una forma real y frecuente de "LIQUIDACION FINAL" —
+//    125 leyendas distintas usan "LIQ" en vez de la palabra completa, y de
+//    esas, TODAS las que dicen además "FINAL" (ej. "1 CUOTA LIQ FINAL",
+//    "LIQ FINAL P/DESPIDO") son liquidaciones de sueldo reales — cero falsos
+//    positivos revisados a mano.
+// 2) "LIQUIDACION" SOLA (sin "FINAL") NO alcanza — ej. "FC0001-00000256
+//    LIQUIDACION 02/2026" (GLOBE AIR CARGO SA) es una liquidación de
+//    facturación mensual de un proveedor, no de sueldo. El patrón viejo
+//    (/LIQUIDACION/ a secas) la marcaba mal como liquidación final.
+// "LIQ" en el resto de los 125 casos (sin "FINAL") es "liquidación" en el
+// sentido genérico de "cierre de cuenta" (honorarios, IATA CASS, farmacia,
+// correo, aeronavegación) — no tiene nada que ver con sueldos, por eso no
+// alcanza con la palabra suelta.
+const PATRON_LIQUIDACION_FINAL = /LIQ(UIDACION)?(ES)? FINAL/;
 
 function esLeyendaLiquidacionFinal(texto: string): boolean {
-  return PATRON_LIQUIDACION.test(quitarDiacriticos(texto).toUpperCase());
+  return PATRON_LIQUIDACION_FINAL.test(quitarDiacriticos(texto).toUpperCase());
 }
 
 // Recorre las hojas resueltas por resolverHojasAParsear y devuelve solo las
