@@ -17,6 +17,7 @@ import {
   proponerClasificacionAutomatica,
   esElegibleParaDesgloseEjecucion,
 } from "@/lib/clasificaciones";
+import { parsearImporteArgentino } from "@/lib/numero";
 
 const NOMBRE_HOJA_EXTRACTO = "Hoja1";
 const FILAS_POR_PAGINA = 200;
@@ -808,7 +809,7 @@ export async function guardarDesgloseMovimiento(
 
   const limpias = sublineas.map((s) => ({
     unidadNegocio: s.unidadNegocio.trim(),
-    importe: Math.abs(Number(s.importe)) * signoMovimiento,
+    importe: Math.abs(parsearImporteArgentino(s.importe)) * signoMovimiento,
     importeCrudo: s.importe,
   }));
 

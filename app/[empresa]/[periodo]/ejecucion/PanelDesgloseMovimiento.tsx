@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { guardarDesgloseMovimiento, eliminarDesgloseMovimiento } from "./actions";
+import { parsearImporteArgentino } from "@/lib/numero";
 
 type SubLinea = { unidadNegocio: string; importe: string };
 
@@ -58,7 +59,7 @@ export default function PanelDesgloseMovimiento({
   // por magnitud (abs) acá y también al guardar en el server — no por el
   // valor tal cual tipeado.
   const suma = sublineas.reduce((acc, s) => {
-    const n = Number(s.importe);
+    const n = parsearImporteArgentino(s.importe);
     return acc + (Number.isNaN(n) ? 0 : Math.abs(n));
   }, 0);
   const coincide = Math.abs(suma - Math.abs(importeMovimiento)) < 0.01;
@@ -138,11 +139,11 @@ export default function PanelDesgloseMovimiento({
             </div>
             <div className="w-36">
               <input
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={s.importe}
                 onChange={(e) => actualizarSublinea(i, "importe", e.target.value)}
-                placeholder="0,00"
+                placeholder="0"
                 className={`w-full h-10 rounded-md border bg-paper px-3 text-sm tabular outline-none focus:ring-2 focus:ring-marino/15 ${
                   errores[`importe_${i}`] ? "border-terracota" : "border-line focus:border-marino"
                 }`}

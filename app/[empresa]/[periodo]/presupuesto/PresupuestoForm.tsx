@@ -290,14 +290,14 @@ export default function PresupuestoForm({
                   </label>
                   <input
                     id="importe"
-                    type="number"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     value={importe}
                     onChange={(e) => {
                       setImporte(e.target.value);
                       limpiarError("importe");
                     }}
-                    placeholder="0,00"
+                    placeholder="0"
                     className={`w-full h-12 rounded-md border bg-paper px-3.5 text-[15px] tabular outline-none focus:ring-2 focus:ring-marino/15 ${
                       errores.importe ? "border-terracota" : "border-line focus:border-marino"
                     }`}

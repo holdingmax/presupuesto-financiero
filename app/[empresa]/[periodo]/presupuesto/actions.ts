@@ -11,6 +11,7 @@ import {
   normalizarClasificacion,
   esElegibleParaDesglose,
 } from "@/lib/clasificaciones";
+import { parsearImporteArgentino } from "@/lib/numero";
 
 // Mismo mapeo por nombre de columna que ya usa subirExtracto en
 // ejecucion/actions.ts, adaptado a las 4 columnas de LineaPresupuesto.
@@ -91,7 +92,7 @@ export async function agregarLinea(
   const concepto = datos.concepto.trim();
   const detalle = datos.detalle.trim();
   const clasificacion = normalizarClasificacion(datos.clasificacion.trim());
-  const importe = Number(datos.importe);
+  const importe = parsearImporteArgentino(datos.importe);
 
   const errores: Record<string, string> = {};
   if (!concepto) errores.concepto = "Completá el concepto.";
@@ -165,7 +166,7 @@ export async function guardarDesglose(
 
   const limpias = sublineas.map((s) => ({
     detalle: s.detalle.trim(),
-    importe: Number(s.importe),
+    importe: parsearImporteArgentino(s.importe),
     importeCrudo: s.importe,
   }));
 
