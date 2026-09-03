@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { agregarLinea, eliminarLinea, validarPresupuesto, subirLineasMasivo } from "./actions";
 import { esElegibleParaDesglose } from "@/lib/clasificaciones";
 import DesglosePanel from "./DesglosePanel";
+import CampoImporte from "@/components/CampoImporte";
 
 type Linea = {
   id: string;
@@ -288,19 +289,15 @@ export default function PresupuestoForm({
                   <label htmlFor="importe" className="block text-sm text-ink-secondary mb-1.5">
                     Importe
                   </label>
-                  <input
+                  <CampoImporte
                     id="importe"
-                    type="text"
-                    inputMode="decimal"
+                    size="lg"
                     value={importe}
-                    onChange={(e) => {
-                      setImporte(e.target.value);
+                    onChange={(valor) => {
+                      setImporte(valor);
                       limpiarError("importe");
                     }}
-                    placeholder="0"
-                    className={`w-full h-12 rounded-md border bg-paper px-3.5 text-[15px] tabular outline-none focus:ring-2 focus:ring-marino/15 ${
-                      errores.importe ? "border-terracota" : "border-line focus:border-marino"
-                    }`}
+                    hasError={Boolean(errores.importe)}
                   />
                   {errores.importe && <p className="mt-1 text-xs text-terracota">{errores.importe}</p>}
                 </div>

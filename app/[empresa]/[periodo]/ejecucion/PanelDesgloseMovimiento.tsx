@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { guardarDesgloseMovimiento, eliminarDesgloseMovimiento } from "./actions";
 import { parsearImporteArgentino } from "@/lib/numero";
+import CampoImporte from "@/components/CampoImporte";
 
 type SubLinea = { unidadNegocio: string; importe: string };
 
@@ -138,15 +139,10 @@ export default function PanelDesgloseMovimiento({
               )}
             </div>
             <div className="w-36">
-              <input
-                type="text"
-                inputMode="decimal"
+              <CampoImporte
                 value={s.importe}
-                onChange={(e) => actualizarSublinea(i, "importe", e.target.value)}
-                placeholder="0"
-                className={`w-full h-10 rounded-md border bg-paper px-3 text-sm tabular outline-none focus:ring-2 focus:ring-marino/15 ${
-                  errores[`importe_${i}`] ? "border-terracota" : "border-line focus:border-marino"
-                }`}
+                onChange={(valor) => actualizarSublinea(i, "importe", valor)}
+                hasError={Boolean(errores[`importe_${i}`])}
               />
               {errores[`importe_${i}`] && (
                 <p className="mt-1 text-xs text-terracota">{errores[`importe_${i}`]}</p>

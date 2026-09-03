@@ -14,8 +14,16 @@
 // silencio el segundo punto (un number input solo permite uno) y deja
 // "1.500000" — que Number() interpreta como 1.5. Error silencioso, sin
 // ningún aviso, que carga un importe completamente distinto al tipeado.
+//
+// Segundo bug real (mismo día, mismo reporte): al pasar el input a texto
+// libre para poder tipear puntos, un "$" que quede en el campo (pegado, o
+// remanente de un valor previo por autocompletado del navegador — no algo
+// que este código escriba, pero el input ya no lo bloquea como sí hacía
+// type="number") rompía el parseo en silencio otra vez. Por eso también se
+// descarta "$" y espacios acá — además de sacar el "$" de la vista como
+// texto editable en el input (ver CampoImporte más abajo).
 export function parsearImporteArgentino(texto: string): number {
-  const limpio = texto.trim();
+  const limpio = texto.trim().replace(/[$\s]/g, "");
   if (limpio.includes(",")) {
     return Number(limpio.replace(/\./g, "").replace(",", "."));
   }
