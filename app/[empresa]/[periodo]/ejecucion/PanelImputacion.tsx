@@ -8,6 +8,7 @@ import {
   actualizarMovimiento,
   eliminarMovimiento,
   cerrarSemana,
+  confirmarClasificacionesEnLote,
   type ResultadoChequeo,
   type ResultadoContinuidadSaldo,
   type ResultadoLiquidacionAmbigua,
@@ -15,6 +16,7 @@ import {
 import TablaMovimientos from "./TablaMovimientos";
 import Paginacion from "./Paginacion";
 import PanelChequeos from "./PanelChequeos";
+import PanelSugerenciasPendientes from "./PanelSugerenciasPendientes";
 import AlertaContinuidadSaldo from "./AlertaContinuidadSaldo";
 import { formatearImporte } from "./formato";
 
@@ -39,6 +41,8 @@ type Movimiento = {
   unidadNegocio: string;
   detalle: string;
   ignorado: boolean;
+  sugeridaPorSistema: boolean;
+  chequeIvaAmbiguo: boolean;
   desglose: { id: string; unidadNegocio: string; importe: number }[];
 };
 
@@ -210,8 +214,36 @@ export default function PanelImputacion({
 
   function actualizarCampoLocal(id: string, campo: "clasificacion" | "unidadNegocio", valor: string) {
     setMovimientos((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, [campo]: valor } : m))
+      prev.map((m) =>
+        m.id === id
+          ? {
+              ...m,
+              [campo]: valor,
+              // Cualquier edición de clasificacion —desde la tabla normal o
+              // desde el panel de sugerencias pendientes— cuenta como
+              // confirmación, mismo criterio que el server en
+              // actualizarMovimiento (ver ese comentario para el motivo del
+              // "sin excepción").
+              ...(campo === "clasificacion" ? { sugeridaPorSistema: false } : {}),
+            }
+          : m
+      )
     );
+  }
+
+  // Confirma en lote: no cambia el valor de clasificacion, solo limpia
+  // sugeridaPorSistema — optimista primero (para que el panel de
+  // sugerencias reaccione al toque), y si el server la rechaza (ej. la
+  // semana se cerró en otra pestaña justo antes) se resincroniza con
+  // router.refresh() en vez de intentar revertir a mano.
+  async function confirmarGrupoSugerido(ids: string[]) {
+    setMovimientos((prev) =>
+      prev.map((m) => (ids.includes(m.id) ? { ...m, sugeridaPorSistema: false } : m))
+    );
+    const resultado = await confirmarClasificacionesEnLote(empresaSlug, periodo, numeroSemana, ids);
+    if (!resultado.ok) {
+      router.refresh();
+    }
   }
 
   function guardarCampo(id: string, campo: "clasificacion" | "unidadNegocio", valor: string) {
@@ -424,6 +456,18 @@ export default function PanelImputacion({
             </p>
           </div>
         </div>
+
+        {!cerrada && (
+          <PanelSugerenciasPendientes
+            sugerencias={movimientos.filter((m) => m.sugeridaPorSistema)}
+            clasificacionesDisponibles={clasificacionesDisponibles}
+            onConfirmarFila={(id, valor) => {
+              actualizarCampoLocal(id, "clasificacion", valor);
+              guardarCampo(id, "clasificacion", valor);
+            }}
+            onConfirmarGrupo={confirmarGrupoSugerido}
+          />
+        )}
 
         {!cerrada && <PanelChequeos chequeos={chequeos} />}
 

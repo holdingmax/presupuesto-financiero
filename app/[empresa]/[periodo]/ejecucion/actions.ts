@@ -95,6 +95,8 @@ function mapearMovimiento(m: {
   unidadNegocio: string;
   detalle: string | null;
   ignorado: boolean;
+  sugeridaPorSistema: boolean;
+  chequeIvaAmbiguo: boolean;
   desglose: { id: string; unidadNegocio: string; importe: unknown }[];
 }) {
   return {
@@ -111,6 +113,8 @@ function mapearMovimiento(m: {
     unidadNegocio: m.unidadNegocio,
     detalle: m.detalle ?? "",
     ignorado: m.ignorado,
+    sugeridaPorSistema: m.sugeridaPorSistema,
+    chequeIvaAmbiguo: m.chequeIvaAmbiguo,
     desglose: m.desglose.map((d) => ({
       id: d.id,
       unidadNegocio: d.unidadNegocio,
@@ -302,7 +306,13 @@ export type ResultadoLiquidacionAmbigua = {
 // se aplica ningún override (no forzar una asignación ambigua) — se junta
 // para la alerta en vez de arriesgar asignarlo a la persona equivocada.
 async function aplicarCruceLiquidacionFinal(
-  filas: { numeroFila: number; fecha: Date; importe: number; clasificacion: string }[]
+  filas: {
+    numeroFila: number;
+    fecha: Date;
+    importe: number;
+    clasificacion: string;
+    sugeridaPorSistema: boolean;
+  }[]
 ): Promise<ResultadoLiquidacionAmbigua[]> {
   if (filas.length === 0) return [];
 
@@ -331,7 +341,10 @@ async function aplicarCruceLiquidacionFinal(
     if (!candidatos) continue;
 
     if (candidatos.length === 1) {
-      if (candidatos[0].esLiquidacionFinal) fila.clasificacion = "Liquidación final";
+      if (candidatos[0].esLiquidacionFinal) {
+        fila.clasificacion = "Liquidación final";
+        fila.sugeridaPorSistema = true;
+      }
       continue;
     }
 
@@ -373,6 +386,8 @@ async function aplicarCruceChequeIva(
     concepto: string;
     nroReferencia: string | null;
     clasificacion: string;
+    sugeridaPorSistema: boolean;
+    chequeIvaAmbiguo: boolean;
   }[]
 ): Promise<void> {
   const elegibles = filas
@@ -413,6 +428,8 @@ async function aplicarCruceChequeIva(
       fila.fecha.getFullYear() === referencia.fecha.getFullYear() &&
       fila.fecha.getMonth() === referencia.fecha.getMonth();
     fila.clasificacion = mismoMes ? "IVA" : "CH DIFERIDOS IVA";
+    fila.sugeridaPorSistema = true;
+    fila.chequeIvaAmbiguo = referencia.duplicadoAmbiguo;
   }
 }
 
@@ -712,6 +729,8 @@ export async function subirExtracto(
     unidadNegocio: string;
     detalle: string | null;
     detalle2: string | null;
+    sugeridaPorSistema: boolean;
+    chequeIvaAmbiguo: boolean;
   }[] = [];
 
   hoja.eachRow((fila, numeroFila) => {
@@ -738,6 +757,21 @@ export async function subirExtracto(
 
     const concepto = String(valores.concepto ?? "(sin concepto)");
 
+    // Separado en variables (en vez de un solo ternario anidado) para poder
+    // distinguir de dónde salió la clasificación: sugeridaPorSistema solo
+    // queda en true cuando la propuso el motor de leyenda acá mismo — un
+    // valor explícito del archivo o el fallback "SIN CLASIFICAR" no son una
+    // sugerencia que alguien tenga que confirmar, son el dato real de Kike o
+    // un vacío. Los cruces de más abajo (aplicarCruceLiquidacionFinal /
+    // aplicarCruceChequeIva) vuelven a poner esto en true si terminan
+    // pisando el valor de acá con el suyo propio.
+    const clasificacionExplicita = valores.clasificacion
+      ? normalizarClasificacion(String(valores.clasificacion))
+      : null;
+    const clasificacionAutomatica = clasificacionExplicita
+      ? null
+      : proponerClasificacionAutomatica(concepto);
+
     filas.push({
       numeroFila,
       fecha,
@@ -747,15 +781,15 @@ export async function subirExtracto(
       importe: importeExtraido,
       saldo: saldoExtraido,
       bancoYCuenta: valores.bancoYCuenta ? String(valores.bancoYCuenta) : "(sin banco)",
-      clasificacion: valores.clasificacion
-        ? normalizarClasificacion(String(valores.clasificacion))
-        : proponerClasificacionAutomatica(concepto) ?? "SIN CLASIFICAR",
+      clasificacion: clasificacionExplicita ?? clasificacionAutomatica ?? "SIN CLASIFICAR",
       clasificacion2: valores.clasificacion2 ? String(valores.clasificacion2) : null,
       // .trim(): un mismo valor puede llegar con espacio final por archivo (ej. "SIERRA "
       // vs "SIERRA") y sin esto quedaban como dos unidades de negocio distintas en la base.
       unidadNegocio: valores.unidadNegocio ? String(valores.unidadNegocio).trim() : "SIN ASIGNAR",
       detalle: valores.detalle ? String(valores.detalle) : null,
       detalle2: valores.detalle2 ? String(valores.detalle2) : null,
+      sugeridaPorSistema: clasificacionAutomatica !== null,
+      chequeIvaAmbiguo: false,
     });
   });
 
@@ -814,12 +848,75 @@ export async function actualizarMovimiento(
   id: string,
   datos: { clasificacion?: string; unidadNegocio?: string; ignorado?: boolean }
 ) {
-  await resolverPresupuestoParaOperar(empresaSlug, periodo);
+  const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
+  // Hallazgo 2026-09-08: hasta ahora esta acción no chequeaba el estado de la
+  // semana — lo único que impedía editar una semana CERRADA era que la
+  // página no te deja llegar a este componente (page.tsx renderiza un árbol
+  // de solo lectura distinto cuando estado==="CERRADA"). Un llamado directo
+  // a esta Server Action bypaseando la UI igual mutaba una semana cerrada.
+  // Mismo criterio que guardarDesgloseMovimiento, que sí lo chequeaba.
+  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  if (!ejecucion) {
+    throw new Error(`No encontré la semana ${numeroSemana}.`);
+  }
+  if (ejecucion.estado === "CERRADA") {
+    throw new Error("Esta semana ya está cerrada, no se puede editar.");
+  }
+
   await prisma.movimientoBancario.update({
     where: { id },
-    data: datos,
+    data: {
+      ...datos,
+      // Cualquier edición manual de clasificacion —incluso reelegir el mismo
+      // valor que ya tenía sugerido— cuenta como confirmación. No puede
+      // depender de comparar contra el valor anterior: un <select> nativo no
+      // dispara onChange si el usuario reelige la opción ya seleccionada, así
+      // que esto se limpia siempre que `clasificacion` viene en el payload,
+      // sin excepción (ver PanelSugerenciasPendientes.tsx, botón "Confirmar").
+      ...(datos.clasificacion !== undefined ? { sugeridaPorSistema: false } : {}),
+    },
   });
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+}
+
+export type ResultadoConfirmarClasificacionesEnLote =
+  | { ok: true; cantidad: number }
+  | { ok: false; error: string };
+
+// Acepta tal cual un conjunto de sugerencias del sistema (motor de leyenda /
+// cruce de Liquidación final / cruce de cheques IVA) — solo limpia
+// sugeridaPorSistema, nunca toca `clasificacion` (el usuario está
+// confirmando lo que ya ve, no reeligiendo nada; eso pasa por
+// actualizarMovimiento, fila por fila). chequeIvaAmbiguo:false en el where
+// es una segunda barrera server-side: el cliente ya arma la lista de ids
+// excluyendo esas filas (ver PanelSugerenciasPendientes.tsx), pero esto
+// evita que un ID desactualizado o forjado directo a la acción cuele una
+// confirmación en lote de un cheque con match ambiguo.
+export async function confirmarClasificacionesEnLote(
+  empresaSlug: string,
+  periodo: string,
+  numeroSemana: number,
+  ids: string[]
+): Promise<ResultadoConfirmarClasificacionesEnLote> {
+  const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
+  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  if (!ejecucion) {
+    return { ok: false, error: `No encontré la semana ${numeroSemana}.` };
+  }
+  if (ejecucion.estado === "CERRADA") {
+    return { ok: false, error: "Esta semana ya está cerrada, no se puede editar." };
+  }
+  if (ids.length === 0) {
+    return { ok: false, error: "No hay ninguna sugerencia para confirmar." };
+  }
+
+  const resultado = await prisma.movimientoBancario.updateMany({
+    where: { id: { in: ids }, ejecucionId: ejecucion.id, chequeIvaAmbiguo: false },
+    data: { sugeridaPorSistema: false },
+  });
+
+  revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+  return { ok: true, cantidad: resultado.count };
 }
 
 export async function eliminarMovimiento(
@@ -828,7 +925,19 @@ export async function eliminarMovimiento(
   numeroSemana: number,
   id: string
 ) {
-  await resolverPresupuestoParaOperar(empresaSlug, periodo);
+  const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
+  // Mismo hueco que actualizarMovimiento (auditoría 2026-09-08): sin esto, lo
+  // único que impedía borrar un movimiento de una semana CERRADA era que la
+  // página no te deja llegar a este botón — un llamado directo a la Server
+  // Action igual borraba la fila.
+  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  if (!ejecucion) {
+    throw new Error(`No encontré la semana ${numeroSemana}.`);
+  }
+  if (ejecucion.estado === "CERRADA") {
+    throw new Error("Esta semana ya está cerrada, no se puede editar.");
+  }
+
   await prisma.movimientoBancario.delete({ where: { id } });
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
 }
@@ -927,7 +1036,18 @@ export async function eliminarDesgloseMovimiento(
   numeroSemana: number,
   movimientoId: string
 ) {
-  await resolverPresupuestoParaOperar(empresaSlug, periodo);
+  const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
+  // Mismo hueco que actualizarMovimiento/eliminarMovimiento (auditoría
+  // 2026-09-08) — guardarDesgloseMovimiento (la contraparte que reemplaza el
+  // desglose) ya lo chequeaba; a esta le faltaba.
+  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  if (!ejecucion) {
+    throw new Error(`No encontré la semana ${numeroSemana}.`);
+  }
+  if (ejecucion.estado === "CERRADA") {
+    throw new Error("Esta semana ya está cerrada, no se puede editar.");
+  }
+
   await prisma.movimientoBancarioDesglose.deleteMany({ where: { movimientoId } });
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
 }

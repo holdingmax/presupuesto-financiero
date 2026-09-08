@@ -175,6 +175,25 @@ model MovimientoBancario {
   bancoYCuenta    String   // ej "MACRO 599", "GALICIA 891"
   clasificacion   String   // ej COBRANZAS, PROV Y SERV, SUELDOS, IMP Y PREVISIONALES...
   clasificacion2  String?
+  // true mientras `clasificacion` fue propuesta por el sistema (motor de
+  // leyenda en lib/clasificaciones.ts, o los cruces aplicarCruceLiquidacionFinal/
+  // aplicarCruceChequeIva en ejecucion/actions.ts) y todavía no pasó por la
+  // pantalla de "confirmar en lote" ni fue tocada a mano. Se limpia en
+  // actualizarMovimiento (CUALQUIER edición manual de clasificacion cuenta como
+  // confirmación, incluso reelegir el mismo valor — un <select> nativo no
+  // dispara onChange si el valor no cambia, así que esto no puede depender de
+  // comparar contra el valor anterior) y en confirmarClasificacionesEnLote
+  // (aceptar tal cual, sin tocar el valor). Default false: valor explícito del
+  // archivo, "SIN CLASIFICAR" (no es una sugerencia, es un vacío) y cualquier
+  // fila ya existente antes de este campo quedan como ya confirmadas.
+  sugeridaPorSistema Boolean @default(false)
+  // true solo cuando aplicarCruceChequeIva clasificó esta fila usando una
+  // ChequeIvaReferencia marcada duplicadoAmbiguo=true (más de un cheque real
+  // con el mismo N°+importe en la planilla de Macchi). La pantalla de lote la
+  // excluye del botón "Confirmar todas" del grupo — esas quedan para
+  // confirmación individual únicamente. Específico de este cruce puntual, no
+  // un estado genérico de ambigüedad.
+  chequeIvaAmbiguo   Boolean @default(false)
   unidadNegocio   String   // puede diferir de la empresa dueña de la cuenta bancaria
   detalle         String?
   detalle2        String?
