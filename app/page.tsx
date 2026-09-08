@@ -38,6 +38,9 @@ export default async function MisEmpresasPage() {
               <Link href="/admin/pago-referencia" className="underline underline-offset-2 hover:text-ink">
                 Pagos de referencia
               </Link>
+              <Link href="/admin/cheque-iva-referencia" className="underline underline-offset-2 hover:text-ink">
+                Cheques IVA de referencia
+              </Link>
             </>
           )}
           <Link href="/cuenta" className="underline underline-offset-2 hover:text-ink">

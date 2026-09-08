@@ -348,6 +348,74 @@ async function aplicarCruceLiquidacionFinal(
   return ambiguas;
 }
 
+// Cruza contra ChequeIvaReferencia (planilla de Macchi, ver
+// lib/chequeIvaReferencia.ts) para discriminar "IVA" de "CH DIFERIDOS IVA" en
+// movimientos "CHEQUE P/CAMARA" — PRIMERA VERSIÓN, acotada al único canal
+// validado (diagnóstico 2026-09-08): MovimientoBancario.nroReferencia +
+// importe contra N° de cheque + importe de la planilla, solo para filas cuyo
+// concepto contiene "CHEQUE P/CAMARA". El canal de texto embebido en el
+// concepto (casos sin nroReferencia) queda para una vuelta futura. IMPORTE CH
+// en la planilla siempre es positivo (libro de cheques de Macchi) mientras
+// que MovimientoBancario.importe trae el signo del banco (negativo, un
+// cheque negociado es una salida) — mismo Math.abs() y mismo motivo que en
+// aplicarCruceLiquidacionFinal. La dedup de lib/chequeIvaReferencia.ts ya
+// garantiza como máximo una fila por (numeroCheque, importeCh) en la tabla
+// — a diferencia de Liquidación final, acá no hay ambigüedad posible en el
+// cruce en sí, así que no hace falta ningún tipo de alerta de "candidatos
+// múltiples". Corre después de que la clasificación normal ya se resolvió y
+// la pisa solo cuando hay un match confiable — nunca la deja peor de lo que
+// ya estaba. "IVA"/"CH DIFERIDOS IVA" son categorías DISTINTAS de "CHEQUES
+// DIFERIDOS" (ya existente, otro significado) — no fusionar.
+async function aplicarCruceChequeIva(
+  filas: {
+    fecha: Date;
+    importe: number;
+    concepto: string;
+    nroReferencia: string | null;
+    clasificacion: string;
+  }[]
+): Promise<void> {
+  const elegibles = filas
+    .map((fila) => ({ fila, numeroCheque: Number(fila.nroReferencia) }))
+    .filter(
+      ({ fila, numeroCheque }) =>
+        fila.nroReferencia &&
+        Number.isFinite(numeroCheque) &&
+        quitarDiacriticos(fila.concepto).toUpperCase().includes("CHEQUE P/CAMARA")
+    );
+  if (elegibles.length === 0) return;
+
+  // Acotado a los N° de cheque presentes en este archivo — más preciso que
+  // acotar por rango de fechas (la fecha de negociación de la planilla puede
+  // caer en un mes distinto al de la fila, que es justamente lo que este
+  // cruce necesita comparar) y evita traer ChequeIvaReferencia entera.
+  const numeros = [...new Set(elegibles.map((e) => e.numeroCheque))];
+  const referencias = await prisma.chequeIvaReferencia.findMany({
+    where: { numeroCheque: { in: numeros } },
+  });
+  if (referencias.length === 0) return;
+
+  const porNumero = new Map<number, typeof referencias>();
+  for (const r of referencias) {
+    const grupo = porNumero.get(r.numeroCheque);
+    if (grupo) grupo.push(r);
+    else porNumero.set(r.numeroCheque, [r]);
+  }
+
+  for (const { fila, numeroCheque } of elegibles) {
+    const candidatos = (porNumero.get(numeroCheque) ?? []).filter(
+      (r) => Math.abs(Number(r.importeCh) - Math.abs(fila.importe)) < 0.01
+    );
+    if (candidatos.length !== 1) continue;
+
+    const referencia = candidatos[0];
+    const mismoMes =
+      fila.fecha.getFullYear() === referencia.fecha.getFullYear() &&
+      fila.fecha.getMonth() === referencia.fecha.getMonth();
+    fila.clasificacion = mismoMes ? "IVA" : "CH DIFERIDOS IVA";
+  }
+}
+
 export type ResultadoContinuidadSaldo = {
   bancoYCuenta: string;
   cantidad: number;
@@ -712,9 +780,12 @@ export async function subirExtracto(
   // Sobre las mismas filas en memoria, antes de descartar numeroFila para el createMany.
   const continuidadSaldo = verificarContinuidadSaldo(filas);
 
-  // Muta fila.clasificacion in-place cuando corresponde — tiene que correr
-  // antes del createMany de abajo.
+  // Ambas mutan fila.clasificacion in-place cuando corresponde — tienen que
+  // correr antes del createMany de abajo. Independientes entre sí (una mira
+  // Sueldos/Liquidación final, la otra CHEQUE P/CAMARA) — no compiten por la
+  // misma fila.
   const liquidacionesAmbiguas = await aplicarCruceLiquidacionFinal(filas);
+  await aplicarCruceChequeIva(filas);
 
   await prisma.movimientoBancario.createMany({
     data: filas.map(({ numeroFila, ...resto }) => ({ ...resto, ejecucionId: ejecucion.id })),

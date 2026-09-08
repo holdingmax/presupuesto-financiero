@@ -241,6 +241,39 @@ model PagoReferencia {
   @@index([fecha, importe])
 }
 
+// Snapshot de IVA_NUEVO4.xlsx (hoja "operaciones_cheques", planilla real de
+// Macchi) — mismo patrón que PagoReferencia: se reemplaza COMPLETA en cada
+// carga desde /admin, no acumula. Usada en subirExtracto para discriminar
+// "IVA" de "CH DIFERIDOS IVA" en movimientos "CHEQUE P/CAMARA", cruzando
+// por N° de cheque + importe contra MovimientoBancario.nroReferencia (ver
+// lib/chequeIvaReferencia.ts y aplicarCruceChequeIva en ejecucion/actions.ts).
+// "IVA"/"CH DIFERIDOS IVA" son categorías DISTINTAS de "CHEQUES DIFERIDOS"
+// (ya existente, otro significado) — no fusionar.
+model ChequeIvaReferencia {
+  id               String   @id @default(uuid())
+  fecha            DateTime // negociación, ya con forward-fill aplicado al parsear
+  empresa          String
+  razonSocial      String
+  numeroCheque     Int
+  banco            String
+  importeCh        Decimal  @db.Decimal(18, 2)
+  // La planilla trae mayormente una tasa (~0,02-0,03), pero algunas filas
+  // (5 de 8382, validado 2026-09) traen directamente un monto en pesos en
+  // esta columna en vez de la tasa — inconsistencia de carga de la fuente,
+  // no un error de parseo. Precisión generosa para no romper el import;
+  // este campo es anotación, no participa del cruce (ver lib/chequeIvaReferencia.ts).
+  comision         Decimal? @db.Decimal(14, 4)
+  aIngresar        Decimal? @db.Decimal(18, 2)
+  // true si esta fila "ganó" el desempate entre varias filas del archivo
+  // fuente con el mismo (numeroCheque, importeCh) — se usa igual para el
+  // cruce, pero queda marcada para una eventual revisión manual (ver
+  // lib/chequeIvaReferencia.ts). El sistema no la resuelve solo.
+  duplicadoAmbiguo Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  @@index([numeroCheque, importeCh])
+}
+
 // Comprobante/imagen de respaldo. Puede colgar de una línea de presupuesto
 // o de un movimiento bancario (el "ícono de ojo" que mencionó Vigo).
 model Adjunto {
