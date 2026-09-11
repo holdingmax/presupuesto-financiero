@@ -424,9 +424,19 @@ async function aplicarCruceChequeIva(
     if (candidatos.length !== 1) continue;
 
     const referencia = candidatos[0];
+    // getUTCFullYear()/getUTCMonth(), no getFullYear()/getMonth(): las fechas
+    // se guardan como medianoche UTC, y el proceso corre en hora de Argentina
+    // (UTC-3) — con los getters locales, cualquier fecha que caiga el día 1
+    // de un mes retrocede al mes anterior (medianoche UTC del 1° = 21hs del
+    // día 30/31 anterior en hora local), dando un "mismo mes" falso negativo
+    // exactamente en esos casos. Bug real encontrado 2026-09-11 armando una
+    // demo (referencia del 1/10/2018 comparada contra un movimiento del
+    // 15/10/2018 daba "distinto mes"). Mismo criterio que claveDuplicado más
+    // abajo, que ya usa .toISOString() en vez de getters locales por este
+    // motivo.
     const mismoMes =
-      fila.fecha.getFullYear() === referencia.fecha.getFullYear() &&
-      fila.fecha.getMonth() === referencia.fecha.getMonth();
+      fila.fecha.getUTCFullYear() === referencia.fecha.getUTCFullYear() &&
+      fila.fecha.getUTCMonth() === referencia.fecha.getUTCMonth();
     fila.clasificacion = mismoMes ? "IVA" : "CH DIFERIDOS IVA";
     fila.sugeridaPorSistema = true;
     fila.chequeIvaAmbiguo = referencia.duplicadoAmbiguo;
