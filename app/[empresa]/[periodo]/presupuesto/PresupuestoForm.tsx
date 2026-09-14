@@ -104,6 +104,13 @@ export default function PresupuestoForm({
 
   const [totalReferencia, setTotalReferencia] = useState("");
   const [errorValidar, setErrorValidar] = useState("");
+  // Puramente informativo: no transforma el valor de `importe` en ningún
+  // momento (el gerente sigue tipeando el número en positivo, como siempre)
+  // ni se persiste — no hay flujo de edición de líneas existentes (solo alta
+  // y borrado), así que no hace falta recordar esta elección entre sesiones.
+  // Sirve de recordatorio visual y para sugerir la clasificación típica de
+  // cada tipo (ver texto de ayuda debajo del campo Clasificación).
+  const [tipoLinea, setTipoLinea] = useState<"ingreso" | "egreso">("egreso");
 
   const validado = estado === "VALIDADO";
   const lineas = lineasIniciales.filter((l) => !eliminando.has(l.id));
@@ -292,9 +299,35 @@ export default function PresupuestoForm({
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="importe" className="block text-sm text-ink-secondary mb-1.5">
-                    Importe
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label htmlFor="importe" className="block text-sm text-ink-secondary">
+                      Importe
+                    </label>
+                    <div className="inline-flex rounded-md border border-line p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setTipoLinea("ingreso")}
+                        className={`px-2.5 py-1 rounded text-xs font-medium transition ${
+                          tipoLinea === "ingreso"
+                            ? "bg-positive/10 text-positive"
+                            : "text-ink-secondary hover:text-ink"
+                        }`}
+                      >
+                        Ingreso
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTipoLinea("egreso")}
+                        className={`px-2.5 py-1 rounded text-xs font-medium transition ${
+                          tipoLinea === "egreso"
+                            ? "bg-negative/10 text-negative"
+                            : "text-ink-secondary hover:text-ink"
+                        }`}
+                      >
+                        Egreso
+                      </button>
+                    </div>
+                  </div>
                   <CampoImporte
                     id="importe"
                     size="lg"
@@ -333,6 +366,11 @@ export default function PresupuestoForm({
                   {errores.clasificacion && (
                     <p className="mt-1 text-xs text-terracota">{errores.clasificacion}</p>
                   )}
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {tipoLinea === "ingreso"
+                      ? "Lo más común: COBRANZAS"
+                      : "Lo más común: Proveedores, Sueldos, Impuestos"}
+                  </p>
                 </div>
               </div>
 
