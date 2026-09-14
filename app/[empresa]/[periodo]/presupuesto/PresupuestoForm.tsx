@@ -103,6 +103,7 @@ export default function PresupuestoForm({
   const archivoMasivoRef = useRef<HTMLInputElement>(null);
 
   const [totalReferencia, setTotalReferencia] = useState("");
+  const [errorValidar, setErrorValidar] = useState("");
 
   const validado = estado === "VALIDADO";
   const lineas = lineasIniciales.filter((l) => !eliminando.has(l.id));
@@ -181,7 +182,12 @@ export default function PresupuestoForm({
     if (!confirm("¿Validar este presupuesto? Después de validarlo no se puede editar para atrás.")) {
       return;
     }
-    await validarPresupuesto(empresaSlug, periodoUrl);
+    setErrorValidar("");
+    const resultado = await validarPresupuesto(empresaSlug, periodoUrl);
+    if (!resultado.ok) {
+      setErrorValidar(resultado.error);
+      return;
+    }
     router.refresh();
   }
 
@@ -516,18 +522,25 @@ export default function PresupuestoForm({
       </div>
 
       {!validado && (
-        <div className="mt-10 flex items-center justify-between border-t border-line pt-6">
-          <p className="text-xs text-ink-muted max-w-xs">
-            Una vez que valides, el presupuesto de este mes queda cerrado. Cualquier corrección
-            se carga en el período siguiente.
-          </p>
-          <button
-            onClick={validar}
-            disabled={lineas.length === 0}
-            className="h-14 px-6 rounded-md bg-ink text-base font-semibold tracking-wide text-paper shadow-sm transition hover:bg-ink/90 hover:shadow-md active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-30"
-          >
-            Validar presupuesto
-          </button>
+        <div className="mt-10 border-t border-line pt-6">
+          {errorValidar && (
+            <p className="mb-4 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
+              {errorValidar}
+            </p>
+          )}
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-ink-muted max-w-xs">
+              Una vez que valides, el presupuesto de este mes queda cerrado. Cualquier corrección
+              se carga en el período siguiente.
+            </p>
+            <button
+              onClick={validar}
+              disabled={lineas.length === 0}
+              className="h-14 px-6 rounded-md bg-ink text-base font-semibold tracking-wide text-paper shadow-sm transition hover:bg-ink/90 hover:shadow-md active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              Validar presupuesto
+            </button>
+          </div>
         </div>
       )}
     </div>

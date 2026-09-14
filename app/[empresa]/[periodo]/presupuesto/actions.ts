@@ -214,13 +214,32 @@ export async function eliminarDesglose(empresaSlug: string, periodo: string, lin
   revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
 }
 
-export async function validarPresupuesto(empresaSlug: string, periodo: string) {
+type ResultadoValidar = { ok: true } | { ok: false; error: string };
+
+// No se puede validar un presupuesto sin ninguna línea cargada — un count()
+// simple alcanza: LineaPresupuesto no tiene borrado lógico (eliminarLinea
+// hace un delete real) ni puede tener importe 0 (ya lo impiden
+// agregarLinea/subirLineasMasivo), así que cualquier fila que exista acá es
+// una carga real.
+export async function validarPresupuesto(
+  empresaSlug: string,
+  periodo: string
+): Promise<ResultadoValidar> {
   const { presupuesto } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+
+  const cantidadLineas = await prisma.lineaPresupuesto.count({
+    where: { presupuestoId: presupuesto.id },
+  });
+  if (cantidadLineas === 0) {
+    return { ok: false, error: "No podés validar un presupuesto sin líneas cargadas." };
+  }
+
   await prisma.presupuestoMensual.update({
     where: { id: presupuesto.id },
     data: { estado: "VALIDADO", fechaValidacion: new Date() },
   });
   revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  return { ok: true };
 }
 
 // Una celda con fórmula viene de ExcelJS como { formula, result, ... } en vez de un número plano.
