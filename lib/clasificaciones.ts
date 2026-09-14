@@ -168,3 +168,35 @@ export async function calcularClasificacionesDisponibles() {
     ])
   ).sort((a, b) => a.localeCompare(b, "es"));
 }
+
+// Nombres de presentación para mostrarle a un gerente o a Salas (ej. el
+// reporte "PRESUPUESTO MES A MES") — SOLO para mostrar en pantalla, nunca
+// para guardar ni para comparar/filtrar contra la base. El valor técnico
+// ("IMP Y PREVISIONALES", "PROV Y SERV") sigue siendo el único que se
+// persiste y el que ya usan normalizarClasificacion/CLASIFICACIONES_SUGERIDAS
+// — fusionar nombres es una decisión de negocio pendiente (ver comentario
+// más arriba), esto no la toma, solo traduce para la pantalla. Mismo patrón
+// que CHEQUEOS_SUMA_CERO en ejecucion/actions.ts (que ya empareja 3 de estos
+// mismos valores con un nombre lindo, acotado a ese panel puntual) — acá se
+// generaliza para cualquier pantalla que lo necesite.
+//
+// Lista pensada para crecer: cada entrada es un nombre confirmado con
+// Macchi, no una traducción inventada (mismo criterio que
+// MAPEO_CLASIFICACION más arriba). "COM Y GTOS BRIOS" y "JPS" quedan
+// deliberadamente afuera — "COM Y GTOS BRIOS" está pendiente de confirmar
+// con Macchi, y "JPS" no es una sigla: es el nombre de una unidad de negocio
+// real (ver prisma/seed.ts), no necesita traducción.
+const NOMBRES_PRESENTACION_CLASIFICACION: Record<string, string> = {
+  "PROV Y SERV": "Proveedores",
+  "IMP Y PREVISIONALES": "Impuestos",
+  "DEP CH 3°": "Depósito de cheques de terceros",
+  "SAC": "Aguinaldo",
+  "FCI": "Fondos comunes de inversión",
+  "CH DIFERIDOS IVA": "Cheques diferidos IVA",
+};
+
+// Devuelve el nombre lindo si hay uno confirmado, o el valor técnico tal
+// cual si no (nunca deja una pantalla sin texto para mostrar).
+export function nombreParaMostrar(clasificacion: string): string {
+  return NOMBRES_PRESENTACION_CLASIFICACION[clasificacion] ?? clasificacion;
+}
