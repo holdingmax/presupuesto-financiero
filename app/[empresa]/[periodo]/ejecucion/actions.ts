@@ -1062,15 +1062,34 @@ export async function eliminarDesgloseMovimiento(
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
 }
 
-export async function cerrarSemana(empresaSlug: string, periodo: string, numeroSemana: number) {
+type ResultadoCerrarSemana = { ok: true } | { ok: false; error: string };
+
+// No se puede cerrar una semana que ya estaba CERRADA — sin este chequeo,
+// una segunda invocación pisaría fechaCierre con una marca de tiempo más
+// nueva sin que nada más lo justifique. Hallazgo del backlog (mismo criterio
+// de defensa en profundidad que actualizarMovimiento/eliminarMovimiento/
+// eliminarDesgloseMovimiento, commit 9e890a1) — hoy no hay ningún camino real
+// en la UI para disparar esto (el botón "Cierre semanal" no se renderiza si
+// la semana ya está cerrada), pero cubre el caso de invocar la Server Action
+// directo.
+export async function cerrarSemana(
+  empresaSlug: string,
+  periodo: string,
+  numeroSemana: number
+): Promise<ResultadoCerrarSemana> {
   const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
   const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
   if (!ejecucion) {
     throw new Error(`No encontré la semana ${numeroSemana}.`);
   }
+  if (ejecucion.estado === "CERRADA") {
+    return { ok: false, error: "Esta semana ya estaba cerrada." };
+  }
+
   await prisma.ejecucionSemanal.update({
     where: { id: ejecucion.id },
     data: { estado: "CERRADA", fechaCierre: new Date() },
   });
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+  return { ok: true };
 }

@@ -278,7 +278,11 @@ export default function PanelImputacion({
     ) {
       return;
     }
-    await cerrarSemana(empresaSlug, periodo, numeroSemana);
+    const resultado = await cerrarSemana(empresaSlug, periodo, numeroSemana);
+    if (!resultado.ok) {
+      alert(resultado.error);
+      return;
+    }
     router.refresh();
   }
 
