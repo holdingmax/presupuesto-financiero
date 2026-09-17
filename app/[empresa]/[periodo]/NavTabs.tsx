@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { segmento: "presupuesto", etiqueta: "Presupuesto" },
   { segmento: "ejecucion", etiqueta: "Ejecución financiera" },
+  { segmento: "reporte", etiqueta: "Reporte" },
 ] as const;
 
 type Props = {

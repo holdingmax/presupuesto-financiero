@@ -193,6 +193,10 @@ const NOMBRES_PRESENTACION_CLASIFICACION: Record<string, string> = {
   "SAC": "Aguinaldo",
   "FCI": "Fondos comunes de inversión",
   "CH DIFERIDOS IVA": "Cheques diferidos IVA",
+  "CHEQUES DIFERIDOS": "Cheques diferidos",
+  "COMISIONES ESPECIALES": "Comisiones especiales",
+  "OTROS": "Otros",
+  "PAGOS ESPECIALES": "Pagos especiales",
 };
 
 // Devuelve el nombre lindo si hay uno confirmado, o el valor técnico tal
