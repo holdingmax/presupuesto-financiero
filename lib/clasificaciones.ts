@@ -182,10 +182,9 @@ export async function calcularClasificacionesDisponibles() {
 //
 // Lista pensada para crecer: cada entrada es un nombre confirmado con
 // Macchi, no una traducción inventada (mismo criterio que
-// MAPEO_CLASIFICACION más arriba). "COM Y GTOS BRIOS" y "JPS" quedan
-// deliberadamente afuera — "COM Y GTOS BRIOS" está pendiente de confirmar
-// con Macchi, y "JPS" no es una sigla: es el nombre de una unidad de negocio
-// real (ver prisma/seed.ts), no necesita traducción.
+// MAPEO_CLASIFICACION más arriba). "JPS" queda deliberadamente afuera — no
+// es una sigla, es el nombre de una unidad de negocio real (ver
+// prisma/seed.ts), no necesita traducción.
 const NOMBRES_PRESENTACION_CLASIFICACION: Record<string, string> = {
   "PROV Y SERV": "Proveedores",
   "IMP Y PREVISIONALES": "Impuestos",
@@ -197,6 +196,15 @@ const NOMBRES_PRESENTACION_CLASIFICACION: Record<string, string> = {
   "COMISIONES ESPECIALES": "Comisiones especiales",
   "OTROS": "Otros",
   "PAGOS ESPECIALES": "Pagos especiales",
+  // Kike confirmó que "COM Y GTOS BRIOS" es literalmente la abreviatura de
+  // "Comisiones y gastos bancarios" — pero esto es SOLO el nombre para
+  // mostrar en pantalla. NO tocar MAPEO_CLASIFICACION ni
+  // normalizarClasificacion() por esto: hay una decisión de negocio previa
+  // (con 4.145 filas reales confirmadas) de que "COM Y GTOS BRIOS" no se
+  // fusiona con "Gastos bancarios" en los datos guardados — sigue siendo
+  // una clasificación técnica distinta, pendiente de aclarar esa
+  // contradicción con Kike. Mostrar un nombre lindo acá no decide eso.
+  "COM Y GTOS BRIOS": "Comisiones y gastos bancarios",
 };
 
 // Devuelve el nombre lindo si hay uno confirmado, o el valor técnico tal
