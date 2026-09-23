@@ -45,6 +45,14 @@ type Props = {
   clasificacionesDisponibles: string[];
 };
 
+// Valor especial del <select> de Clasificación que dispara el campo de texto
+// condicional — no es una clasificación real, nunca se manda tal cual a
+// agregarLinea (ver agregar() más abajo, que la reemplaza por
+// clasificacionNueva antes de enviar). Pedido de Kike: forzar a elegir "es una
+// clasificación nueva" a propósito, en vez de texto libre, para distinguir una
+// categoría nueva deliberada de un error de tipeo de una existente.
+const OPCION_CLASIFICACION_NUEVA = "__nueva__";
+
 const MESES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
   "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
@@ -81,6 +89,7 @@ export default function PresupuestoForm({
   const [detalle, setDetalle] = useState("");
   const [importe, setImporte] = useState("");
   const [clasificacion, setClasificacion] = useState("");
+  const [clasificacionNueva, setClasificacionNueva] = useState("");
   const [errores, setErrores] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -127,11 +136,14 @@ export default function PresupuestoForm({
     setGuardando(true);
     setErrores({});
 
+    const clasificacionFinal =
+      clasificacion === OPCION_CLASIFICACION_NUEVA ? clasificacionNueva.trim() : clasificacion;
+
     const resultado = await agregarLinea(empresaSlug, periodoUrl, {
       concepto,
       detalle,
       importe,
-      clasificacion,
+      clasificacion: clasificacionFinal,
     });
 
     if (!resultado.ok) {
@@ -144,6 +156,7 @@ export default function PresupuestoForm({
     setDetalle("");
     setImporte("");
     setClasificacion("");
+    setClasificacionNueva("");
     if (fileInputRef.current) fileInputRef.current.value = "";
     setGuardando(false);
     router.refresh();
@@ -345,24 +358,44 @@ export default function PresupuestoForm({
                   <label htmlFor="clasificacion" className="block text-sm text-ink-secondary mb-1.5">
                     Clasificación
                   </label>
-                  <input
+                  <select
                     id="clasificacion"
-                    list="rubros"
                     value={clasificacion}
                     onChange={(e) => {
                       setClasificacion(e.target.value);
+                      if (e.target.value !== OPCION_CLASIFICACION_NUEVA) setClasificacionNueva("");
                       limpiarError("clasificacion");
                     }}
-                    placeholder="Ej: Proveedores"
                     className={`w-full h-12 rounded-md border bg-paper px-3.5 text-[15px] outline-none focus:ring-2 focus:ring-marino/15 ${
                       errores.clasificacion ? "border-terracota" : "border-line focus:border-marino"
                     }`}
-                  />
-                  <datalist id="rubros">
+                  >
+                    <option value="" disabled>
+                      Elegí una clasificación
+                    </option>
                     {clasificacionesDisponibles.map((r) => (
-                      <option key={r} value={r} />
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
                     ))}
-                  </datalist>
+                    <option value={OPCION_CLASIFICACION_NUEVA}>
+                      + Es una clasificación nueva, no está en la lista
+                    </option>
+                  </select>
+                  {clasificacion === OPCION_CLASIFICACION_NUEVA && (
+                    <input
+                      value={clasificacionNueva}
+                      onChange={(e) => {
+                        setClasificacionNueva(e.target.value);
+                        limpiarError("clasificacion");
+                      }}
+                      placeholder="Nombre de la clasificación nueva"
+                      required
+                      className={`mt-2 w-full h-12 rounded-md border bg-paper px-3.5 text-[15px] outline-none focus:ring-2 focus:ring-marino/15 ${
+                        errores.clasificacion ? "border-terracota" : "border-line focus:border-marino"
+                      }`}
+                    />
+                  )}
                   {errores.clasificacion && (
                     <p className="mt-1 text-xs text-terracota">{errores.clasificacion}</p>
                   )}
