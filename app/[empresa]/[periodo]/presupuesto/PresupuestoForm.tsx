@@ -14,6 +14,7 @@ import { esElegibleParaDesglose } from "@/lib/clasificaciones";
 import {
   CLASIFICACIONES_PRESUPUESTO_INGRESO,
   CLASIFICACIONES_PRESUPUESTO_EGRESO,
+  obtenerAyudaClasificacion,
 } from "./clasificacionesPresupuesto";
 import DesglosePanel from "./DesglosePanel";
 import EditarLineaPanel from "./EditarLineaPanel";
@@ -146,6 +147,10 @@ export default function PresupuestoForm({
   // con acceso (como siempre); en EN_REVISION, solo el revisor; en VALIDADO,
   // nadie.
   const puedeEditarAhora = estado === "ABIERTO" || (enRevision && esRevisor);
+  // OPCION_CLASIFICACION_NUEVA no es un valorPersistido real — nunca hay
+  // leyenda de ayuda para ese sentinel.
+  const ayudaClasificacion =
+    clasificacion !== OPCION_CLASIFICACION_NUEVA ? obtenerAyudaClasificacion(clasificacion) : null;
   const lineas = lineasIniciales.filter((l) => !eliminando.has(l.id));
   const totalCargado = lineas.reduce((acc, l) => acc + l.importe, 0);
 
@@ -486,6 +491,9 @@ export default function PresupuestoForm({
                       ? "Lo más común: Cobranzas"
                       : "Lo más común: Proveedores, Sueldos, Impuestos"}
                   </p>
+                  {ayudaClasificacion && (
+                    <p className="mt-1 text-xs text-ink-muted">{ayudaClasificacion}</p>
+                  )}
                 </div>
               </div>
 

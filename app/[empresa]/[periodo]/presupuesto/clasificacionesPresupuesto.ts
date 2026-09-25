@@ -70,3 +70,46 @@ export const CLASIFICACIONES_PRESUPUESTO_TODAS: OpcionClasificacionPresupuesto[]
   ...CLASIFICACIONES_PRESUPUESTO_INGRESO,
   ...CLASIFICACIONES_PRESUPUESTO_EGRESO,
 ];
+
+// Leyendas de ayuda para Clasificación, confirmadas por Kike (2026-09-26) —
+// mismo criterio que NOMBRES_PRESENTACION_CLASIFICACION en
+// lib/clasificaciones.ts: solo entran acá los casos confirmados, nunca una
+// traducción/explicación inventada. Indexado por valorPersistido (no por
+// textoVisible) — así "Préstamo Cocos"/"Préstamo MS", que aparecen
+// duplicados como objeto completo en Ingreso y en Egreso, comparten una sola
+// entrada acá en vez de tener que repetirse.
+//
+// Sin entrada a propósito, pendientes de confirmar con Kike: "Préstamo
+// Cocos", "Préstamo MS" y "Sueldos" — esta última en particular es
+// deliberada (parece obvia, pero no hay que asumir que no necesita
+// explicación sin que él lo confirme).
+const AYUDA_CLASIFICACION_PRESUPUESTO: Record<string, string> = {
+  "CHEQUES DIFERIDOS":
+    "Cheques emitidos un mes que todavía no fueron cobrados y pueden ingresar el mes siguiente.",
+  "COMISIONES ESPECIALES":
+    "Cuando se contabiliza un mayor especial — tratamiento manual, no automatizado.",
+  "IVA":
+    "Operaciones para hacerse de efectivo, mandando cheques a la financiera a cambio de efectivo con un costo.",
+  "OTROS": "Reintegros de obra social y fondo fijo (específico de Fredy Publicidad).",
+  "PAGOS ESPECIALES": "Personas que prestan su nombre/CUIT y cobran por eso.",
+  "INVERSIONES": "Gastos cuando el negocio compra maquinaria o abre un nuevo local.",
+  "SAC": "Sueldo Anual Complementario (aguinaldo) — pago obligatorio de ley en junio y diciembre.",
+  "Dividendos": "Parte de las ganancias que la empresa reparte entre sus dueños/socios.",
+  "Juicios": "Pagos relacionados con demandas o procesos judiciales en curso.",
+  "Intereses FCI": "Intereses generados por dinero colocado en un Fondo Común de Inversión.",
+  "Prestamos y tarjetas":
+    "Pago de cuotas o intereses de préstamos bancarios o tarjetas de crédito.",
+  "EXPENSAS": "Gastos de mantenimiento de un edificio u oficina.",
+  "Gastos bancarios": "Comisiones que cobra el banco por mantener cuentas y hacer operaciones.",
+  "IMP Y PREVISIONALES":
+    "Pago de impuestos y aportes obligatorios (como los de seguridad social).",
+  "Liquidación final": "Pago que se hace a un empleado cuando deja la empresa.",
+  "PROV Y SERV": "Pagos a quienes venden productos o servicios al negocio.",
+  "COBRANZAS": "Dinero que entra por cobrar ventas o servicios a los clientes.",
+};
+
+// null cuando no hay leyenda confirmada — el llamador tiene que ocultar el
+// elemento, no mostrar un texto genérico ni inventado.
+export function obtenerAyudaClasificacion(valorPersistido: string): string | null {
+  return AYUDA_CLASIFICACION_PRESUPUESTO[valorPersistido] ?? null;
+}

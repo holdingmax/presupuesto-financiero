@@ -4,7 +4,10 @@ import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { editarLinea } from "./actions";
 import { OPCION_CLASIFICACION_NUEVA } from "./PresupuestoForm";
-import { CLASIFICACIONES_PRESUPUESTO_TODAS } from "./clasificacionesPresupuesto";
+import {
+  CLASIFICACIONES_PRESUPUESTO_TODAS,
+  obtenerAyudaClasificacion,
+} from "./clasificacionesPresupuesto";
 import CampoImporte from "@/components/CampoImporte";
 
 type Props = {
@@ -44,6 +47,11 @@ export default function EditarLineaPanel({ lineaId, valoresIniciales, onCerrar }
   );
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [guardando, setGuardando] = useState(false);
+
+  // OPCION_CLASIFICACION_NUEVA no es un valorPersistido real — nunca hay
+  // leyenda de ayuda para ese sentinel.
+  const ayudaClasificacion =
+    clasificacion !== OPCION_CLASIFICACION_NUEVA ? obtenerAyudaClasificacion(clasificacion) : null;
 
   function limpiarError(campo: string) {
     setErrores((prev) => {
@@ -170,6 +178,9 @@ export default function EditarLineaPanel({ lineaId, valoresIniciales, onCerrar }
           )}
           {errores.clasificacion && (
             <p className="mt-1 text-xs text-terracota">{errores.clasificacion}</p>
+          )}
+          {ayudaClasificacion && (
+            <p className="mt-1 text-xs text-ink-muted">{ayudaClasificacion}</p>
           )}
         </div>
       </div>
