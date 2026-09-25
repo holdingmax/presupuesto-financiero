@@ -7,11 +7,7 @@ import type { PresupuestoMensual, Usuario } from "@prisma/client";
 import { resolverEmpresaPorSlug, quitarDiacriticos } from "@/lib/slug";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
 import { requireAccesoEmpresa, puedeRevisarPresupuesto } from "@/lib/auth";
-import {
-  calcularClasificacionesDisponibles,
-  normalizarClasificacion,
-  esElegibleParaDesglose,
-} from "@/lib/clasificaciones";
+import { normalizarClasificacion, esElegibleParaDesglose } from "@/lib/clasificaciones";
 import { parsearImporteArgentino } from "@/lib/numero";
 
 // Mismo mapeo por nombre de columna que ya usa subirExtracto en
@@ -113,11 +109,6 @@ function validarCamposLinea(datos: {
 }
 
 export async function obtenerDatos(empresaSlug: string, periodo: string) {
-  // No depende de empresa/presupuesto (es una query global) — se dispara ya para que
-  // corra en paralelo con la resolución de abajo, mismo patrón que obtenerDatosSemana
-  // en ejecucion/actions.ts.
-  const clasificacionesPromise = calcularClasificacionesDisponibles();
-
   const { empresa, presupuesto, usuario } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
   const [lineas, esRevisor] = await Promise.all([
     prisma.lineaPresupuesto.findMany({
@@ -135,7 +126,6 @@ export async function obtenerDatos(empresaSlug: string, periodo: string) {
     fueModificadoPorRevisor: presupuesto.fueModificadoPorRevisor,
     revisionCompletada: presupuesto.revisionCompletada,
     esRevisor,
-    clasificacionesDisponibles: await clasificacionesPromise,
     lineas: lineas.map((l) => ({
       id: l.id,
       concepto: l.concepto,

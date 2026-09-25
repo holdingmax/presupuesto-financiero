@@ -31,7 +31,6 @@ export default async function PresupuestoPage({ params }: Props) {
       revisionCompletada={datos.revisionCompletada}
       esRevisor={datos.esRevisor}
       lineasIniciales={datos.lineas}
-      clasificacionesDisponibles={datos.clasificacionesDisponibles}
     />
   );
 }

@@ -11,6 +11,10 @@ import {
   subirLineasMasivo,
 } from "./actions";
 import { esElegibleParaDesglose } from "@/lib/clasificaciones";
+import {
+  CLASIFICACIONES_PRESUPUESTO_INGRESO,
+  CLASIFICACIONES_PRESUPUESTO_EGRESO,
+} from "./clasificacionesPresupuesto";
 import DesglosePanel from "./DesglosePanel";
 import EditarLineaPanel from "./EditarLineaPanel";
 import CampoImporte from "@/components/CampoImporte";
@@ -53,7 +57,6 @@ type Props = {
   revisionCompletada: boolean;
   esRevisor: boolean;
   lineasIniciales: Linea[];
-  clasificacionesDisponibles: string[];
 };
 
 // Valor especial del <select> de Clasificación que dispara el campo de texto
@@ -87,7 +90,6 @@ export default function PresupuestoForm({
   revisionCompletada,
   esRevisor,
   lineasIniciales,
-  clasificacionesDisponibles,
 }: Props) {
   const router = useRouter();
   const { empresa: empresaSlug, periodo: periodoUrl } = useParams<{
@@ -450,9 +452,12 @@ export default function PresupuestoForm({
                     <option value="" disabled>
                       Elegí una clasificación
                     </option>
-                    {clasificacionesDisponibles.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
+                    {(tipoLinea === "ingreso"
+                      ? CLASIFICACIONES_PRESUPUESTO_INGRESO
+                      : CLASIFICACIONES_PRESUPUESTO_EGRESO
+                    ).map((o) => (
+                      <option key={o.valorPersistido} value={o.valorPersistido}>
+                        {o.textoVisible}
                       </option>
                     ))}
                     <option value={OPCION_CLASIFICACION_NUEVA}>
@@ -478,7 +483,7 @@ export default function PresupuestoForm({
                   )}
                   <p className="mt-1 text-xs text-ink-muted">
                     {tipoLinea === "ingreso"
-                      ? "Lo más común: COBRANZAS"
+                      ? "Lo más común: Cobranzas"
                       : "Lo más común: Proveedores, Sueldos, Impuestos"}
                   </p>
                 </div>
@@ -677,7 +682,6 @@ export default function PresupuestoForm({
                           importe: linea.importe,
                           clasificacion: linea.clasificacion,
                         }}
-                        clasificacionesDisponibles={clasificacionesDisponibles}
                         onCerrar={() => setEditandoId(null)}
                       />
                     </div>

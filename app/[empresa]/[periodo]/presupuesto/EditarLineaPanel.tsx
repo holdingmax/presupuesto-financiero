@@ -4,35 +4,34 @@ import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { editarLinea } from "./actions";
 import { OPCION_CLASIFICACION_NUEVA } from "./PresupuestoForm";
+import { CLASIFICACIONES_PRESUPUESTO_TODAS } from "./clasificacionesPresupuesto";
 import CampoImporte from "@/components/CampoImporte";
 
 type Props = {
   lineaId: string;
   valoresIniciales: { concepto: string; detalle: string; importe: number; clasificacion: string };
-  clasificacionesDisponibles: string[];
   onCerrar: () => void;
 };
 
 // Mismo patrón visual que DesglosePanel.tsx (panel que se expande debajo de
 // la fila), y mismo criterio de <select>+"clasificación nueva" que el alta
-// en PresupuestoForm.tsx. Si la clasificación actual de la línea no está en
-// clasificacionesDisponibles (ej. fue tipeada como "nueva" en su momento, o
-// el listado curado cambió después), el <select> arranca ya en la opción
-// "nueva" con el valor real precargado en el campo de texto — nunca la deja
-// en un <option> que no existe.
-export default function EditarLineaPanel({
-  lineaId,
-  valoresIniciales,
-  clasificacionesDisponibles,
-  onCerrar,
-}: Props) {
+// en PresupuestoForm.tsx. Este panel no tiene toggle Ingreso/Egreso (edita
+// una línea ya cargada, no tiene sentido re-tipificarla acá) — muestra las
+// 22 opciones combinadas (Ingreso + Egreso) sin filtrar, a propósito. Si la
+// clasificación actual de la línea no está en esa lista (ej. fue tipeada
+// como "nueva" en su momento, o el listado curado cambió después), el
+// <select> arranca ya en la opción "nueva" con el valor real precargado en
+// el campo de texto — nunca la deja en un <option> que no existe.
+export default function EditarLineaPanel({ lineaId, valoresIniciales, onCerrar }: Props) {
   const router = useRouter();
   const { empresa: empresaSlug, periodo: periodoUrl } = useParams<{
     empresa: string;
     periodo: string;
   }>();
 
-  const clasificacionEsConocida = clasificacionesDisponibles.includes(valoresIniciales.clasificacion);
+  const clasificacionEsConocida = CLASIFICACIONES_PRESUPUESTO_TODAS.some(
+    (o) => o.valorPersistido === valoresIniciales.clasificacion
+  );
 
   const [concepto, setConcepto] = useState(valoresIniciales.concepto);
   const [detalle, setDetalle] = useState(valoresIniciales.detalle);
@@ -146,9 +145,9 @@ export default function EditarLineaPanel({
             <option value="" disabled>
               Elegí una clasificación
             </option>
-            {clasificacionesDisponibles.map((r) => (
-              <option key={r} value={r}>
-                {r}
+            {CLASIFICACIONES_PRESUPUESTO_TODAS.map((o) => (
+              <option key={o.valorPersistido} value={o.valorPersistido}>
+                {o.textoVisible}
               </option>
             ))}
             <option value={OPCION_CLASIFICACION_NUEVA}>
