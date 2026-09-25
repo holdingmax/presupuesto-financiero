@@ -2,9 +2,17 @@
 
 import { useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { agregarLinea, eliminarLinea, validarPresupuesto, subirLineasMasivo } from "./actions";
+import {
+  agregarLinea,
+  eliminarLinea,
+  enviarARevision,
+  marcarRevisionCompletada,
+  confirmarVersionFinal,
+  subirLineasMasivo,
+} from "./actions";
 import { esElegibleParaDesglose } from "@/lib/clasificaciones";
 import DesglosePanel from "./DesglosePanel";
+import EditarLineaPanel from "./EditarLineaPanel";
 import CampoImporte from "@/components/CampoImporte";
 
 type Linea = {
@@ -41,6 +49,9 @@ type Props = {
   empresaNombre: string;
   periodo: string;
   estado: string;
+  fueModificadoPorRevisor: boolean;
+  revisionCompletada: boolean;
+  esRevisor: boolean;
   lineasIniciales: Linea[];
   clasificacionesDisponibles: string[];
 };
@@ -51,7 +62,7 @@ type Props = {
 // clasificacionNueva antes de enviar). Pedido de Kike: forzar a elegir "es una
 // clasificación nueva" a propósito, en vez de texto libre, para distinguir una
 // categoría nueva deliberada de un error de tipeo de una existente.
-const OPCION_CLASIFICACION_NUEVA = "__nueva__";
+export const OPCION_CLASIFICACION_NUEVA = "__nueva__";
 
 const MESES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -72,6 +83,9 @@ export default function PresupuestoForm({
   empresaNombre,
   periodo,
   estado,
+  fueModificadoPorRevisor,
+  revisionCompletada,
+  esRevisor,
   lineasIniciales,
   clasificacionesDisponibles,
 }: Props) {
@@ -84,6 +98,7 @@ export default function PresupuestoForm({
   const [eliminando, setEliminando] = useState<Set<string>>(new Set());
   const [guardando, setGuardando] = useState(false);
   const [desgloseAbiertoId, setDesgloseAbiertoId] = useState<string | null>(null);
+  const [editandoId, setEditandoId] = useState<string | null>(null);
 
   const [concepto, setConcepto] = useState("");
   const [detalle, setDetalle] = useState("");
@@ -122,6 +137,13 @@ export default function PresupuestoForm({
   const [tipoLinea, setTipoLinea] = useState<"ingreso" | "egreso">("egreso");
 
   const validado = estado === "VALIDADO";
+  const enRevision = estado === "EN_REVISION";
+  // Quién puede agregar/editar/borrar líneas AHORA (gate del cliente, solo
+  // para mostrar/ocultar controles — el server repite exactamente esta misma
+  // regla en autorizarEdicionLinea, ver actions.ts): en ABIERTO, cualquiera
+  // con acceso (como siempre); en EN_REVISION, solo el revisor; en VALIDADO,
+  // nadie.
+  const puedeEditarAhora = estado === "ABIERTO" || (enRevision && esRevisor);
   const lineas = lineasIniciales.filter((l) => !eliminando.has(l.id));
   const totalCargado = lineas.reduce((acc, l) => acc + l.importe, 0);
 
@@ -164,7 +186,16 @@ export default function PresupuestoForm({
 
   async function quitar(id: string) {
     setEliminando((prev) => new Set(prev).add(id));
-    await eliminarLinea(empresaSlug, periodoUrl, id);
+    const resultado = await eliminarLinea(empresaSlug, periodoUrl, id);
+    if (!resultado.ok) {
+      alert(resultado.error);
+      setEliminando((prev) => {
+        const siguiente = new Set(prev);
+        siguiente.delete(id);
+        return siguiente;
+      });
+      return;
+    }
     router.refresh();
   }
 
@@ -198,12 +229,35 @@ export default function PresupuestoForm({
     router.refresh();
   }
 
-  async function validar() {
-    if (!confirm("¿Validar este presupuesto? Después de validarlo no se puede editar para atrás.")) {
+  async function handleEnviarARevision() {
+    if (!confirm("¿Enviar este presupuesto a revisión? Vos ya no vas a poder seguir editándolo mientras dure.")) {
       return;
     }
     setErrorValidar("");
-    const resultado = await validarPresupuesto(empresaSlug, periodoUrl);
+    const resultado = await enviarARevision(empresaSlug, periodoUrl);
+    if (!resultado.ok) {
+      setErrorValidar(resultado.error);
+      return;
+    }
+    router.refresh();
+  }
+
+  async function handleTerminarRevision() {
+    setErrorValidar("");
+    const resultado = await marcarRevisionCompletada(empresaSlug, periodoUrl);
+    if (!resultado.ok) {
+      setErrorValidar(resultado.error);
+      return;
+    }
+    router.refresh();
+  }
+
+  async function handleConfirmarVersionFinal() {
+    if (!confirm("¿Confirmar la versión final? Después de esto no se puede editar para atrás.")) {
+      return;
+    }
+    setErrorValidar("");
+    const resultado = await confirmarVersionFinal(empresaSlug, periodoUrl);
     if (!resultado.ok) {
       setErrorValidar(resultado.error);
       return;
@@ -225,10 +279,14 @@ export default function PresupuestoForm({
         </div>
         <span
           className={`text-xs px-2.5 py-1 rounded-md ${
-            validado ? "bg-terracota-tint text-terracota" : "bg-marino-tint text-marino"
+            validado
+              ? "bg-terracota-tint text-terracota"
+              : enRevision
+                ? "bg-plata/20 text-ink-secondary"
+                : "bg-marino-tint text-marino"
           }`}
         >
-          {validado ? "Validado" : "Abierto"}
+          {validado ? "Validado" : enRevision ? "En revisión" : "Abierto"}
         </span>
       </div>
 
@@ -239,7 +297,26 @@ export default function PresupuestoForm({
         </p>
       )}
 
-      {!validado && (
+      {enRevision && !esRevisor && (
+        <div className="mb-6 space-y-2">
+          <p className="text-sm text-ink-secondary bg-plata/20 rounded-md px-3 py-2">
+            {revisionCompletada
+              ? "La revisión de este presupuesto está terminada. Revisá la versión final y confirmá."
+              : "Este presupuesto está en revisión — no podés editarlo mientras dure."}
+          </p>
+          {fueModificadoPorRevisor && (
+            <p className="text-xs text-ink-muted">Se hicieron cambios en este presupuesto durante la revisión.</p>
+          )}
+        </div>
+      )}
+
+      {enRevision && esRevisor && (
+        <p className="mb-6 text-sm text-ink-secondary bg-plata/20 rounded-md px-3 py-2">
+          Este presupuesto está en revisión — estás editando como revisor.
+        </p>
+      )}
+
+      {puedeEditarAhora && (
         <div className="mb-10 rounded-lg border border-line-strong border-l-4 border-l-marino bg-paper-raised px-6 py-8 shadow-md shadow-ink/10 sm:px-8 sm:py-10">
           <div className="flex gap-1 mb-6 border-b border-line">
             <button
@@ -532,10 +609,17 @@ export default function PresupuestoForm({
               const elegible = esElegibleParaDesglose(linea.clasificacion);
               const desglosada = linea.desglose.length > 0;
               const expandida = desgloseAbiertoId === linea.id;
+              const editando = editandoId === linea.id;
+              // El botón de editar solo se muestra para el revisor en
+              // EN_REVISION (pedido explícito) — en ABIERTO el server también
+              // lo permitiría (mismo gate que agregarLinea), pero la UI no lo
+              // ofrece ahí: se mantiene el formulario simple de siempre para
+              // esa etapa.
+              const puedeEditarEstaLinea = enRevision && esRevisor;
               return (
                 <div key={linea.id} className="border-b border-line">
                   <div className="group grid grid-cols-[auto_1fr_auto_auto_auto] items-baseline gap-x-3 py-3">
-                    {elegible && !validado ? (
+                    {elegible && puedeEditarAhora ? (
                       <button
                         type="button"
                         onClick={() => setDesgloseAbiertoId(expandida ? null : linea.id)}
@@ -564,17 +648,40 @@ export default function PresupuestoForm({
                       ${formatearImporte(linea.importe)}
                     </span>
                     <span className="w-0" />
-                    {!validado ? (
-                      <button
-                        onClick={() => quitar(linea.id)}
-                        className="text-xs text-ink-muted opacity-0 group-hover:opacity-100 hover:text-terracota transition"
-                      >
-                        Quitar
-                      </button>
-                    ) : (
-                      <span />
-                    )}
+                    <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition">
+                      {puedeEditarEstaLinea && (
+                        <button
+                          onClick={() => setEditandoId(editando ? null : linea.id)}
+                          className="text-xs text-ink-muted hover:text-marino transition"
+                        >
+                          Editar
+                        </button>
+                      )}
+                      {puedeEditarAhora && (
+                        <button
+                          onClick={() => quitar(linea.id)}
+                          className="text-xs text-ink-muted hover:text-terracota transition"
+                        >
+                          Quitar
+                        </button>
+                      )}
+                    </div>
                   </div>
+                  {editando && (
+                    <div className="pb-3 pl-6">
+                      <EditarLineaPanel
+                        lineaId={linea.id}
+                        valoresIniciales={{
+                          concepto: linea.concepto,
+                          detalle: linea.detalle,
+                          importe: linea.importe,
+                          clasificacion: linea.clasificacion,
+                        }}
+                        clasificacionesDisponibles={clasificacionesDisponibles}
+                        onCerrar={() => setEditandoId(null)}
+                      />
+                    </div>
+                  )}
                   {expandida && (
                     <div className="pb-3 pl-6">
                       <DesglosePanel
@@ -599,19 +706,60 @@ export default function PresupuestoForm({
               {errorValidar}
             </p>
           )}
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-ink-muted max-w-xs">
-              Una vez que valides, el presupuesto de este mes queda cerrado. Cualquier corrección
-              se carga en el período siguiente.
-            </p>
-            <button
-              onClick={validar}
-              disabled={lineas.length === 0}
-              className="h-14 px-6 rounded-md bg-ink text-base font-semibold tracking-wide text-paper shadow-sm transition hover:bg-ink/90 hover:shadow-md active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-30"
-            >
-              Validar presupuesto
-            </button>
-          </div>
+
+          {estado === "ABIERTO" && (
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-ink-muted max-w-xs">
+                Una vez que la envíes a revisión, vos ya no vas a poder editarla más. Cualquier
+                corrección la carga quien revisa.
+              </p>
+              <button
+                onClick={handleEnviarARevision}
+                disabled={lineas.length === 0}
+                className="h-14 px-6 rounded-md bg-ink text-base font-semibold tracking-wide text-paper shadow-sm transition hover:bg-ink/90 hover:shadow-md active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-30"
+              >
+                Enviar a revisión
+              </button>
+            </div>
+          )}
+
+          {enRevision && esRevisor && !revisionCompletada && (
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-ink-muted max-w-xs">
+                Cuando termines de revisar, marcalo acá — recién ahí se puede confirmar la versión
+                final.
+              </p>
+              <button
+                onClick={handleTerminarRevision}
+                className="h-14 px-6 rounded-md bg-ink text-base font-semibold tracking-wide text-paper shadow-sm transition hover:bg-ink/90 hover:shadow-md active:scale-[0.99]"
+              >
+                Terminé de revisar
+              </button>
+            </div>
+          )}
+
+          {/* Ojo con esRevisor acá: NO es el mismo gate que el botón de
+              arriba. confirmarVersionFinal no exige ser revisor (cualquiera
+              con acceso puede confirmar una vez revisionCompletada) — a
+              propósito, porque alguien que es gerente Y revisor a la vez de
+              la misma empresa (ej. Kike en Handy Way, o cualquier ADMIN, que
+              siempre pasa puedeRevisarPresupuesto) tiene que poder terminar
+              su propio flujo solo, sin quedar sin botón. Gatearlo con
+              !esRevisor dejaría a esas personas trabadas para siempre. */}
+          {enRevision && revisionCompletada && (
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-ink-muted max-w-xs">
+                Una vez que confirmes, el presupuesto de este mes queda cerrado. Cualquier
+                corrección se carga en el período siguiente.
+              </p>
+              <button
+                onClick={handleConfirmarVersionFinal}
+                className="h-14 px-6 rounded-md bg-ink text-base font-semibold tracking-wide text-paper shadow-sm transition hover:bg-ink/90 hover:shadow-md active:scale-[0.99]"
+              >
+                Confirmar versión final
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

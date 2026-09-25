@@ -146,6 +146,18 @@ export const requireOperadorEjecucion = cache(async (empresaId: string): Promise
   return usuario;
 });
 
+// Análogo a puedeOperarEjecucion, pero para el paso de revisión de
+// Presupuesto (ver EstadoPresupuesto.EN_REVISION en schema.prisma): solo
+// quien tiene esto puede editar un presupuesto mientras está en revisión.
+// Mismo bypass de ADMIN, mismo permiso por fila de UsuarioEmpresa.
+export async function puedeRevisarPresupuesto(usuario: Usuario, empresaId: string) {
+  if (usuario.rol === "ADMIN") return true;
+  const acceso = await prisma.usuarioEmpresa.findUnique({
+    where: { usuarioId_empresaId: { usuarioId: usuario.id, empresaId } },
+  });
+  return acceso?.puedeRevisarPresupuesto ?? false;
+}
+
 // Hermana de AccesoDenegadoError, para el mismo propósito: los page.tsx de
 // lectura bajo /admin/usuarios la atrapan y devuelven null en vez de dejar
 // que se vea como un error sin manejar (ver comentario en esos archivos).

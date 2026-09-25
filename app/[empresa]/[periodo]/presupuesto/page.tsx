@@ -27,6 +27,9 @@ export default async function PresupuestoPage({ params }: Props) {
       empresaNombre={datos.empresaNombre}
       periodo={datos.periodo}
       estado={datos.estado}
+      fueModificadoPorRevisor={datos.fueModificadoPorRevisor}
+      revisionCompletada={datos.revisionCompletada}
+      esRevisor={datos.esRevisor}
       lineasIniciales={datos.lineas}
       clasificacionesDisponibles={datos.clasificacionesDisponibles}
     />

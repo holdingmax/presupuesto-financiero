@@ -79,8 +79,12 @@ export default function DesglosePanel({ lineaId, importeLinea, desgloseInicial, 
 
   async function quitarDesglose() {
     setQuitando(true);
-    await eliminarDesglose(empresaSlug, periodoUrl, lineaId);
+    const resultado = await eliminarDesglose(empresaSlug, periodoUrl, lineaId);
     setQuitando(false);
+    if (!resultado.ok) {
+      alert(resultado.error);
+      return;
+    }
     router.refresh();
     onCerrar();
   }

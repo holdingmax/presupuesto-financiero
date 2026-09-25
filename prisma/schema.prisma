@@ -18,6 +18,7 @@ enum Rol {
 
 enum EstadoPresupuesto {
   ABIERTO
+  EN_REVISION
   VALIDADO
 }
 
@@ -78,6 +79,11 @@ model UsuarioEmpresa {
   // (usuario+empresa), no un rol global — la misma persona puede operar
   // algunas empresas y solo consultar otras.
   puedeOperarEjecucion Boolean @default(false)
+  // Permiso análogo a puedeOperarEjecucion, pero para el paso de revisión de
+  // Presupuesto (ver EstadoPresupuesto.EN_REVISION): solo quien tiene esto en
+  // true puede agregar/editar/borrar líneas de un presupuesto EN_REVISION.
+  // Mismo criterio: por fila usuario+empresa, no un rol global.
+  puedeRevisarPresupuesto Boolean @default(false)
   usuario   Usuario @relation(fields: [usuarioId], references: [id])
   empresa   Empresa @relation(fields: [empresaId], references: [id])
 
@@ -94,6 +100,19 @@ model PresupuestoMensual {
   estado           EstadoPresupuesto @default(ABIERTO)
   fechaValidacion  DateTime?
   validadoPorId    String?
+  // Se pone en true la primera vez que el revisor toca algo (agregar/editar/
+  // borrar línea o desglose) mientras el presupuesto está EN_REVISION — nunca
+  // se resetea a false (una fila de PresupuestoMensual es por período, no se
+  // reutiliza). Es el aviso mínimo que ve el gerente: "Kike hizo cambios",
+  // sin detalle línea por línea.
+  fueModificadoPorRevisor Boolean @default(false)
+  // El revisor la pone en true con "Terminé de revisar" — recién ahí el
+  // gerente puede confirmarVersionFinal. Cualquier mutación posterior del
+  // revisor mientras sigue EN_REVISION la vuelve a false (ver
+  // marcarComoModificadoSiEnRevision en actions.ts): si Kike sigue tocando
+  // algo después de haber marcado "terminé", hay que pedirle que confirme de
+  // nuevo antes de que el gerente pueda cerrar el presupuesto.
+  revisionCompletada      Boolean @default(false)
   createdAt        DateTime          @default(now())
 
   empresa   Empresa              @relation(fields: [empresaId], references: [id])

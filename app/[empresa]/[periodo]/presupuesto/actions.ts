@@ -3,9 +3,10 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import ExcelJS from "exceljs";
+import type { PresupuestoMensual, Usuario } from "@prisma/client";
 import { resolverEmpresaPorSlug, quitarDiacriticos } from "@/lib/slug";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
-import { requireAccesoEmpresa } from "@/lib/auth";
+import { requireAccesoEmpresa, puedeRevisarPresupuesto } from "@/lib/auth";
 import {
   calcularClasificacionesDisponibles,
   normalizarClasificacion,
@@ -34,17 +35,81 @@ function normalizarEncabezado(texto: string) {
 
 // El layout de [empresa]/[periodo] ya garantiza, al renderizar la página, que
 // el slug matchea una empresa real y que el usuario logueado tiene acceso a
-// ella. Esta resolución (empresa + autorización) es defensiva para las
-// Server Actions (agregarLinea/eliminarLinea/validarPresupuesto), que se
-// invocan directo desde el cliente y no vuelven a pasar por el layout.
+// ella. Esta resolución (empresa + autorización + usuario) es defensiva para
+// las Server Actions de este archivo, que se invocan directo desde el
+// cliente y no vuelven a pasar por el layout.
 async function resolverEmpresaYPresupuesto(empresaSlug: string, periodo: string) {
   const empresa = await resolverEmpresaPorSlug(empresaSlug);
   if (!empresa) {
     throw new Error(`No existe una empresa para "${empresaSlug}".`);
   }
-  await requireAccesoEmpresa(empresa.id);
+  const usuario = await requireAccesoEmpresa(empresa.id);
   const presupuesto = await obtenerOCrearPresupuesto(empresa.id, periodo);
-  return { empresa, presupuesto };
+  return { empresa, presupuesto, usuario };
+}
+
+type ResultadoAutorizacion = { ok: true } | { ok: false; error: string };
+
+// Único punto de autorización para las acciones que mutan líneas de un
+// presupuesto (agregarLinea/editarLinea/eliminarLinea/guardarDesglose/
+// eliminarDesglose/subirLineasMasivo). Depende del estado: en ABIERTO,
+// cualquiera con acceso a la empresa (igual que siempre, ver
+// requireAccesoEmpresa arriba); en EN_REVISION, solo quien tiene
+// puedeRevisarPresupuesto (o ADMIN); en VALIDADO, nadie.
+async function autorizarEdicionLinea(
+  usuario: Usuario,
+  empresaId: string,
+  presupuesto: PresupuestoMensual
+): Promise<ResultadoAutorizacion> {
+  if (presupuesto.estado === "VALIDADO") {
+    return { ok: false, error: "Este presupuesto ya está validado, no se puede editar." };
+  }
+  if (presupuesto.estado === "EN_REVISION" && !(await puedeRevisarPresupuesto(usuario, empresaId))) {
+    return {
+      ok: false,
+      error: "Este presupuesto está en revisión — mientras dure, solo quien lo revisa puede modificarlo.",
+    };
+  }
+  return { ok: true };
+}
+
+// Después de una mutación exitosa hecha por el revisor mientras el
+// presupuesto está EN_REVISION: marca que hubo cambios (aviso mínimo para el
+// gerente, sin detalle línea por línea) y resetea revisionCompletada — si el
+// revisor sigue tocando algo después de haber marcado "Terminé de revisar",
+// tiene que volver a marcarlo. No hace nada en ABIERTO (nada que avisar ni
+// resetear todavía).
+async function marcarComoModificadoSiEnRevision(presupuesto: PresupuestoMensual) {
+  if (presupuesto.estado !== "EN_REVISION") return;
+  await prisma.presupuestoMensual.update({
+    where: { id: presupuesto.id },
+    data: { fueModificadoPorRevisor: true, revisionCompletada: false },
+  });
+}
+
+// Compartida entre agregarLinea y editarLinea: mismas 4 validaciones de
+// campo (Reglas de Vigo: importe no puede ser 0 ni vacío; clasificacion no
+// puede estar vacía).
+function validarCamposLinea(datos: {
+  concepto: string;
+  detalle: string;
+  importe: string;
+  clasificacion: string;
+}) {
+  const concepto = datos.concepto.trim();
+  const detalle = datos.detalle.trim();
+  const clasificacion = normalizarClasificacion(datos.clasificacion.trim());
+  const importe = parsearImporteArgentino(datos.importe);
+
+  const errores: Record<string, string> = {};
+  if (!concepto) errores.concepto = "Completá el concepto.";
+  if (!detalle) errores.detalle = "Completá el detalle.";
+  if (!datos.importe.trim() || importe === 0 || Number.isNaN(importe)) {
+    errores.importe = "El importe no puede estar vacío ni ser 0.";
+  }
+  if (!clasificacion) errores.clasificacion = "Elegí una clasificación.";
+
+  return { concepto, detalle, clasificacion, importe, errores };
 }
 
 export async function obtenerDatos(empresaSlug: string, periodo: string) {
@@ -53,17 +118,23 @@ export async function obtenerDatos(empresaSlug: string, periodo: string) {
   // en ejecucion/actions.ts.
   const clasificacionesPromise = calcularClasificacionesDisponibles();
 
-  const { empresa, presupuesto } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
-  const lineas = await prisma.lineaPresupuesto.findMany({
-    where: { presupuestoId: presupuesto.id },
-    orderBy: { createdAt: "asc" },
-    include: { desglose: { orderBy: { createdAt: "asc" } } },
-  });
+  const { empresa, presupuesto, usuario } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+  const [lineas, esRevisor] = await Promise.all([
+    prisma.lineaPresupuesto.findMany({
+      where: { presupuestoId: presupuesto.id },
+      orderBy: { createdAt: "asc" },
+      include: { desglose: { orderBy: { createdAt: "asc" } } },
+    }),
+    puedeRevisarPresupuesto(usuario, empresa.id),
+  ]);
 
   return {
     empresaNombre: empresa.nombre,
     periodo: presupuesto.periodo,
     estado: presupuesto.estado,
+    fueModificadoPorRevisor: presupuesto.fueModificadoPorRevisor,
+    revisionCompletada: presupuesto.revisionCompletada,
+    esRevisor,
     clasificacionesDisponibles: await clasificacionesPromise,
     lineas: lineas.map((l) => ({
       id: l.id,
@@ -89,44 +160,109 @@ export async function agregarLinea(
   periodo: string,
   datos: { concepto: string; detalle: string; importe: string; clasificacion: string }
 ): Promise<ResultadoAgregar> {
-  const concepto = datos.concepto.trim();
-  const detalle = datos.detalle.trim();
-  const clasificacion = normalizarClasificacion(datos.clasificacion.trim());
-  const importe = parsearImporteArgentino(datos.importe);
-
-  const errores: Record<string, string> = {};
-  if (!concepto) errores.concepto = "Completá el concepto.";
-  if (!detalle) errores.detalle = "Completá el detalle.";
-  if (!datos.importe.trim() || importe === 0 || Number.isNaN(importe)) {
-    errores.importe = "El importe no puede estar vacío ni ser 0.";
-  }
-  if (!clasificacion) errores.clasificacion = "Elegí una clasificación.";
-
+  const { concepto, detalle, clasificacion, importe, errores } = validarCamposLinea(datos);
   if (Object.keys(errores).length > 0) {
     return { ok: false, errores };
   }
 
-  const { presupuesto } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
-
-  if (presupuesto.estado === "VALIDADO") {
-    return {
-      ok: false,
-      errores: { general: "Este presupuesto ya está validado, no se puede editar." },
-    };
+  const { empresa, presupuesto, usuario } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+  const autorizacion = await autorizarEdicionLinea(usuario, empresa.id, presupuesto);
+  if (!autorizacion.ok) {
+    return { ok: false, errores: { general: autorizacion.error } };
   }
 
   await prisma.lineaPresupuesto.create({
     data: { presupuestoId: presupuesto.id, concepto, detalle, importe, clasificacion },
   });
+  await marcarComoModificadoSiEnRevision(presupuesto);
 
   revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
   return { ok: true };
 }
 
-export async function eliminarLinea(empresaSlug: string, periodo: string, id: string) {
-  await resolverEmpresaYPresupuesto(empresaSlug, periodo);
-  await prisma.lineaPresupuesto.delete({ where: { id } });
+// Nueva (antes solo existían agregarLinea/eliminarLinea): permite al revisor
+// ajustar una línea ya cargada sin perder su id/createdAt ni, sobre todo, su
+// desglose — borrar y recargar la línea (única alternativa hasta ahora)
+// perdería el desglose por el onDelete: Cascade de LineaPresupuestoDesglose.
+// Si la línea tiene desglose cargado, se rechaza (no se auto-borra el
+// desglose) cuando: (a) el importe nuevo no coincide con la suma del
+// desglose existente, o (b) la clasificación nueva ya no admite desglose —
+// en los dos casos, quien edita tiene que resolver el desglose primero
+// (eliminarDesglose) antes de poder guardar ese cambio puntual.
+export async function editarLinea(
+  empresaSlug: string,
+  periodo: string,
+  id: string,
+  datos: { concepto: string; detalle: string; importe: string; clasificacion: string }
+): Promise<ResultadoAgregar> {
+  const { concepto, detalle, clasificacion, importe, errores } = validarCamposLinea(datos);
+  if (Object.keys(errores).length > 0) {
+    return { ok: false, errores };
+  }
+
+  const { empresa, presupuesto, usuario } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+  const autorizacion = await autorizarEdicionLinea(usuario, empresa.id, presupuesto);
+  if (!autorizacion.ok) {
+    return { ok: false, errores: { general: autorizacion.error } };
+  }
+
+  const linea = await prisma.lineaPresupuesto.findUnique({
+    where: { id },
+    include: { desglose: true },
+  });
+  if (!linea || linea.presupuestoId !== presupuesto.id) {
+    return { ok: false, errores: { general: "No encontré esa línea." } };
+  }
+
+  if (linea.desglose.length > 0) {
+    const sumaDesglose = linea.desglose.reduce((acc, d) => acc + Number(d.importe), 0);
+    if (Math.abs(sumaDesglose - importe) >= 0.01) {
+      return {
+        ok: false,
+        errores: {
+          importe: `Esta línea tiene un desglose cargado por $${sumaDesglose.toLocaleString("es-AR")} — ajustá el desglose o dejá el importe en $${sumaDesglose.toLocaleString("es-AR")}.`,
+        },
+      };
+    }
+    if (!esElegibleParaDesglose(clasificacion)) {
+      return {
+        ok: false,
+        errores: {
+          clasificacion:
+            "Esta línea tiene un desglose cargado — borralo antes de cambiar a una clasificación que no admite desglose.",
+        },
+      };
+    }
+  }
+
+  await prisma.lineaPresupuesto.update({
+    where: { id },
+    data: { concepto, detalle, importe, clasificacion },
+  });
+  await marcarComoModificadoSiEnRevision(presupuesto);
+
   revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  return { ok: true };
+}
+
+type ResultadoEliminar = { ok: true } | { ok: false; error: string };
+
+export async function eliminarLinea(
+  empresaSlug: string,
+  periodo: string,
+  id: string
+): Promise<ResultadoEliminar> {
+  const { empresa, presupuesto, usuario } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+  const autorizacion = await autorizarEdicionLinea(usuario, empresa.id, presupuesto);
+  if (!autorizacion.ok) {
+    return { ok: false, error: autorizacion.error };
+  }
+
+  await prisma.lineaPresupuesto.delete({ where: { id } });
+  await marcarComoModificadoSiEnRevision(presupuesto);
+
+  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  return { ok: true };
 }
 
 type ResultadoDesglose =
@@ -145,17 +281,15 @@ export async function guardarDesglose(
   lineaId: string,
   sublineas: { detalle: string; importe: string }[]
 ): Promise<ResultadoDesglose> {
-  const { presupuesto } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+  const { empresa, presupuesto, usuario } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
 
   const linea = await prisma.lineaPresupuesto.findUnique({ where: { id: lineaId } });
   if (!linea || linea.presupuestoId !== presupuesto.id) {
     return { ok: false, errores: { general: "No encontré esa línea." } };
   }
-  if (presupuesto.estado === "VALIDADO") {
-    return {
-      ok: false,
-      errores: { general: "Este presupuesto ya está validado, no se puede editar." },
-    };
+  const autorizacion = await autorizarEdicionLinea(usuario, empresa.id, presupuesto);
+  if (!autorizacion.ok) {
+    return { ok: false, errores: { general: autorizacion.error } };
   }
   if (!esElegibleParaDesglose(linea.clasificacion)) {
     return {
@@ -203,35 +337,102 @@ export async function guardarDesglose(
       })),
     }),
   ]);
+  await marcarComoModificadoSiEnRevision(presupuesto);
 
   revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
   return { ok: true };
 }
 
-export async function eliminarDesglose(empresaSlug: string, periodo: string, lineaId: string) {
-  await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+export async function eliminarDesglose(
+  empresaSlug: string,
+  periodo: string,
+  lineaId: string
+): Promise<ResultadoEliminar> {
+  const { empresa, presupuesto, usuario } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+  const autorizacion = await autorizarEdicionLinea(usuario, empresa.id, presupuesto);
+  if (!autorizacion.ok) {
+    return { ok: false, error: autorizacion.error };
+  }
+
   await prisma.lineaPresupuestoDesglose.deleteMany({ where: { lineaPresupuestoId: lineaId } });
+  await marcarComoModificadoSiEnRevision(presupuesto);
+
   revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  return { ok: true };
 }
 
-type ResultadoValidar = { ok: true } | { ok: false; error: string };
+type ResultadoTransicionEstado = { ok: true } | { ok: false; error: string };
 
-// No se puede validar un presupuesto sin ninguna línea cargada — un count()
-// simple alcanza: LineaPresupuesto no tiene borrado lógico (eliminarLinea
-// hace un delete real) ni puede tener importe 0 (ya lo impiden
-// agregarLinea/subirLineasMasivo), así que cualquier fila que exista acá es
-// una carga real.
-export async function validarPresupuesto(
+// Reemplaza a la vieja validarPresupuesto (ABIERTO→VALIDADO directo): ahora
+// el gerente manda a revisión primero, y el cierre real queda en
+// confirmarVersionFinal más abajo. Misma guardia de "no vacío" que tenía
+// validarPresupuesto — un count() simple alcanza: LineaPresupuesto no tiene
+// borrado lógico (eliminarLinea hace un delete real) ni puede tener importe
+// 0 (ya lo impiden agregarLinea/subirLineasMasivo), así que cualquier fila
+// que exista acá es una carga real.
+export async function enviarARevision(
   empresaSlug: string,
   periodo: string
-): Promise<ResultadoValidar> {
+): Promise<ResultadoTransicionEstado> {
   const { presupuesto } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+
+  if (presupuesto.estado !== "ABIERTO") {
+    return { ok: false, error: "Este presupuesto ya fue enviado a revisión." };
+  }
 
   const cantidadLineas = await prisma.lineaPresupuesto.count({
     where: { presupuestoId: presupuesto.id },
   });
   if (cantidadLineas === 0) {
-    return { ok: false, error: "No podés validar un presupuesto sin líneas cargadas." };
+    return { ok: false, error: "No podés enviar a revisión un presupuesto sin líneas cargadas." };
+  }
+
+  await prisma.presupuestoMensual.update({
+    where: { id: presupuesto.id },
+    data: { estado: "EN_REVISION" },
+  });
+  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  return { ok: true };
+}
+
+// Solo el revisor puede marcar esto — es la señal que habilita
+// confirmarVersionFinal del lado del gerente. Cualquier mutación posterior
+// del revisor (ver marcarComoModificadoSiEnRevision) la vuelve a false.
+export async function marcarRevisionCompletada(
+  empresaSlug: string,
+  periodo: string
+): Promise<ResultadoTransicionEstado> {
+  const { empresa, presupuesto, usuario } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+
+  if (presupuesto.estado !== "EN_REVISION") {
+    return { ok: false, error: "Este presupuesto no está en revisión." };
+  }
+  if (!(await puedeRevisarPresupuesto(usuario, empresa.id))) {
+    return { ok: false, error: "No tenés permiso para revisar este presupuesto." };
+  }
+
+  await prisma.presupuestoMensual.update({
+    where: { id: presupuesto.id },
+    data: { revisionCompletada: true },
+  });
+  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  return { ok: true };
+}
+
+// Cierre real e irreversible (antes lo hacía validarPresupuesto directo
+// desde ABIERTO) — ahora requiere haber pasado por EN_REVISION y que el
+// revisor ya haya marcado "Terminé de revisar".
+export async function confirmarVersionFinal(
+  empresaSlug: string,
+  periodo: string
+): Promise<ResultadoTransicionEstado> {
+  const { presupuesto } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+
+  if (presupuesto.estado !== "EN_REVISION") {
+    return { ok: false, error: "Este presupuesto no está en revisión." };
+  }
+  if (!presupuesto.revisionCompletada) {
+    return { ok: false, error: "Todavía no marcaron que terminaron de revisar este presupuesto." };
   }
 
   await prisma.presupuestoMensual.update({
@@ -296,9 +497,10 @@ export async function subirLineasMasivo(
     return { ok: false, error: "El archivo tiene que ser un .xlsx." };
   }
 
-  const { presupuesto } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
-  if (presupuesto.estado === "VALIDADO") {
-    return { ok: false, error: "Este presupuesto ya está validado, no se puede editar." };
+  const { empresa, presupuesto, usuario } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+  const autorizacion = await autorizarEdicionLinea(usuario, empresa.id, presupuesto);
+  if (!autorizacion.ok) {
+    return { ok: false, error: autorizacion.error };
   }
 
   const buffer = await archivo.arrayBuffer();
@@ -378,6 +580,7 @@ export async function subirLineasMasivo(
   await prisma.lineaPresupuesto.createMany({
     data: filas.map((f) => ({ ...f, presupuestoId: presupuesto.id })),
   });
+  await marcarComoModificadoSiEnRevision(presupuesto);
 
   revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
   return { ok: true, filasImportadas: filas.length };
