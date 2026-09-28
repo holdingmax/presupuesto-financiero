@@ -56,6 +56,7 @@ type Props = {
   totalImporte: number;
   pagina: number;
   totalPaginas: number;
+  soloSinClasificar: boolean;
   chequeos: ResultadoChequeo[];
 };
 
@@ -69,6 +70,7 @@ export default function PanelImputacion({
   totalImporte,
   pagina,
   totalPaginas,
+  soloSinClasificar,
   chequeos,
 }: Props) {
   const router = useRouter();
@@ -461,6 +463,25 @@ export default function PanelImputacion({
           </div>
         </div>
 
+        <div className="mb-4 inline-flex rounded-md border border-line p-0.5">
+          <Link
+            href="?"
+            className={`px-2.5 py-1 rounded text-xs font-medium transition ${
+              !soloSinClasificar ? "bg-marino-tint text-marino" : "text-ink-secondary hover:text-ink"
+            }`}
+          >
+            Todos
+          </Link>
+          <Link
+            href="?filtro=sin_clasificar"
+            className={`px-2.5 py-1 rounded text-xs font-medium transition ${
+              soloSinClasificar ? "bg-marino-tint text-marino" : "text-ink-secondary hover:text-ink"
+            }`}
+          >
+            Solo sin clasificar
+          </Link>
+        </div>
+
         {!cerrada && (
           <PanelSugerenciasPendientes
             sugerencias={movimientos.filter((m) => m.sugeridaPorSistema)}
@@ -503,6 +524,7 @@ export default function PanelImputacion({
               numeroSemana={numeroSemana}
               pagina={pagina}
               totalPaginas={totalPaginas}
+              filtro={soloSinClasificar ? "sin_clasificar" : undefined}
             />
           </>
         )}

@@ -144,11 +144,16 @@ export async function obtenerNumeroSemanaAbierta(empresaSlug: string, periodo: s
 // Solo lectura: nunca crea nada. Devuelve null si esa semana no existe todavía.
 // `pagina` es 1-indexada; se clampea entre 1 y el total de páginas reales, así un
 // ?pagina=9999 nunca muestra un vacío falso en una semana que sí tiene movimientos.
+// `soloSinClasificar` filtra en la query misma (no en memoria sobre la página ya
+// traída) — recalcula totalMovimientos/totalPaginas/totalImporte sobre el universo
+// filtrado, así el usuario nunca se pierde una fila "SIN CLASIFICAR" que cayó en
+// otra página. Pedido de Kike: encontrarlas sin tener que buscarlas una por una.
 export async function obtenerDatosSemana(
   empresaSlug: string,
   periodo: string,
   numeroSemana: number,
-  pagina: number = 1
+  pagina: number = 1,
+  soloSinClasificar: boolean = false
 ) {
   // calcularClasificacionesDisponibles no depende de empresa/presupuesto/ejecucion (es una
   // query global) — se dispara ya para que corra en paralelo con toda la cadena de abajo
@@ -173,13 +178,17 @@ export async function obtenerDatosSemana(
   // seguir contándolas o el skip/take del findMany de abajo (que tampoco las filtra)
   // quedaría desalineado. totalImporte (el $ que se reporta) sí las excluye — es
   // justamente el cálculo que "ignorado" existe para poder sacar de los reportes.
+  // Mismo where base que ya comparten las 3 queries de abajo — se le suma esta
+  // condición solo cuando el filtro está activo, sin cambiar nada más.
+  const filtroClasificacion = soloSinClasificar ? { clasificacion: "SIN CLASIFICAR" } : {};
+
   const [agregadoTotal, agregadoSumaReal] = await Promise.all([
     prisma.movimientoBancario.aggregate({
-      where: { ejecucionId: ejecucion.id },
+      where: { ejecucionId: ejecucion.id, ...filtroClasificacion },
       _count: true,
     }),
     prisma.movimientoBancario.aggregate({
-      where: { ejecucionId: ejecucion.id, ignorado: false },
+      where: { ejecucionId: ejecucion.id, ignorado: false, ...filtroClasificacion },
       _sum: { importe: true },
     }),
   ]);
@@ -194,7 +203,7 @@ export async function obtenerDatosSemana(
   // causó que una edición de Unidad de Negocio terminara pisando una fila distinta al volver
   // a esta página. `id` es único y no cambia nunca, así que el orden queda fijo para siempre.
   const movimientos = await prisma.movimientoBancario.findMany({
-    where: { ejecucionId: ejecucion.id },
+    where: { ejecucionId: ejecucion.id, ...filtroClasificacion },
     orderBy: [{ fecha: "asc" }, { id: "asc" }],
     skip: (paginaEfectiva - 1) * FILAS_POR_PAGINA,
     take: FILAS_POR_PAGINA,
@@ -212,6 +221,7 @@ export async function obtenerDatosSemana(
     totalImporte: Number(agregadoSumaReal._sum.importe ?? 0),
     pagina: paginaEfectiva,
     totalPaginas,
+    soloSinClasificar,
   };
 }
 

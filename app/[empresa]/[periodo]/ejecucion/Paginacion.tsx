@@ -6,6 +6,10 @@ type Props = {
   numeroSemana: number;
   pagina: number;
   totalPaginas: number;
+  // Filtro activo (ver soloSinClasificar en actions.ts) — se preserva al cambiar
+  // de página, si no un "Siguiente" con el filtro prendido lo perdería en la
+  // navegación.
+  filtro?: string;
 };
 
 // Son <Link> planos (sin "use client"): funcionan igual dentro de un Server
@@ -16,10 +20,12 @@ export default function Paginacion({
   numeroSemana,
   pagina,
   totalPaginas,
+  filtro,
 }: Props) {
   if (totalPaginas <= 1) return null;
 
   const base = `/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`;
+  const sufijoFiltro = filtro ? `&filtro=${filtro}` : "";
   const hayAnterior = pagina > 1;
   const haySiguiente = pagina < totalPaginas;
 
@@ -27,7 +33,7 @@ export default function Paginacion({
     <div className="mt-4 flex items-center justify-between text-sm">
       {hayAnterior ? (
         <Link
-          href={`${base}?pagina=${pagina - 1}`}
+          href={`${base}?pagina=${pagina - 1}${sufijoFiltro}`}
           className="text-marino transition hover:text-marino-dark"
         >
           ‹ Anterior
@@ -42,7 +48,7 @@ export default function Paginacion({
 
       {haySiguiente ? (
         <Link
-          href={`${base}?pagina=${pagina + 1}`}
+          href={`${base}?pagina=${pagina + 1}${sufijoFiltro}`}
           className="text-marino transition hover:text-marino-dark"
         >
           Siguiente ›

@@ -7,7 +7,7 @@ import { AccesoDenegadoError } from "@/lib/auth";
 
 type Props = {
   params: Promise<{ empresa: string; periodo: string; numeroSemana: string }>;
-  searchParams: Promise<{ pagina?: string }>;
+  searchParams: Promise<{ pagina?: string; filtro?: string }>;
 };
 
 function parsearPagina(paginaParam: string | undefined) {
@@ -22,8 +22,9 @@ function parsearPagina(paginaParam: string | undefined) {
 // bloque de solo lectura.
 export default async function EjecucionSemanaPage({ params, searchParams }: Props) {
   const { empresa, periodo, numeroSemana: numeroSemanaParam } = await params;
-  const { pagina: paginaParam } = await searchParams;
+  const { pagina: paginaParam, filtro } = await searchParams;
   const numeroSemana = Number(numeroSemanaParam);
+  const soloSinClasificar = filtro === "sin_clasificar";
 
   if (!Number.isInteger(numeroSemana) || numeroSemana < 1) {
     return (
@@ -37,7 +38,13 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
 
   let datos;
   try {
-    datos = await obtenerDatosSemana(empresa, periodo, numeroSemana, parsearPagina(paginaParam));
+    datos = await obtenerDatosSemana(
+      empresa,
+      periodo,
+      numeroSemana,
+      parsearPagina(paginaParam),
+      soloSinClasificar
+    );
   } catch (error) {
     // Ver el comentario equivalente en presupuesto/page.tsx: el layout ya
     // muestra el panel de "sin acceso", esto solo evita que se vea como un
@@ -69,6 +76,7 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
         totalImporte={datos.totalImporte}
         pagina={datos.pagina}
         totalPaginas={datos.totalPaginas}
+        soloSinClasificar={datos.soloSinClasificar}
         chequeos={chequeos}
       />
     );
@@ -139,6 +147,7 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
               numeroSemana={datos.numeroSemana}
               pagina={datos.pagina}
               totalPaginas={datos.totalPaginas}
+              filtro={filtro}
             />
           </>
         )}
