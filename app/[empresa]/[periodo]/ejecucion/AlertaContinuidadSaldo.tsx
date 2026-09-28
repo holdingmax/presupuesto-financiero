@@ -76,6 +76,17 @@ export default function AlertaContinuidadSaldo({
         {continuidadSaldo.length === 1 ? "1 cuenta" : `${continuidadSaldo.length} cuentas`} — no
         bloquea la carga, revisá:
       </p>
+      {/* Aclaración genérica, sin lista de empresas hardcodeada (2026-09-28,
+          pedido de Kike) — hoy no hay ningún dato en el sistema que identifique
+          qué empresas comparten banco con otra unidad de negocio, así que esto
+          se muestra siempre, sin importar la empresa. No cambia el cálculo ni
+          bloquea nada, solo evita que se pierda tiempo "arreglando" algo que
+          puede estar bien. */}
+      <p className="px-3 pb-2.5 text-xs text-ink-muted">
+        Si esta empresa comparte un banco con otra unidad de negocio (ej. un banco que mezcla
+        movimientos de más de una empresa), este aviso puede no aplicar — confirmá con el criterio
+        real antes de asumir que hay un error de carga.
+      </p>
       <div className="border-t border-line-hairline">
         {continuidadSaldo.map((c, i) => (
           <FilaCuenta key={c.bancoYCuenta} cuenta={c} esUltima={i === continuidadSaldo.length - 1} />
