@@ -9,6 +9,8 @@ import {
   eliminarMovimiento,
   cerrarSemana,
   confirmarClasificacionesEnLote,
+  confirmarUnidadesEnLote,
+  type GrupoUnidadSugerida,
   type ResultadoChequeo,
   type ResultadoContinuidadSaldo,
   type ResultadoLiquidacionAmbigua,
@@ -17,6 +19,7 @@ import TablaMovimientos from "./TablaMovimientos";
 import Paginacion from "./Paginacion";
 import PanelChequeos from "./PanelChequeos";
 import PanelSugerenciasPendientes from "./PanelSugerenciasPendientes";
+import PanelUnidadesSugeridas, { claveGrupo } from "./PanelUnidadesSugeridas";
 import AlertaContinuidadSaldo from "./AlertaContinuidadSaldo";
 import { formatearImporte } from "./formato";
 
@@ -43,6 +46,7 @@ type Movimiento = {
   ignorado: boolean;
   sugeridaPorSistema: boolean;
   chequeIvaAmbiguo: boolean;
+  unidadSugeridaPorSistema: boolean;
   desglose: { id: string; unidadNegocio: string; importe: number }[];
 };
 
@@ -58,6 +62,7 @@ type Props = {
   totalPaginas: number;
   soloSinClasificar: boolean;
   chequeos: ResultadoChequeo[];
+  unidadesSugeridas: GrupoUnidadSugerida[];
 };
 
 export default function PanelImputacion({
@@ -72,6 +77,7 @@ export default function PanelImputacion({
   totalPaginas,
   soloSinClasificar,
   chequeos,
+  unidadesSugeridas,
 }: Props) {
   const router = useRouter();
   const { empresa: empresaSlug, periodo } = useParams<{
@@ -112,6 +118,9 @@ export default function PanelImputacion({
   const [archivoAmbiguo, setArchivoAmbiguo] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [, startTransition] = useTransition();
+  // Clave (cuenta|unidad) del grupo que se está confirmando en el panel de
+  // unidades sugeridas — deshabilita los botones mientras dura el round-trip.
+  const [confirmandoUnidad, setConfirmandoUnidad] = useState<string | null>(null);
 
   const cerrada = estado === "CERRADA";
   const semanaAnterior = numeroSemana - 1;
@@ -246,6 +255,34 @@ export default function PanelImputacion({
     if (!resultado.ok) {
       router.refresh();
     }
+  }
+
+  // Confirma por cuenta sobre TODA la semana (no solo esta página): el panel
+  // viene del server, así que acá no hay estado optimista que valga para él —
+  // se espera la respuesta y se refresca. Lo optimista es solo la marca de
+  // "sugerida" en las filas de la página visible.
+  async function confirmarCuentaSugerida(grupo: GrupoUnidadSugerida) {
+    setConfirmandoUnidad(claveGrupo(grupo));
+    const resultado = await confirmarUnidadesEnLote(
+      empresaSlug,
+      periodo,
+      numeroSemana,
+      grupo.cuentasCrudas,
+      grupo.unidadNegocio
+    );
+    if (resultado.ok) {
+      setMovimientos((prev) =>
+        prev.map((m) =>
+          m.unidadSugeridaPorSistema &&
+          m.unidadNegocio === grupo.unidadNegocio &&
+          grupo.cuentasCrudas.includes(m.bancoYCuenta)
+            ? { ...m, unidadSugeridaPorSistema: false }
+            : m
+        )
+      );
+    }
+    setConfirmandoUnidad(null);
+    router.refresh();
   }
 
   function guardarCampo(id: string, campo: "clasificacion" | "unidadNegocio", valor: string) {
@@ -494,6 +531,14 @@ export default function PanelImputacion({
           />
         )}
 
+        {!cerrada && (
+          <PanelUnidadesSugeridas
+            grupos={unidadesSugeridas}
+            onConfirmarCuenta={confirmarCuentaSugerida}
+            confirmando={confirmandoUnidad}
+          />
+        )}
+
         {!cerrada && <PanelChequeos chequeos={chequeos} />}
 
         {totalMovimientos === 0 ? (
@@ -513,7 +558,14 @@ export default function PanelImputacion({
                   guardarCampo(id, "clasificacion", valor);
                 }}
                 onCambiarUnidadNegocio={(id, valor) => actualizarCampoLocal(id, "unidadNegocio", valor)}
-                onGuardarUnidadNegocio={(id, valor) => guardarCampo(id, "unidadNegocio", valor)}
+                onGuardarUnidadNegocio={(id, valor) => {
+                  // TablaMovimientos solo llama acá si el valor CAMBIÓ — así que
+                  // esto ya es una corrección real: deja de ser sugerencia.
+                  setMovimientos((prev) =>
+                    prev.map((m) => (m.id === id ? { ...m, unidadSugeridaPorSistema: false } : m))
+                  );
+                  guardarCampo(id, "unidadNegocio", valor);
+                }}
                 onQuitar={quitar}
                 onToggleIgnorado={toggleIgnorado}
               />

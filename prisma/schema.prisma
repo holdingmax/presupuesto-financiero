@@ -213,6 +213,14 @@ model MovimientoBancario {
   // confirmación individual únicamente. Específico de este cruce puntual, no
   // un estado genérico de ambigüedad.
   chequeIvaAmbiguo   Boolean @default(false)
+  // true mientras `unidadNegocio` fue propuesta por el sistema a partir de la
+  // cuenta bancaria (proponerUnidadPorCuenta en lib/unidadesNegocio.ts) porque
+  // el archivo no traía unidad — independiente de sugeridaPorSistema (que es
+  // solo de la clasificación). Se limpia en actualizarMovimiento solo si la
+  // unidad CAMBIÓ de verdad, y en confirmarUnidadesEnLote (aceptar tal cual).
+  // Default false: unidad explícita del archivo y filas previas a este campo
+  // quedan como ya confirmadas.
+  unidadSugeridaPorSistema Boolean @default(false)
   unidadNegocio   String   // puede diferir de la empresa dueña de la cuenta bancaria
   detalle         String?
   detalle2        String?

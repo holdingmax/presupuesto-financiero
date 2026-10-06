@@ -133,6 +133,9 @@ export type MovimientoTabla = {
   // otro; ver el comentario en actualizarMovimiento/guardarDesgloseMovimiento
   // en ejecucion/actions.ts.
   unidadNegocio: string;
+  // true mientras la unidad la propuso el sistema por la cuenta bancaria y
+  // nadie la confirmó ni la corrigió — solo cambia cómo se ve la celda.
+  unidadSugeridaPorSistema: boolean;
   detalle: string;
   ignorado: boolean;
   desglose: { id: string; unidadNegocio: string; importe: number }[];
@@ -164,6 +167,12 @@ export default function TablaMovimientos({
   onToggleIgnorado,
 }: Props) {
   const [desgloseAbiertoId, setDesgloseAbiertoId] = useState<string | null>(null);
+  // Valor de la unidad al entrar al <input> — onBlur se dispara aunque no se haya
+  // tocado nada, y onCambiarUnidadNegocio ya actualiza el estado en cada tecla,
+  // así que la única forma de saber si CAMBIÓ es comparar contra lo que había al
+  // hacer foco. Sin cambio, no se guarda ni se confirma la sugerencia (decisión
+  // 2026-10-06). Un solo ref alcanza: hay un solo input con foco a la vez.
+  const unidadAlEnfocar = useRef<string | null>(null);
   const totalColumnas = soloLectura ? 6 : 7;
 
   return (
@@ -239,10 +248,33 @@ export default function TablaMovimientos({
                 <input
                   value={m.unidadNegocio}
                   disabled={deshabilitado}
+                  onFocus={(e) => {
+                    unidadAlEnfocar.current = e.target.value;
+                  }}
                   onChange={(e) => onCambiarUnidadNegocio?.(m.id, e.target.value)}
-                  onBlur={(e) => onGuardarUnidadNegocio?.(m.id, e.target.value)}
-                  className="w-32 rounded-md border border-transparent bg-transparent px-2 py-1 text-sm outline-none transition hover:border-line hover:bg-surface-hover focus:border-marino focus:bg-paper-raised disabled:text-ink-muted"
+                  onBlur={(e) => {
+                    const valorInicial = unidadAlEnfocar.current;
+                    unidadAlEnfocar.current = null;
+                    if (e.target.value === valorInicial) return;
+                    onGuardarUnidadNegocio?.(m.id, e.target.value);
+                  }}
+                  title={
+                    m.unidadSugeridaPorSistema
+                      ? "Sugerida por la cuenta bancaria — sin confirmar"
+                      : undefined
+                  }
+                  className={`w-32 rounded-md border border-transparent bg-transparent px-2 py-1 text-sm outline-none transition hover:border-line hover:bg-surface-hover focus:border-marino focus:bg-paper-raised disabled:text-ink-muted ${
+                    m.unidadSugeridaPorSistema ? "italic text-ink-secondary" : ""
+                  }`}
                 />
+              )}
+              {m.unidadSugeridaPorSistema && (
+                <span
+                  title="Sugerida por la cuenta bancaria — sin confirmar"
+                  className="ml-1.5 whitespace-nowrap text-xs text-ink-faint"
+                >
+                  · sugerida
+                </span>
               )}
               {desglosado && (
                 <span className="ml-1.5 whitespace-nowrap text-xs text-marino">

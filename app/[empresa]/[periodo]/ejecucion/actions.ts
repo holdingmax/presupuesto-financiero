@@ -17,6 +17,7 @@ import {
   proponerClasificacionAutomatica,
   esElegibleParaDesgloseEjecucion,
 } from "@/lib/clasificaciones";
+import { normalizarCuenta, proponerUnidadPorCuenta } from "@/lib/unidadesNegocio";
 import { parsearImporteArgentino } from "@/lib/numero";
 
 const NOMBRE_HOJA_EXTRACTO = "Hoja1";
@@ -97,6 +98,7 @@ function mapearMovimiento(m: {
   ignorado: boolean;
   sugeridaPorSistema: boolean;
   chequeIvaAmbiguo: boolean;
+  unidadSugeridaPorSistema: boolean;
   desglose: { id: string; unidadNegocio: string; importe: unknown }[];
 }) {
   return {
@@ -115,6 +117,7 @@ function mapearMovimiento(m: {
     ignorado: m.ignorado,
     sugeridaPorSistema: m.sugeridaPorSistema,
     chequeIvaAmbiguo: m.chequeIvaAmbiguo,
+    unidadSugeridaPorSistema: m.unidadSugeridaPorSistema,
     desglose: m.desglose.map((d) => ({
       id: d.id,
       unidadNegocio: d.unidadNegocio,
@@ -182,7 +185,7 @@ export async function obtenerDatosSemana(
   // condición solo cuando el filtro está activo, sin cambiar nada más.
   const filtroClasificacion = soloSinClasificar ? { clasificacion: "SIN CLASIFICAR" } : {};
 
-  const [agregadoTotal, agregadoSumaReal] = await Promise.all([
+  const [agregadoTotal, agregadoSumaReal, gruposUnidadSugerida] = await Promise.all([
     prisma.movimientoBancario.aggregate({
       where: { ejecucionId: ejecucion.id, ...filtroClasificacion },
       _count: true,
@@ -190,6 +193,14 @@ export async function obtenerDatosSemana(
     prisma.movimientoBancario.aggregate({
       where: { ejecucionId: ejecucion.id, ignorado: false, ...filtroClasificacion },
       _sum: { importe: true },
+    }),
+    // Panel de unidades sugeridas: TODA la semana (sin paginar y sin
+    // filtroClasificacion), a diferencia de las filas de la tabla — un archivo
+    // de ~16.500 filas reparte las sugerencias en decenas de páginas.
+    prisma.movimientoBancario.groupBy({
+      by: ["bancoYCuenta", "unidadNegocio"],
+      where: { ejecucionId: ejecucion.id, unidadSugeridaPorSistema: true },
+      _count: true,
     }),
   ]);
 
@@ -222,7 +233,46 @@ export async function obtenerDatosSemana(
     pagina: paginaEfectiva,
     totalPaginas,
     soloSinClasificar,
+    unidadesSugeridas: agruparUnidadesSugeridas(gruposUnidadSugerida),
   };
+}
+
+export type GrupoUnidadSugerida = {
+  // Cuenta normalizada (clave del grupo, lo que se muestra).
+  cuenta: string;
+  // Grafías crudas tal como están en la base que caen en esta cuenta — es lo
+  // que confirmarUnidadesEnLote recibe para su `bancoYCuenta IN (...)`.
+  cuentasCrudas: string[];
+  unidadNegocio: string;
+  cantidad: number;
+};
+
+// Junta por cuenta NORMALIZADA (mismo criterio que proponerUnidadPorCuenta), por si
+// la misma cuenta llegó con dos grafías distintas ("Frances 891" / "FRANCES 891").
+// La clave incluye la unidad: con el mapa de hoy una cuenta siempre sugiere la misma,
+// pero si el mapa cambiara entre dos subidas no se mezclan dos sugerencias distintas
+// bajo un mismo botón "Confirmar".
+function agruparUnidadesSugeridas(
+  grupos: { bancoYCuenta: string; unidadNegocio: string; _count: number }[]
+): GrupoUnidadSugerida[] {
+  const porClave = new Map<string, GrupoUnidadSugerida>();
+  for (const g of grupos) {
+    const cuenta = normalizarCuenta(g.bancoYCuenta);
+    const clave = `${cuenta}|${g.unidadNegocio}`;
+    const existente = porClave.get(clave);
+    if (existente) {
+      existente.cuentasCrudas.push(g.bancoYCuenta);
+      existente.cantidad += g._count;
+    } else {
+      porClave.set(clave, {
+        cuenta,
+        cuentasCrudas: [g.bancoYCuenta],
+        unidadNegocio: g.unidadNegocio,
+        cantidad: g._count,
+      });
+    }
+  }
+  return Array.from(porClave.values()).sort((a, b) => a.cuenta.localeCompare(b.cuenta, "es"));
 }
 
 export type ResultadoChequeo = {
@@ -622,6 +672,15 @@ function extraerSaldo(
   return { valor: null, corregidoPorFormula: false, tuvoError: false };
 }
 
+// Celda de unidad ("UNIDAD DE NEG" o "EMPRESA") → valor recortado, o null si viene
+// vacía o dice "SIN ASIGNAR" (cuenta como vacío, decisión 2026-10-06 — así puede
+// caer al siguiente escalón del orden en subirExtracto).
+function leerUnidadDeCelda(valorCrudo: unknown): string | null {
+  const texto = valorCrudo ? String(valorCrudo).trim() : "";
+  if (!texto || normalizarCuenta(texto) === "SIN ASIGNAR") return null;
+  return texto;
+}
+
 export async function subirExtracto(
   empresaSlug: string,
   periodo: string,
@@ -713,17 +772,20 @@ export async function subirExtracto(
     }
   }
 
-  // Mismo criterio: algunos exports por empresa no traen "UNIDAD DE NEG" y en su lugar
-  // tienen una columna "EMPRESA" con texto libre (ej. "QUINTEROS", "SIERRA") que en los
-  // hechos cumple ese rol para ese archivo. Si el archivo sí trae "UNIDAD DE NEG" (el
-  // caso normal, incluido el maestro), esto no cambia nada — "EMPRESA" queda ignorada
-  // igual que hoy.
+  // Algunos exports por empresa no traen "UNIDAD DE NEG" y en su lugar tienen una
+  // columna "EMPRESA" con texto libre (ej. "QUINTEROS", "SIERRA"). Confirmado con Kike
+  // (2026-10-06): EMPRESA es la razón social (SPP, LI, QUINTEROS, TUCSON), no la unidad
+  // — un error de etiqueta. Por eso se lee en un campo aparte ("empresaColumna", nunca
+  // persistido) y queda DEBAJO de la sugerencia por cuenta en el orden de abajo: si se
+  // tratara como unidad explícita, en esos archivos la sugerencia nunca se activaría.
+  // Si el archivo sí trae "UNIDAD DE NEG" (el caso normal, incluido el maestro),
+  // "EMPRESA" queda ignorada igual que siempre.
   if (!Object.values(encabezados).includes("unidadNegocio")) {
     const colEmpresa = Object.keys(encabezadosCrudos).find(
       (col) => encabezadosCrudos[Number(col)] === "EMPRESA" && !encabezados[Number(col)]
     );
     if (colEmpresa) {
-      encabezados[Number(colEmpresa)] = "unidadNegocio";
+      encabezados[Number(colEmpresa)] = "empresaColumna";
     }
   }
 
@@ -751,6 +813,7 @@ export async function subirExtracto(
     detalle2: string | null;
     sugeridaPorSistema: boolean;
     chequeIvaAmbiguo: boolean;
+    unidadSugeridaPorSistema: boolean;
   }[] = [];
 
   hoja.eachRow((fila, numeroFila) => {
@@ -792,6 +855,17 @@ export async function subirExtracto(
       ? null
       : proponerClasificacionAutomatica(concepto);
 
+    // Orden (decisión 2026-10-06): "UNIDAD DE NEG" del archivo > sugerida por la
+    // cuenta (mapa) > columna "EMPRESA" (fallback, ver arriba por qué va debajo
+    // del mapa) > "SIN ASIGNAR". "UNIDAD DE NEG" NUNCA se pisa. "SIN ASIGNAR"
+    // literal en cualquiera de las dos columnas cuenta como vacío. .trim(): un
+    // mismo valor puede llegar con espacio final por archivo (ej. "SIERRA " vs
+    // "SIERRA") y sin esto quedaban como dos unidades de negocio distintas en la base.
+    const bancoYCuenta = valores.bancoYCuenta ? String(valores.bancoYCuenta) : "(sin banco)";
+    const unidadExplicita = leerUnidadDeCelda(valores.unidadNegocio);
+    const unidadAutomatica = unidadExplicita ? null : proponerUnidadPorCuenta(bancoYCuenta);
+    const unidadEmpresaColumna = leerUnidadDeCelda(valores.empresaColumna);
+
     filas.push({
       numeroFila,
       fecha,
@@ -800,16 +874,15 @@ export async function subirExtracto(
       concepto,
       importe: importeExtraido,
       saldo: saldoExtraido,
-      bancoYCuenta: valores.bancoYCuenta ? String(valores.bancoYCuenta) : "(sin banco)",
+      bancoYCuenta,
       clasificacion: clasificacionExplicita ?? clasificacionAutomatica ?? "SIN CLASIFICAR",
       clasificacion2: valores.clasificacion2 ? String(valores.clasificacion2) : null,
-      // .trim(): un mismo valor puede llegar con espacio final por archivo (ej. "SIERRA "
-      // vs "SIERRA") y sin esto quedaban como dos unidades de negocio distintas en la base.
-      unidadNegocio: valores.unidadNegocio ? String(valores.unidadNegocio).trim() : "SIN ASIGNAR",
+      unidadNegocio: unidadExplicita ?? unidadAutomatica ?? unidadEmpresaColumna ?? "SIN ASIGNAR",
       detalle: valores.detalle ? String(valores.detalle) : null,
       detalle2: valores.detalle2 ? String(valores.detalle2) : null,
       sugeridaPorSistema: clasificacionAutomatica !== null,
       chequeIvaAmbiguo: false,
+      unidadSugeridaPorSistema: unidadAutomatica !== null,
     });
   });
 
@@ -883,10 +956,26 @@ export async function actualizarMovimiento(
     throw new Error("Esta semana ya está cerrada, no se puede editar.");
   }
 
+  // A diferencia de la clasificación (ver comentario de abajo), la unidad es un
+  // <input> que guarda en onBlur — y onBlur se dispara aunque el valor no haya
+  // cambiado. Decisión 2026-10-06: solo cuenta como confirmación de una unidad
+  // sugerida si el valor CAMBIÓ; hacer clic y salir no confirma nada. El cliente
+  // (TablaMovimientos) ya no llama acá si no cambió — esta comparación es la
+  // segunda barrera server-side, contra el valor realmente guardado.
+  let unidadCambio = false;
+  if (datos.unidadNegocio !== undefined) {
+    const actual = await prisma.movimientoBancario.findUnique({
+      where: { id },
+      select: { unidadNegocio: true },
+    });
+    unidadCambio = actual !== null && actual.unidadNegocio !== datos.unidadNegocio;
+  }
+
   await prisma.movimientoBancario.update({
     where: { id },
     data: {
       ...datos,
+      ...(unidadCambio ? { unidadSugeridaPorSistema: false } : {}),
       // Cualquier edición manual de clasificacion —incluso reelegir el mismo
       // valor que ya tenía sugerido— cuenta como confirmación. No puede
       // depender de comparar contra el valor anterior: un <select> nativo no
@@ -933,6 +1022,51 @@ export async function confirmarClasificacionesEnLote(
   const resultado = await prisma.movimientoBancario.updateMany({
     where: { id: { in: ids }, ejecucionId: ejecucion.id, chequeIvaAmbiguo: false },
     data: { sugeridaPorSistema: false },
+  });
+
+  revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+  return { ok: true, cantidad: resultado.count };
+}
+
+// Análogo a confirmarClasificacionesEnLote, pero para la unidad de negocio
+// sugerida por cuenta bancaria (proponerUnidadPorCuenta): acepta tal cual todas
+// las filas todavía sugeridas de esas cuentas en ESTA semana — solo limpia
+// unidadSugeridaPorSistema, nunca toca `unidadNegocio`. Recibe las grafías
+// crudas de bancoYCuenta (GrupoUnidadSugerida.cuentasCrudas), no ids: el panel
+// agrupa sobre toda la semana, no sobre la página que se está viendo. Confirmar
+// una cuenta que tiene sugerencias en varias páginas las confirma TODAS — el
+// botón del panel muestra la cantidad total para que eso quede a la vista.
+// unidadSugeridaPorSistema:true en el where hace que una fila corregida a mano
+// entre medio (flag ya en false) no cuente en el resultado.
+export async function confirmarUnidadesEnLote(
+  empresaSlug: string,
+  periodo: string,
+  numeroSemana: number,
+  cuentasCrudas: string[],
+  unidadNegocio: string
+): Promise<ResultadoConfirmarClasificacionesEnLote> {
+  const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
+  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  if (!ejecucion) {
+    return { ok: false, error: `No encontré la semana ${numeroSemana}.` };
+  }
+  if (ejecucion.estado === "CERRADA") {
+    return { ok: false, error: "Esta semana ya está cerrada, no se puede editar." };
+  }
+  if (cuentasCrudas.length === 0) {
+    return { ok: false, error: "No hay ninguna sugerencia para confirmar." };
+  }
+
+  const resultado = await prisma.movimientoBancario.updateMany({
+    where: {
+      ejecucionId: ejecucion.id,
+      unidadSugeridaPorSistema: true,
+      bancoYCuenta: { in: cuentasCrudas },
+      // Misma clave que el grupo del panel (cuenta + unidad): no confirma de
+      // rebote una sugerencia distinta de la que el usuario está viendo.
+      unidadNegocio,
+    },
+    data: { unidadSugeridaPorSistema: false },
   });
 
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);

@@ -78,6 +78,7 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
         totalPaginas={datos.totalPaginas}
         soloSinClasificar={datos.soloSinClasificar}
         chequeos={chequeos}
+        unidadesSugeridas={datos.unidadesSugeridas}
       />
     );
   }
