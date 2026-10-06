@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
+import { quitarDiacriticos } from "@/lib/texto";
 
 // PENDIENTE: el slug se calcula al vuelo a partir de Empresa.nombre en vez de
 // persistirse en una columna propia. Es la respuesta correcta hoy (13 filas,
@@ -7,18 +8,9 @@ import { prisma } from "@/lib/prisma";
 // si en algún momento se agrega gestión de empresas (crear/renombrar desde la
 // UI), reconsiderar agregar una columna `slug` persistida para que las URLs
 // no dependan de recalcular el mismo string en cada request.
-// Rango Unicode de "combining diacritical marks" (0x0300–0x036f), construido
-// con códigos numéricos en vez de escribir el rango \uXXXX literal — al
-// tipear ese escape directamente termina insertándose el carácter combinante
-// real en el archivo en lugar del texto del escape.
-const MARCAS_DIACRITICAS = new RegExp(
-  "[" + String.fromCharCode(0x0300) + "-" + String.fromCharCode(0x036f) + "]",
-  "g"
-);
-
-export function quitarDiacriticos(texto: string): string {
-  return texto.normalize("NFD").replace(MARCAS_DIACRITICAS, "");
-}
+// quitarDiacriticos se movió a lib/texto.ts (módulo puro, importable desde el
+// cliente) — se re-exporta acá para no cambiar ningún import existente.
+export { quitarDiacriticos };
 
 export function slugify(texto: string): string {
   return quitarDiacriticos(texto)

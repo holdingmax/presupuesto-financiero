@@ -557,10 +557,11 @@ export default function PanelImputacion({
                   actualizarCampoLocal(id, "clasificacion", valor);
                   guardarCampo(id, "clasificacion", valor);
                 }}
-                onCambiarUnidadNegocio={(id, valor) => actualizarCampoLocal(id, "unidadNegocio", valor)}
-                onGuardarUnidadNegocio={(id, valor) => {
-                  // TablaMovimientos solo llama acá si el valor CAMBIÓ — así que
-                  // esto ya es una corrección real: deja de ser sugerencia.
+                onCambiarUnidadNegocio={(id, valor) => {
+                  // El <select> de TablaMovimientos solo dispara con un cambio
+                  // real — así que esto ya es una corrección: deja de ser
+                  // sugerencia (mismo criterio que el server en actualizarMovimiento).
+                  actualizarCampoLocal(id, "unidadNegocio", valor);
                   setMovimientos((prev) =>
                     prev.map((m) => (m.id === id ? { ...m, unidadSugeridaPorSistema: false } : m))
                   );

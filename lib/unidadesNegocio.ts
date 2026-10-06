@@ -1,4 +1,47 @@
-import { quitarDiacriticos } from "@/lib/slug";
+// Sin imports de servidor (solo lib/texto, puro): este módulo lo usan también
+// TablaMovimientos y PanelDesgloseMovimiento, que son "use client".
+import { quitarDiacriticos } from "@/lib/texto";
+
+// Lista CERRADA de unidades de negocio (decisión 2026-10-06, confirmada por
+// Leticia) — la ofrecen el <select> de la unidad de cada fila y el panel de
+// prorrateo, y la valida el server (actualizarMovimiento /
+// guardarDesgloseMovimiento). Es el nombre exacto que se guarda.
+// - EXPENSAS: destino aparte, PROVISORIO hasta confirmarlo con Kike (también
+//   existe como clasificación).
+// - Fuera a propósito: CREAR, las razones sociales que entraban por la columna
+//   EMPRESA (QUINTEROS, WHEELER, GONZALEZ, SIERRA, ESTEVEZ), Gold Seguridad,
+//   Cielos y Tucson (razones sociales), "SIN ASIGNAR" (es la marca de vacío),
+//   "SPP " con espacio y TEST2. Una fila vieja con uno de esos valores no se
+//   rompe: el <select> lo muestra como opción extra (ver opcionesUnidad).
+// Las unidades de UNIDAD_POR_CUENTA (más abajo) tienen que estar todas acá.
+export const UNIDADES_NEGOCIO = [
+  "AVIANOR",
+  "BRILLANTE",
+  "EXPENSAS",
+  "FREDY",
+  "HAVANNA",
+  "HWC",
+  "JPS",
+  "LOGISTICA",
+  "MANTENOR",
+  "RADIO",
+  "SPP",
+] as const;
+
+export function esUnidadDeLaLista(valor: string): boolean {
+  return (UNIDADES_NEGOCIO as readonly string[]).includes(valor);
+}
+
+// Opciones para un <select> de unidad: la lista cerrada + los valores viejos
+// fuera de lista que ya tiene el registro (ej. "CREAR", "SIN ASIGNAR"), para no
+// romperlo ni cambiarlo en silencio — mismo criterio que el <select> de
+// clasificación en TablaMovimientos. Los extras van primero, tal cual.
+export function opcionesUnidad(valoresActuales: string[]): string[] {
+  const extras = Array.from(
+    new Set(valoresActuales.filter((v) => v !== "" && !esUnidadDeLaLista(v)))
+  );
+  return [...extras, ...UNIDADES_NEGOCIO];
+}
 
 // Mismo criterio de normalización que verificarContinuidadSaldo (ejecucion/actions.ts)
 // y normalizarClasificacion (lib/clasificaciones.ts): tolera mayúsculas, tildes y

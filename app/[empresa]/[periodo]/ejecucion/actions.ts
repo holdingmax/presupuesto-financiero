@@ -15,10 +15,13 @@ import {
   calcularClasificacionesDisponibles,
   normalizarClasificacion,
   proponerClasificacionAutomatica,
-  esElegibleParaDesgloseEjecucion,
 } from "@/lib/clasificaciones";
-import { normalizarCuenta, proponerUnidadPorCuenta } from "@/lib/unidadesNegocio";
-import { parsearImporteArgentino } from "@/lib/numero";
+import {
+  normalizarCuenta,
+  proponerUnidadPorCuenta,
+  esUnidadDeLaLista,
+} from "@/lib/unidadesNegocio";
+import { aCentavos, centavosADecimal } from "@/lib/prorrateo";
 
 const NOMBRE_HOJA_EXTRACTO = "Hoja1";
 const FILAS_POR_PAGINA = 200;
@@ -956,12 +959,13 @@ export async function actualizarMovimiento(
     throw new Error("Esta semana ya está cerrada, no se puede editar.");
   }
 
-  // A diferencia de la clasificación (ver comentario de abajo), la unidad es un
-  // <input> que guarda en onBlur — y onBlur se dispara aunque el valor no haya
-  // cambiado. Decisión 2026-10-06: solo cuenta como confirmación de una unidad
-  // sugerida si el valor CAMBIÓ; hacer clic y salir no confirma nada. El cliente
-  // (TablaMovimientos) ya no llama acá si no cambió — esta comparación es la
+  // Decisión 2026-10-06: solo cuenta como confirmación de una unidad sugerida si
+  // el valor CAMBIÓ — reelegir el mismo valor no confirma nada. El <select> de
+  // TablaMovimientos ya solo dispara con un cambio real; esta comparación es la
   // segunda barrera server-side, contra el valor realmente guardado.
+  // Lista cerrada (decisión 2026-10-06): solo se acepta una unidad de
+  // UNIDADES_NEGOCIO, o el valor que la fila ya tiene (un valor viejo fuera de
+  // lista, ej. "CREAR", no se rompe — el <select> lo muestra como opción extra).
   let unidadCambio = false;
   if (datos.unidadNegocio !== undefined) {
     const actual = await prisma.movimientoBancario.findUnique({
@@ -969,6 +973,9 @@ export async function actualizarMovimiento(
       select: { unidadNegocio: true },
     });
     unidadCambio = actual !== null && actual.unidadNegocio !== datos.unidadNegocio;
+    if (unidadCambio && !esUnidadDeLaLista(datos.unidadNegocio)) {
+      throw new Error(`"${datos.unidadNegocio}" no es una unidad de negocio de la lista.`);
+    }
   }
 
   await prisma.movimientoBancario.update({
@@ -1100,18 +1107,28 @@ type ResultadoDesgloseMovimiento =
   | { ok: true }
   | { ok: false; errores: Record<string, string> };
 
-// Reemplaza el desglose completo de un movimiento — mismo patrón que
-// guardarDesglose en presupuesto/actions.ts. Escribe SOLO
-// MovimientoBancarioDesglose, nunca MovimientoBancario.unidadNegocio (el
-// valor propio de la fila, que se edita aparte vía actualizarMovimiento) —
-// son dos campos/tablas independientes, ver el comentario en el modelo
-// (schema.prisma) y en actualizarMovimiento arriba.
+// Prorrateo de un movimiento entre varias unidades de negocio. Reemplaza el
+// desglose completo — mismo patrón que guardarDesglose en presupuesto/actions.ts.
+// Escribe MovimientoBancarioDesglose y, del movimiento, SOLO
+// unidadSugeridaPorSistema (ver abajo) — nunca MovimientoBancario.unidadNegocio
+// (el valor propio de la fila, que queda guardado detrás del resumen y se edita
+// aparte vía actualizarMovimiento).
+//
+// Habilitado para TODAS las clasificaciones (pedido de Kike, 2026-10-06 — antes
+// solo SUELDOS/EXPENSAS): ingresos y egresos por igual. Hoy ningún cálculo ni
+// reporte lee esta tabla; el Reporte la va a usar en un paso aparte.
+//
+// El cliente (PanelDesgloseMovimiento) ya resolvió porcentajes → montos con
+// lib/prorrateo.ts y manda cada línea en CENTAVOS ENTEROS, en magnitud positiva
+// — no texto: parsearImporteArgentino lee "1234.56" como 123456 (el punto es
+// separador de miles), así que un texto con punto decimal se guardaría mal en
+// silencio. Acá la suma se compara en centavos con igualdad EXACTA.
 export async function guardarDesgloseMovimiento(
   empresaSlug: string,
   periodo: string,
   numeroSemana: number,
   movimientoId: string,
-  sublineas: { unidadNegocio: string; importe: string }[]
+  sublineas: { unidadNegocio: string; importeCentavos: number }[]
 ): Promise<ResultadoDesgloseMovimiento> {
   const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
   const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
@@ -1119,49 +1136,59 @@ export async function guardarDesgloseMovimiento(
     return { ok: false, errores: { general: `No encontré la semana ${numeroSemana}.` } };
   }
 
-  const movimiento = await prisma.movimientoBancario.findUnique({ where: { id: movimientoId } });
+  const movimiento = await prisma.movimientoBancario.findUnique({
+    where: { id: movimientoId },
+    include: { desglose: { select: { unidadNegocio: true } } },
+  });
   if (!movimiento || movimiento.ejecucionId !== ejecucion.id) {
     return { ok: false, errores: { general: "No encontré ese movimiento." } };
   }
   if (ejecucion.estado === "CERRADA") {
     return { ok: false, errores: { general: "Esta semana ya está cerrada, no se puede editar." } };
   }
-  if (!esElegibleParaDesgloseEjecucion(movimiento.clasificacion)) {
-    return { ok: false, errores: { general: "Esta clasificación no admite desglose." } };
+
+  // MovimientoBancario.importe trae el signo del banco (negativo en un débito,
+  // positivo en una cobranza); cada línea viaja como magnitud positiva y acá se
+  // le aplica el signo del movimiento padre, para que un futuro reporte "por
+  // unidad de negocio" que sume esta tabla obtenga el signo correcto.
+  const totalCentavos = aCentavos(Number(movimiento.importe));
+  if (totalCentavos === 0) {
+    return { ok: false, errores: { general: "Un movimiento de $0 no se puede prorratear." } };
   }
+  const signoMovimiento = Number(movimiento.importe) < 0 ? -1 : 1;
 
-  // MovimientoBancario.importe trae el signo del banco (negativo en un
-  // débito — el caso típico de SUELDOS/EXPENSAS), pero cada sub-línea se
-  // tipea y se valida como magnitud positiva ("$2M para Mantenor", no
-  // "-$2M") — mismo criterio que en PanelDesgloseMovimiento.tsx. Al guardar,
-  // se le aplica el signo del movimiento padre, para que un futuro reporte
-  // "por unidad de negocio" que sume esta tabla directamente obtenga el
-  // signo correcto (un desglose de un débito tiene que seguir sumando en
-  // negativo, no en positivo).
-  const importeMovimiento = Number(movimiento.importe);
-  const signoMovimiento = importeMovimiento < 0 ? -1 : 1;
-
+  // Lista cerrada, más los valores viejos fuera de lista que este desglose ya
+  // tenía (no se rompe un desglose cargado antes de la lista — mismo criterio
+  // que el <select> del panel).
+  const unidadesPrevias = new Set(movimiento.desglose.map((d) => d.unidadNegocio));
   const limpias = sublineas.map((s) => ({
     unidadNegocio: s.unidadNegocio.trim(),
-    importe: Math.abs(parsearImporteArgentino(s.importe)) * signoMovimiento,
-    importeCrudo: s.importe,
+    importeCentavos: s.importeCentavos,
   }));
 
   const errores: Record<string, string> = {};
-  if (limpias.length === 0) {
-    errores.general = "Agregá al menos una unidad de negocio.";
+  if (limpias.length < 2) {
+    errores.general = "Un prorrateo necesita al menos 2 unidades de negocio.";
   }
+  const vistas = new Set<string>();
   limpias.forEach((s, i) => {
-    if (!s.unidadNegocio) errores[`unidadNegocio_${i}`] = "Completá la unidad de negocio.";
-    if (!s.importeCrudo.trim() || s.importe === 0 || Number.isNaN(s.importe)) {
+    if (!s.unidadNegocio) {
+      errores[`unidadNegocio_${i}`] = "Elegí la unidad de negocio.";
+    } else if (!esUnidadDeLaLista(s.unidadNegocio) && !unidadesPrevias.has(s.unidadNegocio)) {
+      errores[`unidadNegocio_${i}`] = "No es una unidad de negocio de la lista.";
+    } else if (vistas.has(s.unidadNegocio)) {
+      errores[`unidadNegocio_${i}`] = "Esta unidad ya está en otra línea.";
+    }
+    vistas.add(s.unidadNegocio);
+    if (!Number.isSafeInteger(s.importeCentavos) || s.importeCentavos <= 0) {
       errores[`importe_${i}`] = "El importe no puede estar vacío ni ser 0.";
     }
   });
 
   if (Object.keys(errores).length === 0) {
-    const suma = limpias.reduce((acc, s) => acc + Math.abs(s.importe), 0);
-    if (Math.abs(suma - Math.abs(importeMovimiento)) >= 0.01) {
-      errores.general = `La suma del desglose ($${suma.toLocaleString("es-AR")}) tiene que coincidir con el importe del movimiento ($${Math.abs(importeMovimiento).toLocaleString("es-AR")}).`;
+    const suma = limpias.reduce((acc, s) => acc + s.importeCentavos, 0);
+    if (suma !== totalCentavos) {
+      errores.general = `La suma del prorrateo ($${(suma / 100).toLocaleString("es-AR")}) tiene que coincidir con el importe del movimiento ($${(totalCentavos / 100).toLocaleString("es-AR")}).`;
     }
   }
 
@@ -1175,8 +1202,15 @@ export async function guardarDesgloseMovimiento(
       data: limpias.map((s) => ({
         movimientoId,
         unidadNegocio: s.unidadNegocio,
-        importe: s.importe,
+        importe: centavosADecimal(s.importeCentavos, signoMovimiento),
       })),
+    }),
+    // Prorratear ya es asignar unidades a mano: la unidad sugerida por la
+    // cuenta (si la había) deja de estar pendiente y sale del panel de
+    // unidades sugeridas. No toca el valor de unidadNegocio.
+    prisma.movimientoBancario.update({
+      where: { id: movimientoId },
+      data: { unidadSugeridaPorSistema: false },
     }),
   ]);
 
@@ -1202,7 +1236,13 @@ export async function eliminarDesgloseMovimiento(
     throw new Error("Esta semana ya está cerrada, no se puede editar.");
   }
 
-  await prisma.movimientoBancarioDesglose.deleteMany({ where: { movimientoId } });
+  // Hallazgo 2026-10-06: antes borraba por movimientoId sin verificar que el
+  // movimiento fuera de esta semana — alguien con permiso de operar la empresa
+  // A podía borrar el desglose de un movimiento de la empresa B pasando su id.
+  // El where por ejecucionId lo acota a esta semana (de esta empresa).
+  await prisma.movimientoBancarioDesglose.deleteMany({
+    where: { movimientoId, movimiento: { ejecucionId: ejecucion.id } },
+  });
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
 }
 

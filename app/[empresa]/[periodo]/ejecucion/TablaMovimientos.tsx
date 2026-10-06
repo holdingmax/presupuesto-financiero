@@ -1,8 +1,11 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { formatearImporte } from "./formato";
-import { esElegibleParaDesgloseEjecucion } from "@/lib/clasificaciones";
+import { eliminarDesgloseMovimiento } from "./actions";
+import { opcionesUnidad } from "@/lib/unidadesNegocio";
+import { aCentavos, formatearCentavos, formatearPorcentaje, porcentajeDeCentavos } from "@/lib/prorrateo";
 import PanelDesgloseMovimiento from "./PanelDesgloseMovimiento";
 
 // Sin librería de íconos en el proyecto — SVG a mano, mismo criterio que
@@ -31,18 +34,14 @@ function IconoChevron() {
 // table-layout automático — sin esta columna a ancho fijo, el navegador achica
 // la que no tenga contenido protegido en vez de desbordar). El botón ⋯ es de
 // ancho fijo y siempre visible — no depende del viewport ni del hover.
+// El prorrateo ya no vive acá: se abre con el tilde "Prorratea" de la celda de
+// unidad de negocio (pedido de Kike, 2026-10-06).
 function MenuAcciones({
   ignorado,
-  elegibleDesglose,
-  desglosado,
-  onDesglosar,
   onToggleIgnorado,
   onQuitar,
 }: {
   ignorado: boolean;
-  elegibleDesglose: boolean;
-  desglosado: boolean;
-  onDesglosar?: () => void;
   onToggleIgnorado?: () => void;
   onQuitar?: () => void;
 }) {
@@ -79,18 +78,6 @@ function MenuAcciones({
           className="absolute right-0 top-full z-30 mt-1 w-36 rounded-md border border-line-strong bg-paper-raised py-1 shadow-lg shadow-ink/15"
           style={{ backgroundColor: "#ffffff", isolation: "isolate" }}
         >
-          {elegibleDesglose && onDesglosar && (
-            <button
-              type="button"
-              onClick={() => {
-                onDesglosar();
-                setAbierto(false);
-              }}
-              className="block w-full px-3 py-1.5 text-left text-xs text-ink-secondary hover:bg-paper-cool hover:text-ink"
-            >
-              {desglosado ? "Editar desglose" : "Desglosar"}
-            </button>
-          )}
           {onToggleIgnorado && (
             <button
               type="button"
@@ -121,6 +108,48 @@ function MenuAcciones({
   );
 }
 
+// "60%" si es exacto, "33,33%" si no.
+function textoPorcentaje(centesimas: number) {
+  return centesimas % 100 === 0 ? `${centesimas / 100}%` : `${formatearPorcentaje(centesimas)}%`;
+}
+
+// Reemplaza el <select> de la unidad cuando el movimiento está prorrateado:
+// "HAVANNA 60% · RADIO 40%" (las 2 primeras + "+N"), con el detalle en $ en el
+// tooltip. La unidad propia de la fila queda guardada detrás, sin mostrarse
+// (decisión 2026-10-06 — el Reporte va a usar el desglose). Clickeable solo si
+// la fila es editable (abre el panel).
+function ResumenProrrateo({
+  importe,
+  desglose,
+  onAbrir,
+}: {
+  importe: number;
+  desglose: { unidadNegocio: string; importe: number }[];
+  onAbrir?: () => void;
+}) {
+  const total = aCentavos(importe);
+  const partes = desglose.map((d) => {
+    const centavos = aCentavos(d.importe);
+    return { unidad: d.unidadNegocio, centavos, porcentaje: porcentajeDeCentavos(centavos, total) };
+  });
+  const visibles = partes.slice(0, 2).map((p) => `${p.unidad} ${textoPorcentaje(p.porcentaje)}`);
+  const texto = visibles.join(" · ") + (partes.length > 2 ? ` · +${partes.length - 2}` : "");
+  const detalle = partes
+    .map((p) => `${p.unidad}: $${formatearCentavos(p.centavos)} (${formatearPorcentaje(p.porcentaje)}%)`)
+    .join("\n");
+  const clases = "max-w-[19rem] truncate text-left text-sm text-marino";
+
+  return onAbrir ? (
+    <button type="button" onClick={onAbrir} title={`Prorrateado:\n${detalle}`} className={`${clases} hover:underline`}>
+      {texto}
+    </button>
+  ) : (
+    <span title={`Prorrateado:\n${detalle}`} className={clases}>
+      {texto}
+    </span>
+  );
+}
+
 export type MovimientoTabla = {
   id: string;
   fecha: string;
@@ -148,8 +177,10 @@ type Props = {
   deshabilitado?: boolean;
   clasificacionesDisponibles?: string[];
   onCambiarClasificacion?: (id: string, valor: string) => void;
+  // Solo se llama con un cambio REAL de unidad (es un <select>: reelegir la
+  // misma opción no dispara onChange) — el llamador guarda y lo toma como
+  // confirmación de una unidad sugerida (decisión 2026-10-06).
   onCambiarUnidadNegocio?: (id: string, valor: string) => void;
-  onGuardarUnidadNegocio?: (id: string, valor: string) => void;
   onQuitar?: (id: string) => void;
   onToggleIgnorado?: (id: string, valor: boolean) => void;
 };
@@ -162,18 +193,31 @@ export default function TablaMovimientos({
   clasificacionesDisponibles = [],
   onCambiarClasificacion,
   onCambiarUnidadNegocio,
-  onGuardarUnidadNegocio,
   onQuitar,
   onToggleIgnorado,
 }: Props) {
+  const router = useRouter();
+  const { empresa: empresaSlug, periodo } = useParams<{ empresa: string; periodo: string }>();
   const [desgloseAbiertoId, setDesgloseAbiertoId] = useState<string | null>(null);
-  // Valor de la unidad al entrar al <input> — onBlur se dispara aunque no se haya
-  // tocado nada, y onCambiarUnidadNegocio ya actualiza el estado en cada tecla,
-  // así que la única forma de saber si CAMBIÓ es comparar contra lo que había al
-  // hacer foco. Sin cambio, no se guarda ni se confirma la sugerencia (decisión
-  // 2026-10-06). Un solo ref alcanza: hay un solo input con foco a la vez.
-  const unidadAlEnfocar = useRef<string | null>(null);
   const totalColumnas = soloLectura ? 6 : 7;
+
+  // Tilde "Prorratea" (pedido de Kike, 2026-10-06): tildarlo abre el panel;
+  // destildarlo cierra el panel si todavía no se guardó nada, o — si ya hay un
+  // prorrateo guardado — pide confirmación y lo borra.
+  async function alTildarProrrateo(m: MovimientoTabla, tildado: boolean) {
+    if (tildado) {
+      setDesgloseAbiertoId(m.id);
+      return;
+    }
+    if (m.desglose.length === 0) {
+      setDesgloseAbiertoId(null);
+      return;
+    }
+    if (!confirm("¿Quitar el prorrateo de este movimiento? Se borra el reparto guardado.")) return;
+    await eliminarDesgloseMovimiento(empresaSlug, periodo, numeroSemana, m.id);
+    setDesgloseAbiertoId(null);
+    router.refresh();
+  }
 
   return (
     <table className="w-full min-w-[880px] text-sm">
@@ -190,7 +234,6 @@ export default function TablaMovimientos({
       </thead>
       <tbody>
         {movimientos.map((m) => {
-          const elegibleDesglose = esElegibleParaDesgloseEjecucion(m.clasificacion);
           const desglosado = m.desglose.length > 0;
           const expandida = desgloseAbiertoId === m.id;
 
@@ -242,54 +285,84 @@ export default function TablaMovimientos({
               )}
             </td>
             <td className="py-2 pr-3">
-              {soloLectura ? (
-                <span>{m.unidadNegocio}</span>
-              ) : (
-                <input
-                  value={m.unidadNegocio}
-                  disabled={deshabilitado}
-                  onFocus={(e) => {
-                    unidadAlEnfocar.current = e.target.value;
-                  }}
-                  onChange={(e) => onCambiarUnidadNegocio?.(m.id, e.target.value)}
-                  onBlur={(e) => {
-                    const valorInicial = unidadAlEnfocar.current;
-                    unidadAlEnfocar.current = null;
-                    if (e.target.value === valorInicial) return;
-                    onGuardarUnidadNegocio?.(m.id, e.target.value);
-                  }}
-                  title={
-                    m.unidadSugeridaPorSistema
-                      ? "Sugerida por la cuenta bancaria — sin confirmar"
-                      : undefined
-                  }
-                  className={`w-32 rounded-md border border-transparent bg-transparent px-2 py-1 text-sm outline-none transition hover:border-line hover:bg-surface-hover focus:border-marino focus:bg-paper-raised disabled:text-ink-muted ${
-                    m.unidadSugeridaPorSistema ? "italic text-ink-secondary" : ""
-                  }`}
-                />
-              )}
-              {m.unidadSugeridaPorSistema && (
-                <span
-                  title="Sugerida por la cuenta bancaria — sin confirmar"
-                  className="ml-1.5 whitespace-nowrap text-xs text-ink-faint"
-                >
-                  · sugerida
-                </span>
-              )}
-              {desglosado && (
-                <span className="ml-1.5 whitespace-nowrap text-xs text-marino">
-                  · desglosado en {m.desglose.length}
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {desglosado ? (
+                  <ResumenProrrateo
+                    importe={m.importe}
+                    desglose={m.desglose}
+                    onAbrir={
+                      soloLectura || deshabilitado
+                        ? undefined
+                        : () => setDesgloseAbiertoId(expandida ? null : m.id)
+                    }
+                  />
+                ) : soloLectura ? (
+                  <span className={m.unidadSugeridaPorSistema ? "italic text-ink-secondary" : ""}>
+                    {m.unidadNegocio}
+                  </span>
+                ) : (
+                  // Lista cerrada (lib/unidadesNegocio.ts); un valor viejo fuera
+                  // de lista (ej. "CREAR", "SIN ASIGNAR") se muestra como opción
+                  // extra para no cambiarlo en silencio.
+                  <div className="relative inline-block">
+                    <select
+                      value={m.unidadNegocio}
+                      disabled={deshabilitado}
+                      onChange={(e) => onCambiarUnidadNegocio?.(m.id, e.target.value)}
+                      title={
+                        m.unidadSugeridaPorSistema
+                          ? "Sugerida por la cuenta bancaria — sin confirmar"
+                          : undefined
+                      }
+                      className={`w-32 appearance-none rounded-md border border-transparent bg-transparent py-1 pl-2 pr-6 text-sm outline-none transition hover:border-line hover:bg-surface-hover focus:border-marino focus:bg-paper-raised disabled:cursor-not-allowed disabled:text-ink-muted disabled:hover:bg-transparent ${
+                        m.unidadSugeridaPorSistema ? "italic text-ink-secondary" : ""
+                      }`}
+                    >
+                      {opcionesUnidad([m.unidadNegocio]).map((u) => (
+                        <option key={u} value={u}>
+                          {u}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-ink-faint">
+                      <IconoChevron />
+                    </span>
+                  </div>
+                )}
+                {!desglosado && m.unidadSugeridaPorSistema && (
+                  <span
+                    title="Sugerida por la cuenta bancaria — sin confirmar"
+                    className="whitespace-nowrap text-xs text-ink-faint"
+                  >
+                    · sugerida
+                  </span>
+                )}
+                {!soloLectura && !deshabilitado && (
+                  <label
+                    title={
+                      m.importe === 0
+                        ? "Un movimiento de $0 no se puede prorratear"
+                        : "Repartir este movimiento entre varias unidades de negocio"
+                    }
+                    className="ml-auto flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap text-xs text-ink-muted has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-40"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={desglosado || expandida}
+                      disabled={m.importe === 0}
+                      onChange={(e) => alTildarProrrateo(m, e.target.checked)}
+                      className="accent-marino"
+                    />
+                    Prorratea
+                  </label>
+                )}
+              </div>
             </td>
             {!soloLectura && (
               <td className="py-2">
                 {!deshabilitado && (
                   <MenuAcciones
                     ignorado={m.ignorado}
-                    elegibleDesglose={elegibleDesglose}
-                    desglosado={desglosado}
-                    onDesglosar={() => setDesgloseAbiertoId(expandida ? null : m.id)}
                     onToggleIgnorado={
                       onToggleIgnorado ? () => onToggleIgnorado(m.id, !m.ignorado) : undefined
                     }

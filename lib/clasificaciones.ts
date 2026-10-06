@@ -87,17 +87,11 @@ export function esElegibleParaDesglose(clasificacion: string): boolean {
   return CLASIFICACIONES_CON_DESGLOSE.includes(clave);
 }
 
-// Análogo a CLASIFICACIONES_CON_DESGLOSE, pero para MovimientoBancario en
-// Ejecución — mecanismo separado a propósito, no comparte lista con
-// Presupuesto (alcance decidido 2026-09-02: solo Ejecución, no tocar
-// Presupuesto). Habilitadas por el caso real de Macchi: un pago de sueldos
-// que en realidad se reparte entre varias unidades de negocio.
-const CLASIFICACIONES_CON_DESGLOSE_EJECUCION = ["SUELDOS", "EXPENSAS"];
-
-export function esElegibleParaDesgloseEjecucion(clasificacion: string): boolean {
-  const clave = quitarDiacriticos(clasificacion).trim().toUpperCase().replace(/\s+/g, " ");
-  return CLASIFICACIONES_CON_DESGLOSE_EJECUCION.includes(clave);
-}
+// En Ejecución el prorrateo por unidad de negocio (MovimientoBancarioDesglose)
+// ya no depende de la clasificación: desde 2026-10-06 (pedido de Kike) se
+// habilitó para TODAS — antes solo SUELDOS/EXPENSAS vía una lista análoga a
+// CLASIFICACIONES_CON_DESGLOSE. Esta lista de arriba sigue siendo solo de
+// Presupuesto.
 
 // Lista curada de clasificaciones habituales, compartida entre el <select>
 // de ejecución (TablaMovimientos.tsx) y el <datalist> de presupuesto
