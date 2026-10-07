@@ -65,6 +65,9 @@ type Props = {
   soloSinClasificar: boolean;
   chequeos: ResultadoChequeo[];
   unidadesSugeridas: GrupoUnidadSugerida[];
+  // Movimientos de toda la semana cuya unidad no pertenece a ninguna empresa
+  // (ver contarSinUnidadEnSemana en lib/reporte.ts) — se avisa antes del cierre.
+  sinUnidadAsignada: { unidad: string; movimientos: number }[];
 };
 
 export default function PanelImputacion({
@@ -80,6 +83,7 @@ export default function PanelImputacion({
   soloSinClasificar,
   chequeos,
   unidadesSugeridas,
+  sinUnidadAsignada,
 }: Props) {
   const router = useRouter();
   const { empresa: empresaSlug, periodo } = useParams<{
@@ -317,10 +321,16 @@ export default function PanelImputacion({
     router.refresh();
   }
 
+  const cantidadSinUnidad = sinUnidadAsignada.reduce((suma, s) => suma + s.movimientos, 0);
+
   async function handleCerrarSemana() {
+    const avisoSinUnidad =
+      cantidadSinUnidad > 0
+        ? `\n\nAtención: ${cantidadSinUnidad === 1 ? "1 movimiento no tiene" : `${cantidadSinUnidad} movimientos no tienen`} una unidad de negocio asignada a una empresa — no van a entrar en el Reporte de ninguna empresa y después del cierre ya no se pueden corregir.`
+        : "";
     if (
       !confirm(
-        `¿Confirmás el cierre semanal de la semana ${numeroSemana}? Después de cerrarla no se puede editar para atrás — cualquier corrección va a la semana siguiente.`
+        `¿Confirmás el cierre semanal de la semana ${numeroSemana}? Después de cerrarla no se puede editar para atrás — cualquier corrección va a la semana siguiente.${avisoSinUnidad}`
       )
     ) {
       return;
@@ -641,6 +651,24 @@ export default function PanelImputacion({
           </>
         )}
       </div>
+
+      {!cerrada && cantidadSinUnidad > 0 && (
+        <div className="mt-10 rounded-md border border-line-strong border-l-4 border-l-terracota bg-paper-raised px-5 py-4 text-sm">
+          <p className="font-medium">
+            {cantidadSinUnidad === 1
+              ? "1 movimiento sin unidad asignada"
+              : `${cantidadSinUnidad} movimientos sin unidad asignada`}
+          </p>
+          <p className="mt-1 text-xs text-ink-muted">
+            Su unidad de negocio no pertenece a ninguna empresa, así que no van a entrar en el
+            Reporte de nadie. Asignales una unidad (o prorrateálos) antes del cierre semanal: una
+            semana cerrada ya no se puede editar.
+          </p>
+          <p className="mt-2 text-xs text-ink-secondary">
+            {sinUnidadAsignada.map((s) => `${s.unidad} (${s.movimientos})`).join(" · ")}
+          </p>
+        </div>
+      )}
 
       {!cerrada && (
         <div className="mt-10 flex items-center justify-between border-t border-line-strong pt-6">

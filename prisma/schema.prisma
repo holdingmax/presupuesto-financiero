@@ -35,6 +35,12 @@ model Empresa {
   nombre    String   // ej: "Havanna", "Fredy Publicidad", "Brillante", "HWC"
   cuit      String?
   activo    Boolean  @default(true)
+  // Unidades de negocio (de UNIDADES_NEGOCIO, lib/unidadesNegocio.ts) que
+  // pertenecen a esta empresa: el Reporte suma como REAL de la empresa los
+  // movimientos de CUALQUIER extracto cuya unidad esté acá. Una unidad pertenece
+  // a UNA sola empresa (lo controla la pantalla /admin/unidades-negocio). Vacío =
+  // la empresa no tiene unidad propia (ej. Gold Seguridad, razón social).
+  unidadesNegocio String[] @default([])
   createdAt DateTime @default(now())
 
   presupuestos PresupuestoMensual[]

@@ -7,7 +7,11 @@ import { normalizarTexto } from "@/lib/texto";
 // prorrateo, y la valida el server (actualizarMovimiento /
 // guardarDesgloseMovimiento). Es el nombre exacto que se guarda.
 // - EXPENSAS: destino aparte, PROVISORIO hasta confirmarlo con Kike (también
-//   existe como clasificación).
+//   existe como clasificación). No pertenece a ninguna empresa todavía: el
+//   Reporte la muestra en el bloque "No asignado a ninguna empresa".
+// - BRADENTON (agregada 2026-10-07): unidad propia de la empresa Bradenton.
+// Qué unidad pertenece a qué empresa NO vive acá: es Empresa.unidadesNegocio,
+// editable en /admin/unidades-negocio.
 // - Fuera a propósito: CREAR, las razones sociales que entraban por la columna
 //   EMPRESA (QUINTEROS, WHEELER, GONZALEZ, SIERRA, ESTEVEZ), Gold Seguridad,
 //   Cielos y Tucson (razones sociales), "SIN ASIGNAR" (es la marca de vacío),
@@ -16,6 +20,7 @@ import { normalizarTexto } from "@/lib/texto";
 // Las unidades de UNIDAD_POR_CUENTA (más abajo) tienen que estar todas acá.
 export const UNIDADES_NEGOCIO = [
   "AVIANOR",
+  "BRADENTON",
   "BRILLANTE",
   "EXPENSAS",
   "FREDY",

@@ -2,6 +2,12 @@ import { prisma } from "@/lib/prisma";
 import { resolverEmpresaPorSlug } from "@/lib/slug";
 import { requireAccesoEmpresa, AccesoDenegadoError } from "@/lib/auth";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
+import {
+  obtenerUnidadesConEmpresa,
+  calcularRealPorRubro,
+  calcularNoAsignadoDelExtracto,
+  type NoAsignado,
+} from "@/lib/reporte";
 import ReportePresupuestoMesAMes from "./ReportePresupuestoMesAMes";
 
 type Props = {
@@ -40,6 +46,8 @@ export default async function ReportePage({ params }: Props) {
   const { empresa: empresaSlug, periodo } = await params;
 
   let empresaNombre: string;
+  let empresaId: string;
+  let unidadesEmpresa: string[];
   let presupuestoId: string;
   try {
     const empresa = await resolverEmpresaPorSlug(empresaSlug);
@@ -49,6 +57,8 @@ export default async function ReportePage({ params }: Props) {
     await requireAccesoEmpresa(empresa.id);
     const presupuesto = await obtenerOCrearPresupuesto(empresa.id, periodo);
     empresaNombre = empresa.nombre;
+    empresaId = empresa.id;
+    unidadesEmpresa = empresa.unidadesNegocio;
     presupuestoId = presupuesto.id;
   } catch (error) {
     // Ver el comentario equivalente en presupuesto/page.tsx: el layout ya
@@ -73,28 +83,29 @@ export default async function ReportePage({ params }: Props) {
     presupuestadoPorClasificacion.set(s.clasificacion, Math.abs(Number(s._sum.importe ?? 0)));
   }
 
-  // REAL: solo semanas CERRADAS (una semana abierta es provisoria, mismo
-  // criterio que ya usa calcularChequeosSumaCero/obtenerDatosSemana en
-  // Ejecución) e ignorado:false (una fila ignorada no debe pesar en ningún
-  // cálculo, mismo criterio en todo el sistema).
-  const semanasCerradas = await prisma.ejecucionSemanal.findMany({
-    where: { presupuestoId, estado: "CERRADA" },
-    select: { id: true },
-  });
-  const idsSemanasCerradas = semanasCerradas.map((s) => s.id);
-
-  const sumasReales =
-    idsSemanasCerradas.length > 0
-      ? await prisma.movimientoBancario.groupBy({
-          by: ["clasificacion"],
-          where: { ejecucionId: { in: idsSemanasCerradas }, ignorado: false },
-          _sum: { importe: true },
-        })
-      : [];
+  // REAL por UNIDAD DE NEGOCIO, no por empresa del extracto (ver lib/reporte.ts):
+  // movimientos de CUALQUIER empresa del período cuya unidad pertenece a esta
+  // empresa, más las porciones de prorrateo de esta empresa. Solo semanas
+  // CERRADAS (una semana abierta es provisoria) e ignorado:false — mismo criterio
+  // que antes. Sumado en la base (numeric exacto) y devuelto en centavos.
+  const unidadesConEmpresa = await obtenerUnidadesConEmpresa();
+  const [realPorRubro, noAsignado] = await Promise.all([
+    calcularRealPorRubro(periodo, unidadesEmpresa, RUBROS_EGRESOS),
+    // Solo de los extractos de ESTA empresa (lo que el gerente ya ve en
+    // Ejecución): importes cuya unidad no pertenece a ninguna empresa (SIN
+    // ASIGNAR, valores viejos fuera de lista, EXPENSAS). Van en un bloque aparte,
+    // sin sumarse a ningún rubro (decisión 2026-10-07).
+    calcularNoAsignadoDelExtracto(empresaId, periodo, RUBROS_EGRESOS, unidadesConEmpresa),
+  ]);
+  // Mismo criterio que antes para mostrar: magnitud del neto del rubro, en pesos.
   const realPorClasificacion = new Map<string, number>();
-  for (const s of sumasReales) {
-    realPorClasificacion.set(s.clasificacion, Math.abs(Number(s._sum.importe ?? 0)));
+  for (const [clasificacion, centavos] of realPorRubro) {
+    realPorClasificacion.set(clasificacion, Math.abs(centavos) / 100);
   }
+  const noAsignadoPesos: (NoAsignado & { pesos: number })[] = noAsignado.porUnidad.map((n) => ({
+    ...n,
+    pesos: Math.abs(n.centavos) / 100,
+  }));
 
   // Unión, no intersección: un rubro con REAL pero sin ninguna línea de
   // presupuesto ese mes igual tiene que aparecer (con presupuestado en $0),
@@ -105,5 +116,15 @@ export default async function ReportePage({ params }: Props) {
     real: realPorClasificacion.get(clasificacion) ?? 0,
   }));
 
-  return <ReportePresupuestoMesAMes empresaNombre={empresaNombre} periodo={periodo} filas={filas} />;
+  return (
+    <ReportePresupuestoMesAMes
+      empresaNombre={empresaNombre}
+      empresaSlug={empresaSlug}
+      periodo={periodo}
+      filas={filas}
+      sinUnidades={unidadesEmpresa.length === 0}
+      noAsignado={noAsignadoPesos.map((n) => ({ unidad: n.unidad, importe: n.pesos, movimientos: n.movimientos }))}
+      semanasConNoAsignado={noAsignado.semanas}
+    />
+  );
 }

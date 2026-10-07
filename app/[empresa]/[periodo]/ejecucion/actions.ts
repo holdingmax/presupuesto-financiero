@@ -22,6 +22,7 @@ import {
   esUnidadDeLaLista,
 } from "@/lib/unidadesNegocio";
 import { aCentavos, centavosADecimal } from "@/lib/prorrateo";
+import { obtenerUnidadesConEmpresa, contarSinUnidadEnSemana } from "@/lib/reporte";
 import {
   centavosDeNumero,
   centavosDeDecimalTexto,
@@ -198,7 +199,7 @@ export async function obtenerDatosSemana(
   // condición solo cuando el filtro está activo, sin cambiar nada más.
   const filtroClasificacion = soloSinClasificar ? { clasificacion: "SIN CLASIFICAR" } : {};
 
-  const [agregadoTotal, agregadoSumaReal, gruposUnidadSugerida] = await Promise.all([
+  const [agregadoTotal, agregadoSumaReal, gruposUnidadSugerida, sinUnidadAsignada] = await Promise.all([
     prisma.movimientoBancario.aggregate({
       where: { ejecucionId: ejecucion.id, ...filtroClasificacion },
       _count: true,
@@ -215,6 +216,10 @@ export async function obtenerDatosSemana(
       where: { ejecucionId: ejecucion.id, unidadSugeridaPorSistema: true },
       _count: true,
     }),
+    // Aviso antes del cierre (decisión 2026-10-07): movimientos de TODA la semana
+    // cuya unidad no pertenece a ninguna empresa — no van a entrar en el Reporte
+    // de nadie, y una vez cerrada la semana ya no se pueden corregir.
+    obtenerUnidadesConEmpresa().then((unidades) => contarSinUnidadEnSemana(ejecucion.id, unidades)),
   ]);
 
   const totalMovimientos = agregadoTotal._count;
@@ -247,6 +252,7 @@ export async function obtenerDatosSemana(
     totalPaginas,
     soloSinClasificar,
     unidadesSugeridas: agruparUnidadesSugeridas(gruposUnidadSugerida),
+    sinUnidadAsignada,
   };
 }
 

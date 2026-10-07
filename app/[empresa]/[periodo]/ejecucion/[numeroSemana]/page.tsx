@@ -79,6 +79,7 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
         soloSinClasificar={datos.soloSinClasificar}
         chequeos={chequeos}
         unidadesSugeridas={datos.unidadesSugeridas}
+        sinUnidadAsignada={datos.sinUnidadAsignada}
       />
     );
   }
