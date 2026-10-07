@@ -9,6 +9,19 @@ import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
 import { requireAccesoEmpresa, puedeRevisarPresupuesto } from "@/lib/auth";
 import { normalizarClasificacion, esElegibleParaDesglose } from "@/lib/clasificaciones";
 import { parsearImporteArgentino } from "@/lib/numero";
+import {
+  CLASIFICACIONES_PRESUPUESTO_TODAS,
+  traducirClasificacionPresupuesto,
+} from "./clasificacionesPresupuesto";
+
+// Lista cerrada (decisión 2026-10-07, pedido de Kike: los gerentes no cargan
+// categorías propias). Una línea NUEVA solo puede usar un valor de la lista; una
+// línea vieja con una categoría fuera de lista puede seguir editándose con esa
+// misma categoría (ver editarLinea) — no se rompe ni se cambia en silencio.
+const VALORES_CLASIFICACION_PRESUPUESTO = new Set(
+  CLASIFICACIONES_PRESUPUESTO_TODAS.map((o) => o.valorPersistido)
+);
+const ERROR_CLASIFICACION_FUERA_DE_LISTA = "Elegí una clasificación de la lista.";
 
 // Mismo mapeo por nombre de columna que ya usa subirExtracto en
 // ejecucion/actions.ts, adaptado a las 4 columnas de LineaPresupuesto.
@@ -104,6 +117,11 @@ function validarCamposLinea(datos: {
     errores.importe = "El importe no puede estar vacío ni ser 0.";
   }
   if (!clasificacion) errores.clasificacion = "Elegí una clasificación.";
+  // "Otros" sin explicación no le sirve a nadie (decisión 2026-10-07): el detalle
+  // ya es obligatorio para todas, pero para "Otros" el mensaje dice por qué.
+  if (!detalle && clasificacion === "OTROS") {
+    errores.detalle = "Para «Otros» el detalle es obligatorio: explicá qué es este gasto.";
+  }
 
   return { concepto, detalle, clasificacion, importe, errores };
 }
@@ -125,6 +143,16 @@ export async function obtenerDatos(empresaSlug: string, periodo: string) {
     estado: presupuesto.estado,
     fueModificadoPorRevisor: presupuesto.fueModificadoPorRevisor,
     revisionCompletada: presupuesto.revisionCompletada,
+    // "Validado por X el dd/mm". por = null en presupuestos validados antes de
+    // que se guardara validadoPorId.
+    validacion: presupuesto.fechaValidacion
+      ? {
+          fecha: presupuesto.fechaValidacion.toISOString(),
+          por: presupuesto.validadoPorId
+            ? ((await prisma.usuario.findUnique({ where: { id: presupuesto.validadoPorId }, select: { nombre: true } }))?.nombre ?? null)
+            : null,
+        }
+      : null,
     esRevisor,
     lineas: lineas.map((l) => ({
       id: l.id,
@@ -151,6 +179,9 @@ export async function agregarLinea(
   datos: { concepto: string; detalle: string; importe: string; clasificacion: string }
 ): Promise<ResultadoAgregar> {
   const { concepto, detalle, clasificacion, importe, errores } = validarCamposLinea(datos);
+  if (clasificacion && !VALORES_CLASIFICACION_PRESUPUESTO.has(clasificacion)) {
+    errores.clasificacion = ERROR_CLASIFICACION_FUERA_DE_LISTA;
+  }
   if (Object.keys(errores).length > 0) {
     return { ok: false, errores };
   }
@@ -202,6 +233,10 @@ export async function editarLinea(
   });
   if (!linea || linea.presupuestoId !== presupuesto.id) {
     return { ok: false, errores: { general: "No encontré esa línea." } };
+  }
+  // Lista cerrada, salvo que la línea ya tuviera esa categoría vieja.
+  if (clasificacion !== linea.clasificacion && !VALORES_CLASIFICACION_PRESUPUESTO.has(clasificacion)) {
+    return { ok: false, errores: { clasificacion: ERROR_CLASIFICACION_FUERA_DE_LISTA } };
   }
 
   if (linea.desglose.length > 0) {
@@ -416,7 +451,7 @@ export async function confirmarVersionFinal(
   empresaSlug: string,
   periodo: string
 ): Promise<ResultadoTransicionEstado> {
-  const { presupuesto } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+  const { presupuesto, usuario } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
 
   if (presupuesto.estado !== "EN_REVISION") {
     return { ok: false, error: "Este presupuesto no está en revisión." };
@@ -427,7 +462,8 @@ export async function confirmarVersionFinal(
 
   await prisma.presupuestoMensual.update({
     where: { id: presupuesto.id },
-    data: { estado: "VALIDADO", fechaValidacion: new Date() },
+    // Trazabilidad (decisión 2026-10-07): quién confirmó la versión final.
+    data: { estado: "VALIDADO", fechaValidacion: new Date(), validadoPorId: usuario.id },
   });
   revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
   return { ok: true };
@@ -534,7 +570,12 @@ export async function subirLineasMasivo(
 
     const concepto = String(valores.concepto ?? "").trim();
     const detalle = String(valores.detalle ?? "").trim();
-    const clasificacion = normalizarClasificacion(String(valores.clasificacion ?? "").trim());
+    const clasificacionCruda = String(valores.clasificacion ?? "").trim();
+    const clasificacion = normalizarClasificacion(clasificacionCruda);
+    // Lista cerrada también en la carga masiva (decisión 2026-10-07): se traduce
+    // al valor de la lista (valor técnico, texto visible o alias confirmado de
+    // lib/rubros.ts); lo que no esté en la lista hace rechazar el archivo entero.
+    const clasificacionDeLista = clasificacion ? traducirClasificacionPresupuesto(clasificacion) : null;
     const importeCrudo = valores.importe;
 
     // Fila completamente vacía (típico al final de una planilla): se saltea sin error.
@@ -546,19 +587,21 @@ export async function subirLineasMasivo(
     if (!detalle) problemas.push("falta el detalle");
     if (importe === null || importe === 0) problemas.push("el importe no es un número válido o es 0");
     if (!clasificacion) problemas.push("falta la clasificación");
+    else if (!clasificacionDeLista) problemas.push(`«${clasificacionCruda}» no es una clasificación de la lista`);
 
     if (problemas.length > 0) {
       erroresPorFila.push({ fila: numeroFila, error: problemas.join("; ") });
       return;
     }
 
-    filas.push({ concepto, detalle, importe: importe as number, clasificacion });
+    filas.push({ concepto, detalle, importe: importe as number, clasificacion: clasificacionDeLista! });
   });
 
   if (erroresPorFila.length > 0) {
     return {
       ok: false,
-      error: "El archivo tiene filas con datos incompletos — no se importó nada.",
+      error:
+        "El archivo tiene filas con datos incompletos o con clasificaciones que no son de la lista — no se importó nada. Corregilas y volvé a subirlo.",
       erroresPorFila,
     };
   }

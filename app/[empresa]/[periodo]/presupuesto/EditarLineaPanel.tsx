@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { editarLinea } from "./actions";
-import { OPCION_CLASIFICACION_NUEVA } from "./PresupuestoForm";
 import {
   CLASIFICACIONES_PRESUPUESTO_TODAS,
   obtenerAyudaClasificacion,
@@ -17,14 +16,13 @@ type Props = {
 };
 
 // Mismo patrón visual que DesglosePanel.tsx (panel que se expande debajo de
-// la fila), y mismo criterio de <select>+"clasificación nueva" que el alta
-// en PresupuestoForm.tsx. Este panel no tiene toggle Ingreso/Egreso (edita
-// una línea ya cargada, no tiene sentido re-tipificarla acá) — muestra las
-// 22 opciones combinadas (Ingreso + Egreso) sin filtrar, a propósito. Si la
-// clasificación actual de la línea no está en esa lista (ej. fue tipeada
-// como "nueva" en su momento, o el listado curado cambió después), el
-// <select> arranca ya en la opción "nueva" con el valor real precargado en
-// el campo de texto — nunca la deja en un <option> que no existe.
+// la fila). Este panel no tiene toggle Ingreso/Egreso (edita una línea ya
+// cargada, no tiene sentido re-tipificarla acá) — muestra las 22 opciones
+// combinadas (Ingreso + Egreso) sin filtrar, a propósito. Lista cerrada
+// (decisión 2026-10-07): sin "+ clasificación nueva". Si la línea tiene una
+// categoría vieja fuera de la lista, se muestra como opción extra (elegida) y
+// se puede guardar tal cual — el server la acepta solo si no cambió (ver
+// editarLinea); no se rompe ni se cambia en silencio.
 export default function EditarLineaPanel({ lineaId, valoresIniciales, onCerrar }: Props) {
   const router = useRouter();
   const { empresa: empresaSlug, periodo: periodoUrl } = useParams<{
@@ -39,19 +37,11 @@ export default function EditarLineaPanel({ lineaId, valoresIniciales, onCerrar }
   const [concepto, setConcepto] = useState(valoresIniciales.concepto);
   const [detalle, setDetalle] = useState(valoresIniciales.detalle);
   const [importe, setImporte] = useState(String(valoresIniciales.importe));
-  const [clasificacion, setClasificacion] = useState(
-    clasificacionEsConocida ? valoresIniciales.clasificacion : OPCION_CLASIFICACION_NUEVA
-  );
-  const [clasificacionNueva, setClasificacionNueva] = useState(
-    clasificacionEsConocida ? "" : valoresIniciales.clasificacion
-  );
+  const [clasificacion, setClasificacion] = useState(valoresIniciales.clasificacion);
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [guardando, setGuardando] = useState(false);
 
-  // OPCION_CLASIFICACION_NUEVA no es un valorPersistido real — nunca hay
-  // leyenda de ayuda para ese sentinel.
-  const ayudaClasificacion =
-    clasificacion !== OPCION_CLASIFICACION_NUEVA ? obtenerAyudaClasificacion(clasificacion) : null;
+  const ayudaClasificacion = clasificacion ? obtenerAyudaClasificacion(clasificacion) : null;
 
   function limpiarError(campo: string) {
     setErrores((prev) => {
@@ -65,14 +55,11 @@ export default function EditarLineaPanel({ lineaId, valoresIniciales, onCerrar }
     setGuardando(true);
     setErrores({});
 
-    const clasificacionFinal =
-      clasificacion === OPCION_CLASIFICACION_NUEVA ? clasificacionNueva.trim() : clasificacion;
-
     const resultado = await editarLinea(empresaSlug, periodoUrl, lineaId, {
       concepto,
       detalle,
       importe,
-      clasificacion: clasificacionFinal,
+      clasificacion,
     });
 
     if (!resultado.ok) {
@@ -124,6 +111,11 @@ export default function EditarLineaPanel({ lineaId, valoresIniciales, onCerrar }
           }`}
         />
         {errores.detalle && <p className="mt-1 text-xs text-terracota">{errores.detalle}</p>}
+        {clasificacion === "OTROS" && !errores.detalle && (
+          <p className="mt-1 text-xs text-ink-muted">
+            Para «Otros» el detalle es obligatorio: explicá qué es este gasto.
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -143,7 +135,6 @@ export default function EditarLineaPanel({ lineaId, valoresIniciales, onCerrar }
             value={clasificacion}
             onChange={(e) => {
               setClasificacion(e.target.value);
-              if (e.target.value !== OPCION_CLASIFICACION_NUEVA) setClasificacionNueva("");
               limpiarError("clasificacion");
             }}
             className={`w-full h-10 rounded-md border bg-paper px-3 text-sm outline-none focus:ring-2 focus:ring-marino/15 ${
@@ -153,29 +144,17 @@ export default function EditarLineaPanel({ lineaId, valoresIniciales, onCerrar }
             <option value="" disabled>
               Elegí una clasificación
             </option>
+            {!clasificacionEsConocida && (
+              <option value={valoresIniciales.clasificacion}>
+                {valoresIniciales.clasificacion} (fuera de la lista)
+              </option>
+            )}
             {CLASIFICACIONES_PRESUPUESTO_TODAS.map((o) => (
               <option key={o.valorPersistido} value={o.valorPersistido}>
                 {o.textoVisible}
               </option>
             ))}
-            <option value={OPCION_CLASIFICACION_NUEVA}>
-              + Es una clasificación nueva, no está en la lista
-            </option>
           </select>
-          {clasificacion === OPCION_CLASIFICACION_NUEVA && (
-            <input
-              value={clasificacionNueva}
-              onChange={(e) => {
-                setClasificacionNueva(e.target.value);
-                limpiarError("clasificacion");
-              }}
-              placeholder="Nombre de la clasificación nueva"
-              required
-              className={`mt-2 w-full h-10 rounded-md border bg-paper px-3 text-sm outline-none focus:ring-2 focus:ring-marino/15 ${
-                errores.clasificacion ? "border-terracota" : "border-line focus:border-marino"
-              }`}
-            />
-          )}
           {errores.clasificacion && (
             <p className="mt-1 text-xs text-terracota">{errores.clasificacion}</p>
           )}

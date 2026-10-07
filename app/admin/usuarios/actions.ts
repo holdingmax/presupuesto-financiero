@@ -48,6 +48,21 @@ function advertenciaSinEmpresas(datos: DatosUsuario) {
     : undefined;
 }
 
+// Permisos por empresa que manda el formulario (EmpresasYPermisos): por cada
+// empresa tildada, "Opera Ejecución" / "Revisa presupuesto". Solo se aplican si
+// el formulario los incluye (campo permisosIncluidos) — así un envío sin esos
+// campos nunca los pone en false de rebote.
+function leerPermisos(formData: FormData) {
+  const incluidos = formData.get("permisosIncluidos") === "1";
+  return (empresaId: string) =>
+    incluidos
+      ? {
+          puedeOperarEjecucion: formData.get(`opera_${empresaId}`) === "on",
+          puedeRevisarPresupuesto: formData.get(`revisa_${empresaId}`) === "on",
+        }
+      : {};
+}
+
 export type ResultadoCrear =
   | { ok: true; passwordTemporal: string; advertencia?: string }
   | { ok: false; errores: Record<string, string> };
@@ -70,6 +85,7 @@ export async function crearUsuario(
 
   const passwordTemporal = generarPasswordTemporal();
   const passwordHash = await hashPassword(passwordTemporal);
+  const permisosDe = leerPermisos(formData);
 
   await prisma.usuario.create({
     data: {
@@ -81,7 +97,7 @@ export async function crearUsuario(
       empresas:
         datos.rol === "ADMIN"
           ? undefined
-          : { create: datos.empresaIds.map((empresaId) => ({ empresaId })) },
+          : { create: datos.empresaIds.map((empresaId) => ({ empresaId, ...permisosDe(empresaId) })) },
     },
   });
 
@@ -118,14 +134,15 @@ export async function actualizarUsuario(
     return { ok: false, errores };
   }
 
-  // Hallazgo 2026-10-07: antes se borraban TODAS las filas de UsuarioEmpresa y se
-  // recreaban solo con empresaId — cualquier guardado (cambiar rol, nombre o
-  // "activo") ponía en false puedeOperarEjecucion/puedeRevisarPresupuesto, que
-  // esta pantalla no muestra ni edita. Ahora: las empresas que siguen tildadas
-  // conservan su fila tal cual (con sus permisos); se borran solo las destildadas
-  // y se crean solo las nuevas (sin permisos — skipDuplicates no toca las que ya
-  // existen, @@id([usuarioId, empresaId])). Un ADMIN no necesita filas (ve todo):
-  // al pasar a ADMIN se borran todas, igual que antes.
+  // Filas de UsuarioEmpresa (hallazgo 2026-10-07: antes se borraban TODAS y se
+  // recreaban solo con empresaId, así que cualquier guardado ponía en false
+  // puedeOperarEjecucion/puedeRevisarPresupuesto). Ahora:
+  // - las empresas que siguen tildadas conservan su fila (upsert, no borrar y
+  //   recrear); se borran solo las destildadas;
+  // - los permisos por empresa se guardan según leerPermisos (sin la marca
+  //   permisosIncluidos no se tocan — una empresa nueva sin ellos queda sin permisos).
+  // Un ADMIN no necesita filas (ve todo): al pasar a ADMIN se borran todas.
+  const permisosDe = leerPermisos(formData);
   await prisma.$transaction([
     prisma.usuario.update({
       where: { id },
@@ -137,10 +154,13 @@ export async function actualizarUsuario(
           prisma.usuarioEmpresa.deleteMany({
             where: { usuarioId: id, empresaId: { notIn: datos.empresaIds } },
           }),
-          prisma.usuarioEmpresa.createMany({
-            data: datos.empresaIds.map((empresaId) => ({ usuarioId: id, empresaId })),
-            skipDuplicates: true,
-          }),
+          ...datos.empresaIds.map((empresaId) =>
+            prisma.usuarioEmpresa.upsert({
+              where: { usuarioId_empresaId: { usuarioId: id, empresaId } },
+              create: { usuarioId: id, empresaId, ...permisosDe(empresaId) },
+              update: permisosDe(empresaId),
+            })
+          ),
         ]),
   ]);
 

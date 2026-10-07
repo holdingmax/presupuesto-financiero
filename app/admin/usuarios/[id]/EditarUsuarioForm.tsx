@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import { actualizarUsuario, restablecerPassword, type ResultadoActualizar } from "../actions";
+import EmpresasYPermisos, { type PermisosPorEmpresa } from "../EmpresasYPermisos";
 
 type Empresa = { id: string; nombre: string };
 type UsuarioInicial = {
@@ -12,6 +13,8 @@ type UsuarioInicial = {
   rol: string;
   activo: boolean;
   empresaIds: string[];
+  // Permisos por empresa (UsuarioEmpresa) de las empresas que ya tiene.
+  permisos: PermisosPorEmpresa;
 };
 
 const ESTADO_INICIAL: ResultadoActualizar | null = null;
@@ -109,22 +112,11 @@ export default function EditarUsuarioForm({
         </div>
 
         {rol !== "ADMIN" && (
-          <div>
-            <p className="block text-sm text-ink-secondary mb-1.5">Empresas que puede ver</p>
-            <div className="grid grid-cols-2 gap-2 rounded-md border border-line bg-paper px-3.5 py-3">
-              {empresas.map((empresa) => (
-                <label key={empresa.id} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    name="empresaIds"
-                    value={empresa.id}
-                    defaultChecked={usuario.empresaIds.includes(empresa.id)}
-                  />
-                  {empresa.nombre}
-                </label>
-              ))}
-            </div>
-          </div>
+          <EmpresasYPermisos
+            empresas={empresas}
+            empresaIdsIniciales={usuario.empresaIds}
+            permisosIniciales={usuario.permisos}
+          />
         )}
 
         <label className="flex items-center gap-2 text-sm">

@@ -97,9 +97,9 @@ async function resolverPresupuestoParaOperar(empresaSlug: string, periodo: strin
   if (!empresa) {
     throw new Error(`No existe una empresa para "${empresaSlug}".`);
   }
-  await requireOperadorEjecucion(empresa.id);
+  const usuario = await requireOperadorEjecucion(empresa.id);
   const presupuesto = await obtenerOCrearPresupuesto(empresa.id, periodo);
-  return { empresa, presupuesto };
+  return { empresa, presupuesto, usuario };
 }
 
 function mapearMovimiento(m: {
@@ -248,6 +248,16 @@ export async function obtenerDatosSemana(
     empresaNombre: empresa.nombre,
     numeroSemana: ejecucion.numeroSemana,
     estado: ejecucion.estado,
+    // "Cerrada por X el dd/mm" en la vista de una semana cerrada. por = null en
+    // semanas cerradas antes de que se guardara cerradoPorId.
+    cierre: ejecucion.fechaCierre
+      ? {
+          fecha: ejecucion.fechaCierre.toISOString(),
+          por: ejecucion.cerradoPorId
+            ? ((await prisma.usuario.findUnique({ where: { id: ejecucion.cerradoPorId }, select: { nombre: true } }))?.nombre ?? null)
+            : null,
+        }
+      : null,
     puedeOperar,
     clasificacionesDisponibles: await clasificacionesPromise,
     movimientos: movimientos.map(mapearMovimiento),
@@ -1624,7 +1634,7 @@ export async function cerrarSemana(
   periodo: string,
   numeroSemana: number
 ): Promise<ResultadoCerrarSemana> {
-  const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
+  const { presupuesto, usuario } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
   const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
   if (!ejecucion) {
     throw new Error(`No encontré la semana ${numeroSemana}.`);
@@ -1633,9 +1643,10 @@ export async function cerrarSemana(
     return { ok: false, error: "Esta semana ya estaba cerrada." };
   }
 
+  // Trazabilidad (decisión 2026-10-07): quién cerró, además de cuándo.
   await prisma.ejecucionSemanal.update({
     where: { id: ejecucion.id },
-    data: { estado: "CERRADA", fechaCierre: new Date() },
+    data: { estado: "CERRADA", fechaCierre: new Date(), cerradoPorId: usuario.id },
   });
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
   return { ok: true };

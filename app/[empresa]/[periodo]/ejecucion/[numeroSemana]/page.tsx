@@ -4,6 +4,7 @@ import Paginacion from "../Paginacion";
 import { formatearImporte } from "../formato";
 import { obtenerDatosSemana, calcularChequeosSumaCero } from "../actions";
 import { AccesoDenegadoError } from "@/lib/auth";
+import { textoTrazabilidad } from "@/lib/fecha";
 
 type Props = {
   params: Promise<{ empresa: string; periodo: string; numeroSemana: string }>;
@@ -97,15 +98,22 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
             {datos.estado === "CERRADA" ? "Historial de ejecución" : "Ejecución (solo lectura)"}
           </h1>
         </div>
-        <span
-          className={`text-xs px-2.5 py-1 rounded-md ${
-            datos.estado === "CERRADA"
-              ? "bg-terracota-tint text-terracota"
-              : "bg-marino-tint text-marino"
-          }`}
-        >
-          {datos.estado === "CERRADA" ? "Cerrada" : "Abierta"}
-        </span>
+        <div className="text-right">
+          <span
+            className={`text-xs px-2.5 py-1 rounded-md ${
+              datos.estado === "CERRADA"
+                ? "bg-terracota-tint text-terracota"
+                : "bg-marino-tint text-marino"
+            }`}
+          >
+            {datos.estado === "CERRADA" ? "Cerrada" : "Abierta"}
+          </span>
+          {datos.cierre && (
+            <p className="mt-2 text-xs text-ink-muted">
+              {textoTrazabilidad("Cerrada", datos.cierre.fecha, datos.cierre.por)}
+            </p>
+          )}
+        </div>
       </div>
 
       <div>

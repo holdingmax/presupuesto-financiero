@@ -1,3 +1,6 @@
+import { armarIndiceRubros, rubroDe } from "@/lib/rubros";
+import { normalizarTexto } from "@/lib/texto";
+
 // Lista propia y cerrada de Clasificación para Presupuesto, confirmada por
 // Kike (2026-09-25) — separada a propósito de CLASIFICACIONES_SUGERIDAS
 // (lib/clasificaciones.ts), que es la lista compartida con Ejecución.
@@ -70,6 +73,26 @@ export const CLASIFICACIONES_PRESUPUESTO_TODAS: OpcionClasificacionPresupuesto[]
   ...CLASIFICACIONES_PRESUPUESTO_INGRESO,
   ...CLASIFICACIONES_PRESUPUESTO_EGRESO,
 ];
+
+// Carga masiva desde Excel (decisión 2026-10-07): la clasificación de cada fila
+// tiene que terminar en un valorPersistido de la lista. Se acepta, sin
+// mayúsculas/tildes/espacios de más:
+// - el valor técnico de la lista ("PROV Y SERV", "Liquidación final");
+// - el texto visible ("Proveedores", "Sueldos", "Cheque diferido");
+// - un alias confirmado de las equivalencias del Reporte (lib/rubros.ts): "LIQ
+//   FINAL", "COM Y GTOS BRIOS", "PREST BRIOS Y TC", "PRESTAMOS MS".
+// Devuelve el valorPersistido, o null si no es de la lista — el llamador
+// rechaza el archivo entero listando esas filas.
+const INDICE_VALORES = armarIndiceRubros(
+  Array.from(new Set(CLASIFICACIONES_PRESUPUESTO_TODAS.map((o) => o.valorPersistido)))
+);
+const VALOR_POR_TEXTO_VISIBLE = new Map(
+  CLASIFICACIONES_PRESUPUESTO_TODAS.map((o) => [normalizarTexto(o.textoVisible), o.valorPersistido])
+);
+
+export function traducirClasificacionPresupuesto(valor: string): string | null {
+  return rubroDe(INDICE_VALORES, valor) ?? VALOR_POR_TEXTO_VISIBLE.get(normalizarTexto(valor)) ?? null;
+}
 
 // Leyendas de ayuda para Clasificación, confirmadas por Kike (2026-09-26) —
 // mismo criterio que NOMBRES_PRESENTACION_CLASIFICACION en

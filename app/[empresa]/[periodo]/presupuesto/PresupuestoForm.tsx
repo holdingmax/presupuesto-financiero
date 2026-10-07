@@ -19,6 +19,7 @@ import {
 import DesglosePanel from "./DesglosePanel";
 import EditarLineaPanel from "./EditarLineaPanel";
 import CampoImporte from "@/components/CampoImporte";
+import { textoTrazabilidad } from "@/lib/fecha";
 
 type Linea = {
   id: string;
@@ -56,17 +57,15 @@ type Props = {
   estado: string;
   fueModificadoPorRevisor: boolean;
   revisionCompletada: boolean;
+  // Trazabilidad: quién confirmó la versión final y cuándo (null si no está validado).
+  validacion: { fecha: string; por: string | null } | null;
   esRevisor: boolean;
   lineasIniciales: Linea[];
 };
 
-// Valor especial del <select> de Clasificación que dispara el campo de texto
-// condicional — no es una clasificación real, nunca se manda tal cual a
-// agregarLinea (ver agregar() más abajo, que la reemplaza por
-// clasificacionNueva antes de enviar). Pedido de Kike: forzar a elegir "es una
-// clasificación nueva" a propósito, en vez de texto libre, para distinguir una
-// categoría nueva deliberada de un error de tipeo de una existente.
-export const OPCION_CLASIFICACION_NUEVA = "__nueva__";
+// Sin opción "+ clasificación nueva" (decisión 2026-10-07, pedido de Kike: los
+// gerentes no cargan categorías propias). El server rechaza un valor fuera de la
+// lista para una línea nueva (ver agregarLinea).
 
 const MESES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -89,6 +88,7 @@ export default function PresupuestoForm({
   estado,
   fueModificadoPorRevisor,
   revisionCompletada,
+  validacion,
   esRevisor,
   lineasIniciales,
 }: Props) {
@@ -107,7 +107,6 @@ export default function PresupuestoForm({
   const [detalle, setDetalle] = useState("");
   const [importe, setImporte] = useState("");
   const [clasificacion, setClasificacion] = useState("");
-  const [clasificacionNueva, setClasificacionNueva] = useState("");
   const [errores, setErrores] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -147,10 +146,7 @@ export default function PresupuestoForm({
   // con acceso (como siempre); en EN_REVISION, solo el revisor; en VALIDADO,
   // nadie.
   const puedeEditarAhora = estado === "ABIERTO" || (enRevision && esRevisor);
-  // OPCION_CLASIFICACION_NUEVA no es un valorPersistido real — nunca hay
-  // leyenda de ayuda para ese sentinel.
-  const ayudaClasificacion =
-    clasificacion !== OPCION_CLASIFICACION_NUEVA ? obtenerAyudaClasificacion(clasificacion) : null;
+  const ayudaClasificacion = clasificacion ? obtenerAyudaClasificacion(clasificacion) : null;
   const lineas = lineasIniciales.filter((l) => !eliminando.has(l.id));
   const totalCargado = lineas.reduce((acc, l) => acc + l.importe, 0);
 
@@ -165,14 +161,11 @@ export default function PresupuestoForm({
     setGuardando(true);
     setErrores({});
 
-    const clasificacionFinal =
-      clasificacion === OPCION_CLASIFICACION_NUEVA ? clasificacionNueva.trim() : clasificacion;
-
     const resultado = await agregarLinea(empresaSlug, periodoUrl, {
       concepto,
       detalle,
       importe,
-      clasificacion: clasificacionFinal,
+      clasificacion,
     });
 
     if (!resultado.ok) {
@@ -185,7 +178,6 @@ export default function PresupuestoForm({
     setDetalle("");
     setImporte("");
     setClasificacion("");
-    setClasificacionNueva("");
     if (fileInputRef.current) fileInputRef.current.value = "";
     setGuardando(false);
     router.refresh();
@@ -301,6 +293,11 @@ export default function PresupuestoForm({
         <p className="mb-6 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
           Este presupuesto ya fue validado. Cualquier corrección se carga en el período
           siguiente.
+          {validacion && (
+            <span className="mt-1 block text-xs">
+              {textoTrazabilidad("Validado", validacion.fecha, validacion.por)}.
+            </span>
+          )}
         </p>
       )}
 
@@ -392,6 +389,11 @@ export default function PresupuestoForm({
                   }`}
                 />
                 {errores.detalle && <p className="mt-1 text-xs text-terracota">{errores.detalle}</p>}
+                {clasificacion === "OTROS" && !errores.detalle && (
+                  <p className="mt-1 text-xs text-ink-muted">
+                    Para «Otros» el detalle es obligatorio: explicá qué es este gasto.
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -447,7 +449,6 @@ export default function PresupuestoForm({
                     value={clasificacion}
                     onChange={(e) => {
                       setClasificacion(e.target.value);
-                      if (e.target.value !== OPCION_CLASIFICACION_NUEVA) setClasificacionNueva("");
                       limpiarError("clasificacion");
                     }}
                     className={`w-full h-12 rounded-md border bg-paper px-3.5 text-[15px] outline-none focus:ring-2 focus:ring-marino/15 ${
@@ -465,24 +466,7 @@ export default function PresupuestoForm({
                         {o.textoVisible}
                       </option>
                     ))}
-                    <option value={OPCION_CLASIFICACION_NUEVA}>
-                      + Es una clasificación nueva, no está en la lista
-                    </option>
                   </select>
-                  {clasificacion === OPCION_CLASIFICACION_NUEVA && (
-                    <input
-                      value={clasificacionNueva}
-                      onChange={(e) => {
-                        setClasificacionNueva(e.target.value);
-                        limpiarError("clasificacion");
-                      }}
-                      placeholder="Nombre de la clasificación nueva"
-                      required
-                      className={`mt-2 w-full h-12 rounded-md border bg-paper px-3.5 text-[15px] outline-none focus:ring-2 focus:ring-marino/15 ${
-                        errores.clasificacion ? "border-terracota" : "border-line focus:border-marino"
-                      }`}
-                    />
-                  )}
                   {errores.clasificacion && (
                     <p className="mt-1 text-xs text-terracota">{errores.clasificacion}</p>
                   )}

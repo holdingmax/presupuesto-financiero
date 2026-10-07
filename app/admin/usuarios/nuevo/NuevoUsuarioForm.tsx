@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import { crearUsuario, type ResultadoCrear } from "../actions";
+import EmpresasYPermisos from "../EmpresasYPermisos";
 
 type Empresa = { id: string; nombre: string };
 
@@ -89,19 +90,7 @@ export default function NuevoUsuarioForm({ empresas }: { empresas: Empresa[] }) 
           {erroresCampo.rol && <p className="mt-1 text-xs text-terracota">{erroresCampo.rol}</p>}
         </div>
 
-        {rol !== "ADMIN" && (
-          <div>
-            <p className="block text-sm text-ink-secondary mb-1.5">Empresas que puede ver</p>
-            <div className="grid grid-cols-2 gap-2 rounded-md border border-line bg-paper px-3.5 py-3">
-              {empresas.map((empresa) => (
-                <label key={empresa.id} className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" name="empresaIds" value={empresa.id} />
-                  {empresa.nombre}
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
+        {rol !== "ADMIN" && <EmpresasYPermisos empresas={empresas} />}
 
         <div className="flex items-center gap-4 pt-2">
           <button
