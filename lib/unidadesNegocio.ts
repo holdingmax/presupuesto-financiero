@@ -1,6 +1,6 @@
 // Sin imports de servidor (solo lib/texto, puro): este módulo lo usan también
 // TablaMovimientos y PanelDesgloseMovimiento, que son "use client".
-import { quitarDiacriticos } from "@/lib/texto";
+import { normalizarTexto } from "@/lib/texto";
 
 // Lista CERRADA de unidades de negocio (decisión 2026-10-06, confirmada por
 // Leticia) — la ofrecen el <select> de la unidad de cada fila y el panel de
@@ -47,7 +47,7 @@ export function opcionesUnidad(valoresActuales: string[]): string[] {
 // y normalizarClasificacion (lib/clasificaciones.ts): tolera mayúsculas, tildes y
 // espacios de más — "Frances 891", "FRANCÉS 891" y "FRANCES  891 " son la misma cuenta.
 export function normalizarCuenta(bancoYCuenta: string): string {
-  return quitarDiacriticos(bancoYCuenta).trim().toUpperCase().replace(/\s+/g, " ");
+  return normalizarTexto(bancoYCuenta);
 }
 
 // "Unidad madre" de cada cuenta bancaria, confirmada con el archivo madre de julio

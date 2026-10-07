@@ -17,3 +17,12 @@ const MARCAS_DIACRITICAS = new RegExp(
 export function quitarDiacriticos(texto: string): string {
   return texto.normalize("NFD").replace(MARCAS_DIACRITICAS, "");
 }
+
+// Normalización para COMPARAR textos que vienen de archivos distintos (no para
+// mostrar ni guardar): sin tildes, sin espacios al borde, mayúsculas y espacios
+// internos colapsados — "Frances  891 " y "FRANCÉS 891" quedan iguales. Es el
+// mismo criterio que ya usaban normalizarCuenta / normalizarClasificacion /
+// verificarContinuidadSaldo.
+export function normalizarTexto(texto: string): string {
+  return quitarDiacriticos(texto).trim().toUpperCase().replace(/\s+/g, " ");
+}

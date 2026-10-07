@@ -22,6 +22,16 @@ import {
   esUnidadDeLaLista,
 } from "@/lib/unidadesNegocio";
 import { aCentavos, centavosADecimal } from "@/lib/prorrateo";
+import {
+  centavosDeNumero,
+  centavosDeDecimalTexto,
+  decimalTextoDeCentavos,
+  claveMovimiento,
+  contarPorClave,
+  separarNuevas,
+  esCuentaNumerada,
+} from "@/lib/conteoMovimientos";
+import type { Prisma } from "@prisma/client";
 
 const NOMBRE_HOJA_EXTRACTO = "Hoja1";
 const FILAS_POR_PAGINA = 200;
@@ -520,11 +530,42 @@ export type ResultadoContinuidadSaldo = {
   }[];
 };
 
+// Casi-duplicado: fila NUEVA (no reconocida como ya cargada) cuya cuenta + fecha +
+// importe coinciden con un movimiento ya cargado de la misma empresa, pero que
+// difiere en concepto, nro de referencia o saldo — típico de un movimiento que el
+// banco reexportó con otra leyenda. Se carga igual; solo se avisa.
+export type PosibleDuplicado = {
+  fila: number;
+  fecha: string;
+  importe: number;
+  bancoYCuenta: string;
+  concepto: string;
+};
+
+// Una cuenta numerada de las filas nuevas que ya tiene movimientos cargados en
+// OTRA empresa — señal de que el archivo puede estar subiéndose en la empresa
+// equivocada (ej. el archivo madre de todo el holding). `identicas`: cuántas de
+// las filas nuevas de esta cuenta son idénticas (misma clave) a filas de esa otra
+// empresa — la señal más fuerte.
+export type CuentaCompartida = {
+  cuenta: string;
+  empresa: string;
+  filasEnOtraEmpresa: number;
+  filasNuevasDeLaCuenta: number;
+  identicas: number;
+};
+
+// Tope de casi-duplicados que viaja al cliente (el total viaja aparte): con un
+// archivo de ~16.500 filas la lista completa no se puede leer igual.
+const MAX_POSIBLES_DUPLICADOS = 200;
+
 type ResultadoImportar =
   | {
       ok: true;
-      filasImportadas: number;
-      posiblesDuplicados: { fila: number; fecha: string; importe: number }[];
+      filasNuevas: number;
+      filasYaCargadas: number;
+      posiblesDuplicados: PosibleDuplicado[];
+      cantidadPosiblesDuplicados: number;
       continuidadSaldo: ResultadoContinuidadSaldo[];
       liquidacionesAmbiguas: ResultadoLiquidacionAmbigua[];
       // Solo viene seteado cuando la hoja se resolvió por selección explícita del
@@ -538,11 +579,19 @@ type ResultadoImportar =
   // worksheets[0] en silencio, lo que podía atribuirle a una empresa los
   // movimientos de otra hoja/empresa sin ningún aviso. Este resultado no importa
   // nada todavía — el panel le muestra las hojas al usuario para que elija.
-  | { ok: false; requiereSeleccionHoja: true; hojas: string[] };
-
-function claveDuplicado(fecha: Date, importe: number) {
-  return `${fecha.toISOString().slice(0, 10)}|${importe.toFixed(2)}`;
-}
+  | { ok: false; requiereSeleccionHoja: true; hojas: string[] }
+  // Alguna cuenta numerada de las filas nuevas ya tiene movimientos en otra
+  // empresa: no se cargó NADA todavía — el panel muestra la lista y, si el usuario
+  // confirma, reenvía el archivo con confirmarCuentasCompartidas = true. Avisa, no
+  // bloquea (decisión 2026-10-07): hay cuentas compartidas legítimas (ej. el
+  // extracto propio de Fredy trae FRANCES 825, MACRO 623 y MACRO 794).
+  | {
+      ok: false;
+      requiereConfirmacionCuentas: true;
+      cuentas: CuentaCompartida[];
+      filasNuevas: number;
+      filasYaCargadas: number;
+    };
 
 // Kike sube el extracto acumulativo completo cada semana (todo el período hasta la
 // fecha, no solo lo nuevo) — así que no hace falta comparar contra ninguna semana ya
@@ -609,19 +658,157 @@ function verificarContinuidadSaldo(
   return resultados.sort((a, b) => a.bancoYCuenta.localeCompare(b.bancoYCuenta, "es"));
 }
 
-// Un solo round-trip para TODA la empresa (no por fila del Excel) — evita que un
-// archivo de ~16.500 filas dispare 16.500 idas y vueltas a la base. Los 3 saltos del
-// join (Empresa <- PresupuestoMensual <- EjecucionSemanal <- MovimientoBancario) ya
-// tienen índice disponible hoy: @@unique([empresaId, periodo]), @@unique([presupuestoId,
-// numeroSemana]) y @@index([ejecucionId]) respectivamente — no hace falta uno nuevo.
-async function obtenerMovimientosExistentes(empresaId: string) {
-  return prisma.$queryRaw<{ fecha: Date; importe: string }[]>`
-    SELECT mb.fecha, mb.importe
+// fecha + importe — la usa aplicarCruceLiquidacionFinal para emparejar contra
+// PagoReferencia (el reconocimiento de lo ya cargado usa claveMovimiento, más
+// completa).
+function claveDuplicado(fecha: Date, importe: number) {
+  return `${fecha.toISOString().slice(0, 10)}|${importe.toFixed(2)}`;
+}
+
+type FilaClaveDb = {
+  fecha: Date;
+  importe: string;
+  bancoYCuenta: string;
+  concepto: string;
+  nroReferencia: string | null;
+  saldo: string | null;
+};
+
+function claveDeFilaDb(m: FilaClaveDb) {
+  return claveMovimiento({
+    fecha: m.fecha,
+    importeCentavos: centavosDeDecimalTexto(m.importe),
+    bancoYCuenta: m.bancoYCuenta,
+    concepto: m.concepto,
+    nroReferencia: m.nroReferencia,
+    saldoCentavos: m.saldo === null ? null : centavosDeDecimalTexto(m.saldo),
+  });
+}
+
+// Claves de TODOS los movimientos ya cargados en el presupuesto (empresa +
+// período), de cualquier semana, abierta o cerrada — un solo round-trip (no uno
+// por fila del Excel). Corre dentro de la transacción de subirExtracto, después
+// del lock. importe/saldo como texto: se pasan a centavos sin float.
+async function obtenerClavesDelPresupuesto(tx: Prisma.TransactionClient, presupuestoId: string) {
+  const filas = await tx.$queryRaw<FilaClaveDb[]>`
+    SELECT mb.fecha, mb.importe::text AS importe, mb."bancoYCuenta", mb.concepto,
+           mb."nroReferencia", mb.saldo::text AS saldo
+    FROM "MovimientoBancario" mb
+    JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
+    WHERE es."presupuestoId" = ${presupuestoId}
+  `;
+  return contarPorClave(filas.map(claveDeFilaDb));
+}
+
+function claveFechaImporteCuenta(fecha: Date, importeCentavos: number, bancoYCuenta: string) {
+  return JSON.stringify([
+    fecha.toISOString().slice(0, 10),
+    importeCentavos,
+    normalizarCuenta(bancoYCuenta),
+  ]);
+}
+
+// Para el aviso de casi-duplicados: cuenta + fecha + importe de todo lo cargado en
+// la EMPRESA (cualquier período — un archivo puede traer días de un período ya
+// cargado en otro). Los 3 saltos del join (Empresa <- PresupuestoMensual <-
+// EjecucionSemanal <- MovimientoBancario) ya tienen índice: @@unique([empresaId,
+// periodo]), @@unique([presupuestoId, numeroSemana]) y @@index([ejecucionId]).
+async function obtenerFechaImporteCuentaDeLaEmpresa(empresaId: string) {
+  const filas = await prisma.$queryRaw<{ fecha: Date; importe: string; bancoYCuenta: string }[]>`
+    SELECT mb.fecha, mb.importe::text AS importe, mb."bancoYCuenta"
     FROM "MovimientoBancario" mb
     JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
     JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
     WHERE pm."empresaId" = ${empresaId}
   `;
+  return new Set(
+    filas.map((m) =>
+      claveFechaImporteCuenta(m.fecha, centavosDeDecimalTexto(m.importe), m.bancoYCuenta)
+    )
+  );
+}
+
+// Cuentas numeradas de las filas nuevas que ya tienen movimientos en OTRAS
+// empresas. Primero un resumen agrupado (son pocas combinaciones cuenta×empresa);
+// solo si hay coincidencias se traen las filas de esas cuentas, para contar
+// cuántas son idénticas a las nuevas del archivo.
+async function buscarCuentasCompartidas(
+  tx: Prisma.TransactionClient,
+  empresaId: string,
+  nuevas: { bancoYCuenta: string; clave: string }[]
+): Promise<CuentaCompartida[]> {
+  const nuevasPorCuenta = new Map<string, string[]>();
+  for (const f of nuevas) {
+    if (!esCuentaNumerada(f.bancoYCuenta)) continue;
+    const cuenta = normalizarCuenta(f.bancoYCuenta);
+    const lista = nuevasPorCuenta.get(cuenta);
+    if (lista) lista.push(f.clave);
+    else nuevasPorCuenta.set(cuenta, [f.clave]);
+  }
+  if (nuevasPorCuenta.size === 0) return [];
+
+  const resumen = await tx.$queryRaw<
+    { bancoYCuenta: string; empresaId: string; empresa: string; filas: number }[]
+  >`
+    SELECT mb."bancoYCuenta", e.id AS "empresaId", e.nombre AS empresa, COUNT(*)::int AS filas
+    FROM "MovimientoBancario" mb
+    JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
+    JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
+    JOIN "Empresa" e ON pm."empresaId" = e.id
+    WHERE pm."empresaId" <> ${empresaId}
+    GROUP BY 1, 2, 3
+  `;
+  const coincidencias = resumen.filter((r) => nuevasPorCuenta.has(normalizarCuenta(r.bancoYCuenta)));
+  if (coincidencias.length === 0) return [];
+
+  const crudas = Array.from(new Set(coincidencias.map((r) => r.bancoYCuenta)));
+  const filasOtras = await tx.$queryRaw<(FilaClaveDb & { empresaId: string })[]>`
+    SELECT mb.fecha, mb.importe::text AS importe, mb."bancoYCuenta", mb.concepto,
+           mb."nroReferencia", mb.saldo::text AS saldo, pm."empresaId"
+    FROM "MovimientoBancario" mb
+    JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
+    JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
+    WHERE pm."empresaId" <> ${empresaId} AND mb."bancoYCuenta" = ANY(${crudas})
+  `;
+
+  const porCuentaYEmpresa = new Map<string, CuentaCompartida & { empresaId: string }>();
+  for (const r of coincidencias) {
+    const cuenta = normalizarCuenta(r.bancoYCuenta);
+    const k = `${cuenta}|${r.empresaId}`;
+    const previo = porCuentaYEmpresa.get(k);
+    if (previo) {
+      previo.filasEnOtraEmpresa += r.filas;
+    } else {
+      porCuentaYEmpresa.set(k, {
+        cuenta,
+        empresa: r.empresa,
+        empresaId: r.empresaId,
+        filasEnOtraEmpresa: r.filas,
+        filasNuevasDeLaCuenta: nuevasPorCuenta.get(cuenta)!.length,
+        identicas: 0,
+      });
+    }
+  }
+  // identicas = Σ por clave de min(veces en las filas nuevas, veces en la otra empresa).
+  for (const item of porCuentaYEmpresa.values()) {
+    const enOtra = contarPorClave(
+      filasOtras
+        .filter((m) => m.empresaId === item.empresaId && normalizarCuenta(m.bancoYCuenta) === item.cuenta)
+        .map(claveDeFilaDb)
+    );
+    for (const [clave, n] of contarPorClave(nuevasPorCuenta.get(item.cuenta)!)) {
+      item.identicas += Math.min(n, enOtra.get(clave) ?? 0);
+    }
+  }
+  return Array.from(porCuentaYEmpresa.values())
+    .map((c) => ({
+      cuenta: c.cuenta,
+      empresa: c.empresa,
+      filasEnOtraEmpresa: c.filasEnOtraEmpresa,
+      filasNuevasDeLaCuenta: c.filasNuevasDeLaCuenta,
+      identicas: c.identicas,
+    }))
+    .sort((a, b) => a.cuenta.localeCompare(b.cuenta, "es") || a.empresa.localeCompare(b.empresa, "es"));
 }
 
 // Una celda con fórmula viene de ExcelJS como { formula, result, ... } en vez de un número
@@ -689,7 +876,10 @@ export async function subirExtracto(
   periodo: string,
   numeroSemana: number,
   formData: FormData,
-  hojaElegida?: string
+  hojaElegida?: string,
+  // true solo en el reenvío después de que el usuario vio el aviso de cuentas
+  // compartidas con otra empresa y eligió "Cargar igual".
+  confirmarCuentasCompartidas = false
 ): Promise<ResultadoImportar> {
   const archivo = formData.get("archivo");
 
@@ -711,8 +901,9 @@ export async function subirExtracto(
   }
 
   // Dispara en paralelo con el parseo del Excel (que sigue abajo) — así no suma un
-  // round-trip secuencial más.
-  const existentesPromise = obtenerMovimientosExistentes(empresa.id);
+  // round-trip secuencial más. Solo alimenta un aviso (casi-duplicados), así que
+  // puede leerse fuera de la transacción de más abajo.
+  const fechaImporteCuentaPromise = obtenerFechaImporteCuentaDeLaEmpresa(empresa.id);
 
   const buffer = await archivo.arrayBuffer();
   const workbook = new ExcelJS.Workbook();
@@ -893,43 +1084,136 @@ export async function subirExtracto(
     return { ok: false, error: "No encontré ninguna fila con datos para importar." };
   }
 
-  // No bloquea la carga — solo avisa. El usuario decide si la fila realmente es un
-  // duplicado (extracto subido dos veces) o una coincidencia real (dos movimientos
-  // distintos con la misma fecha e importe pasa, ej. dos sueldos iguales el mismo día).
-  const existentes = new Set(
-    (await existentesPromise).map((m) => claveDuplicado(m.fecha, Number(m.importe)))
-  );
-  const posiblesDuplicados = filas
-    .filter((f) => existentes.has(claveDuplicado(f.fecha, f.importe)))
-    .map((f) => ({
-      fila: f.numeroFila,
-      fecha: f.fecha.toISOString().slice(0, 10),
-      importe: f.importe,
-    }));
-
-  // Sobre las mismas filas en memoria, antes de descartar numeroFila para el createMany.
+  // Sobre TODAS las filas del archivo (también las que ya estaban cargadas): la
+  // continuidad es una propiedad del extracto en sí, y numeroFila (el orden real
+  // del Excel) solo existe acá — no se guarda en la base.
   const continuidadSaldo = verificarContinuidadSaldo(filas);
 
-  // Ambas mutan fila.clasificacion in-place cuando corresponde — tienen que
-  // correr antes del createMany de abajo. Independientes entre sí (una mira
-  // Sueldos/Liquidación final, la otra CHEQUE P/CAMARA) — no compiten por la
-  // misma fila.
-  const liquidacionesAmbiguas = await aplicarCruceLiquidacionFinal(filas);
-  await aplicarCruceChequeIva(filas);
-
-  await prisma.movimientoBancario.createMany({
-    data: filas.map(({ numeroFila, ...resto }) => ({ ...resto, ejecucionId: ejecucion.id })),
+  // Importe y saldo en centavos, redondeados igual que Postgres: es lo que entra
+  // en la clave y, como texto decimal exacto, lo que se guarda (así lo guardado y
+  // la clave nunca difieren por un centavo de float).
+  const filasConClave = filas.map((f) => {
+    const importeCentavos = centavosDeNumero(f.importe);
+    const saldoCentavos = f.saldo === null ? null : centavosDeNumero(f.saldo);
+    return {
+      fila: f,
+      importeCentavos,
+      saldoCentavos,
+      clave: claveMovimiento({
+        fecha: f.fecha,
+        importeCentavos,
+        bancoYCuenta: f.bancoYCuenta,
+        concepto: f.concepto,
+        nroReferencia: f.nroReferencia,
+        saldoCentavos,
+      }),
+    };
   });
 
-  revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
-  return {
-    ok: true,
-    filasImportadas: filas.length,
-    posiblesDuplicados,
-    continuidadSaldo,
-    liquidacionesAmbiguas,
-    hoja: hojaElegida ? hoja.name : undefined,
-  };
+  const fechaImporteCuentaEmpresa = await fechaImporteCuentaPromise;
+
+  // Todo lo que decide qué se carga y la carga misma, dentro de UNA transacción con
+  // un lock por presupuesto: dos subidas simultáneas al mismo período (dos
+  // pestañas, dos personas) contarían el mismo M antes de que la otra inserte y
+  // duplicarían. pg_advisory_xact_lock se libera solo al terminar la transacción
+  // (compatible con el pooler de Neon en modo transacción). "SELECT 1 FROM ...":
+  // pg_advisory_xact_lock devuelve void, que Prisma no sabe deserializar.
+  // timeout 120s: el archivo real de 16.521 filas tardó ~24s por llamada en local
+  // (2026-10-07); el margen cubre una base más lenta que la local.
+  const resultado = await prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${presupuesto.id}))`;
+
+      // Reconocer lo ya cargado CONTANDO (ver lib/conteoMovimientos.ts): de cada
+      // clave se cargan N − M. Lo ya cargado no se toca nunca — conserva
+      // clasificación, unidad, prorrateo, ignorado y adjuntos, esté en una semana
+      // cerrada o en la abierta.
+      const yaCargadas = await obtenerClavesDelPresupuesto(tx, presupuesto.id);
+      const { nuevas, cantidadYaCargadas } = separarNuevas(filasConClave, (f) => f.clave, yaCargadas);
+
+      if (!confirmarCuentasCompartidas && nuevas.length > 0) {
+        const cuentas = await buscarCuentasCompartidas(
+          tx,
+          empresa.id,
+          nuevas.map((n) => ({ bancoYCuenta: n.fila.bancoYCuenta, clave: n.clave }))
+        );
+        if (cuentas.length > 0) {
+          return {
+            ok: false as const,
+            requiereConfirmacionCuentas: true as const,
+            cuentas,
+            filasNuevas: nuevas.length,
+            filasYaCargadas: cantidadYaCargadas,
+          };
+        }
+      }
+
+      // Casi-duplicados: solo entre las NUEVAS (las coincidencias exactas ya
+      // quedaron reconocidas arriba y no se cargan). Se cargan igual.
+      const casiDuplicados: PosibleDuplicado[] = nuevas
+        .filter((n) =>
+          fechaImporteCuentaEmpresa.has(
+            claveFechaImporteCuenta(n.fila.fecha, n.importeCentavos, n.fila.bancoYCuenta)
+          )
+        )
+        .map((n) => ({
+          fila: n.fila.numeroFila,
+          fecha: n.fila.fecha.toISOString().slice(0, 10),
+          importe: n.fila.importe,
+          bancoYCuenta: n.fila.bancoYCuenta,
+          concepto: n.fila.concepto,
+        }));
+
+      const filasNuevas = nuevas.map((n) => n.fila);
+      // Ambas mutan fila.clasificacion in-place cuando corresponde — tienen que
+      // correr antes del createMany de abajo, y SOLO sobre las filas nuevas (las
+      // ya cargadas no se tocan). Independientes entre sí (una mira Sueldos/
+      // Liquidación final, la otra CHEQUE P/CAMARA) — no compiten por la misma fila.
+      const liquidacionesAmbiguas =
+        filasNuevas.length > 0 ? await aplicarCruceLiquidacionFinal(filasNuevas) : [];
+      if (filasNuevas.length > 0) await aplicarCruceChequeIva(filasNuevas);
+
+      if (nuevas.length > 0) {
+        await tx.movimientoBancario.createMany({
+          data: nuevas.map(({ fila, importeCentavos, saldoCentavos }) => ({
+            ejecucionId: ejecucion.id,
+            fecha: fila.fecha,
+            nroReferencia: fila.nroReferencia,
+            causal: fila.causal,
+            concepto: fila.concepto,
+            importe: decimalTextoDeCentavos(importeCentavos),
+            saldo: saldoCentavos === null ? null : decimalTextoDeCentavos(saldoCentavos),
+            bancoYCuenta: fila.bancoYCuenta,
+            clasificacion: fila.clasificacion,
+            clasificacion2: fila.clasificacion2,
+            unidadNegocio: fila.unidadNegocio,
+            detalle: fila.detalle,
+            detalle2: fila.detalle2,
+            sugeridaPorSistema: fila.sugeridaPorSistema,
+            chequeIvaAmbiguo: fila.chequeIvaAmbiguo,
+            unidadSugeridaPorSistema: fila.unidadSugeridaPorSistema,
+          })),
+        });
+      }
+
+      return {
+        ok: true as const,
+        filasNuevas: nuevas.length,
+        filasYaCargadas: cantidadYaCargadas,
+        posiblesDuplicados: casiDuplicados.slice(0, MAX_POSIBLES_DUPLICADOS),
+        cantidadPosiblesDuplicados: casiDuplicados.length,
+        continuidadSaldo,
+        liquidacionesAmbiguas,
+        hoja: hojaElegida ? hoja.name : undefined,
+      };
+    },
+    { maxWait: 10_000, timeout: 120_000 }
+  );
+
+  if (resultado.ok && resultado.filasNuevas > 0) {
+    revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+  }
+  return resultado;
 }
 
 // Escribe únicamente MovimientoBancario.unidadNegocio (el valor único de la

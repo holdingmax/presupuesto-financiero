@@ -14,6 +14,8 @@ import {
   type ResultadoChequeo,
   type ResultadoContinuidadSaldo,
   type ResultadoLiquidacionAmbigua,
+  type PosibleDuplicado,
+  type CuentaCompartida,
 } from "./actions";
 import TablaMovimientos from "./TablaMovimientos";
 import Paginacion from "./Paginacion";
@@ -104,9 +106,17 @@ export default function PanelImputacion({
   const [subiendo, setSubiendo] = useState(false);
   const [errorSubida, setErrorSubida] = useState("");
   const [mensajeExito, setMensajeExito] = useState("");
-  const [posiblesDuplicados, setPosiblesDuplicados] = useState<
-    { fila: number; fecha: string; importe: number }[]
-  >([]);
+  const [posiblesDuplicados, setPosiblesDuplicados] = useState<PosibleDuplicado[]>([]);
+  const [cantidadPosiblesDuplicados, setCantidadPosiblesDuplicados] = useState(0);
+  // Aviso previo a cargar: cuentas del archivo que ya tienen movimientos en otra
+  // empresa. Mientras está visible no se cargó nada — "Cargar igual" reenvía el
+  // mismo archivo (y la misma hoja) con la confirmación.
+  const [cuentasCompartidas, setCuentasCompartidas] = useState<{
+    cuentas: CuentaCompartida[];
+    filasNuevas: number;
+    archivo: File;
+    hoja?: string;
+  } | null>(null);
   const [continuidadSaldo, setContinuidadSaldo] = useState<ResultadoContinuidadSaldo[]>([]);
   const [liquidacionesAmbiguas, setLiquidacionesAmbiguas] = useState<ResultadoLiquidacionAmbigua[]>(
     []
@@ -125,66 +135,21 @@ export default function PanelImputacion({
   const cerrada = estado === "CERRADA";
   const semanaAnterior = numeroSemana - 1;
 
-  async function handleSubir(e: React.FormEvent) {
-    e.preventDefault();
-    const archivo = fileInputRef.current?.files?.[0];
-    if (!archivo) {
-      setErrorSubida("Elegí un archivo antes de subir.");
-      return;
-    }
-
+  // Único camino de subida: la primera vez desde el form, y los reintentos con la
+  // hoja elegida (archivo con varias hojas) o con la confirmación de cuentas
+  // compartidas — en los dos se reenvía el mismo File ya elegido del disco, sin que
+  // el usuario tenga que volver a seleccionarlo.
+  async function enviarArchivo(archivo: File, hoja?: string, confirmarCuentas = false) {
     setSubiendo(true);
     setErrorSubida("");
     setMensajeExito("");
     setPosiblesDuplicados([]);
+    setCantidadPosiblesDuplicados(0);
     setContinuidadSaldo([]);
     setLiquidacionesAmbiguas([]);
     setHojasDisponibles([]);
     setArchivoAmbiguo(null);
-
-    const formData = new FormData();
-    formData.append("archivo", archivo);
-
-    const resultado = await subirExtracto(empresaSlug, periodo, numeroSemana, formData);
-
-    setSubiendo(false);
-
-    if (!resultado.ok) {
-      if ("requiereSeleccionHoja" in resultado) {
-        setHojasDisponibles(resultado.hojas);
-        setArchivoAmbiguo(archivo);
-        return;
-      }
-      setErrorSubida(resultado.error);
-      return;
-    }
-
-    setMensajeExito(
-      resultado.hoja
-        ? `Se importaron ${resultado.filasImportadas} movimientos de la hoja "${resultado.hoja}".`
-        : `Se importaron ${resultado.filasImportadas} movimientos.`
-    );
-    setPosiblesDuplicados(resultado.posiblesDuplicados);
-    setContinuidadSaldo(resultado.continuidadSaldo);
-    setLiquidacionesAmbiguas(resultado.liquidacionesAmbiguas);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    router.refresh();
-  }
-
-  // Reintento tras el selector de hoja: reenvía el mismo archivo ya elegido del disco,
-  // ahora con el nombre de hoja explícito para que subirExtracto no vuelva a ambigüar.
-  async function elegirHoja(nombreHoja: string) {
-    if (!archivoAmbiguo) return;
-    const archivo = archivoAmbiguo;
-
-    setSubiendo(true);
-    setErrorSubida("");
-    setMensajeExito("");
-    setPosiblesDuplicados([]);
-    setContinuidadSaldo([]);
-    setLiquidacionesAmbiguas([]);
-    setHojasDisponibles([]);
-    setArchivoAmbiguo(null);
+    setCuentasCompartidas(null);
 
     const formData = new FormData();
     formData.append("archivo", archivo);
@@ -194,33 +159,65 @@ export default function PanelImputacion({
       periodo,
       numeroSemana,
       formData,
-      nombreHoja
+      hoja,
+      confirmarCuentas
     );
 
     setSubiendo(false);
 
     if (!resultado.ok) {
-      // requiereSeleccionHoja no debería poder repetirse acá (ya se mandó un nombre de
-      // hoja explícito), pero el chequeo queda por las dudas de que el archivo cambie.
       if ("requiereSeleccionHoja" in resultado) {
         setHojasDisponibles(resultado.hojas);
         setArchivoAmbiguo(archivo);
+        return;
+      }
+      if ("requiereConfirmacionCuentas" in resultado) {
+        setCuentasCompartidas({
+          cuentas: resultado.cuentas,
+          filasNuevas: resultado.filasNuevas,
+          archivo,
+          hoja,
+        });
         return;
       }
       setErrorSubida(resultado.error);
       return;
     }
 
+    const deLaHoja = resultado.hoja ? ` (hoja "${resultado.hoja}")` : "";
+    const { filasNuevas: nuevas, filasYaCargadas: ya } = resultado;
     setMensajeExito(
-      resultado.hoja
-        ? `Se importaron ${resultado.filasImportadas} movimientos de la hoja "${resultado.hoja}".`
-        : `Se importaron ${resultado.filasImportadas} movimientos.`
+      nuevas === 0
+        ? ya === 1
+          ? `No había movimientos nuevos${deLaHoja}: el único movimiento del archivo ya estaba cargado.`
+          : `No había movimientos nuevos${deLaHoja}: los ${ya} del archivo ya estaban cargados.`
+        : `${nuevas === 1 ? "1 movimiento nuevo cargado" : `${nuevas} movimientos nuevos cargados`}${deLaHoja} · ${
+            ya === 1 ? "1 ya estaba cargado" : `${ya} ya estaban cargados`
+          } (no se duplicaron).`
     );
     setPosiblesDuplicados(resultado.posiblesDuplicados);
+    setCantidadPosiblesDuplicados(resultado.cantidadPosiblesDuplicados);
     setContinuidadSaldo(resultado.continuidadSaldo);
     setLiquidacionesAmbiguas(resultado.liquidacionesAmbiguas);
     if (fileInputRef.current) fileInputRef.current.value = "";
     router.refresh();
+  }
+
+  async function handleSubir(e: React.FormEvent) {
+    e.preventDefault();
+    const archivo = fileInputRef.current?.files?.[0];
+    if (!archivo) {
+      setErrorSubida("Elegí un archivo antes de subir.");
+      return;
+    }
+    await enviarArchivo(archivo);
+  }
+
+  // Reintento tras el selector de hoja: mismo archivo, ahora con el nombre de hoja
+  // explícito para que subirExtracto no vuelva a ambigüar.
+  async function elegirHoja(nombreHoja: string) {
+    if (!archivoAmbiguo) return;
+    await enviarArchivo(archivoAmbiguo, nombreHoja);
   }
 
   function actualizarCampoLocal(id: string, campo: "clasificacion" | "unidadNegocio", valor: string) {
@@ -291,7 +288,18 @@ export default function PanelImputacion({
     });
   }
 
+  // Quitar sigue borrando la fila igual que siempre (decisión 2026-10-07), pero
+  // avisa antes: como subirExtracto reconoce lo ya cargado CONTANDO, una fila
+  // quitada vuelve a cargarse si se sube de nuevo un extracto que la contiene.
+  // Ignorar es lo que sobrevive a las resubidas.
   async function quitar(id: string) {
+    if (
+      !confirm(
+        "Este movimiento puede volver a aparecer si subís de nuevo el extracto. Para sacarlo de los cálculos de forma permanente, usá Ignorar.\n\n¿Quitarlo igual?"
+      )
+    ) {
+      return;
+    }
     setMovimientos((prev) => prev.filter((m) => m.id !== id));
     await eliminarMovimiento(empresaSlug, periodo, numeroSemana, id);
     router.refresh();
@@ -441,22 +449,73 @@ export default function PanelImputacion({
               {mensajeExito}
             </p>
           )}
-          {posiblesDuplicados.length > 0 && (
+          {cuentasCompartidas && (
             <div className="mt-3 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
-              <p>
-                {posiblesDuplicados.length === 1
-                  ? "1 movimiento parece duplicado"
-                  : `${posiblesDuplicados.length} movimientos parecen duplicados`}{" "}
-                (misma fecha e importe que uno ya cargado antes) — se importaron igual,
-                revisalos:
+              <p className="font-medium">
+                Todavía no se cargó nada: algunas cuentas de este archivo ya tienen
+                movimientos en otra empresa.
+              </p>
+              <p className="mt-1 text-xs">
+                Puede ser una cuenta compartida (ej. el extracto propio de Fredy trae cuentas
+                de otras unidades) o que el archivo se esté subiendo en la empresa
+                equivocada. Si muchas filas son idénticas, es casi seguro lo segundo.
               </p>
               <ul className="mt-2 list-disc pl-5 text-xs">
-                {posiblesDuplicados.map((d) => (
-                  <li key={d.fila}>
-                    Fila {d.fila}: {d.fecha}, ${formatearImporte(d.importe)}
+                {cuentasCompartidas.cuentas.map((c) => (
+                  <li key={`${c.cuenta}|${c.empresa}`}>
+                    <span className="font-medium">{c.cuenta}</span>: {c.filasEnOtraEmpresa}{" "}
+                    movimientos cargados en <span className="font-medium">{c.empresa}</span>
+                    {" · "}
+                    {c.identicas} de las {c.filasNuevasDeLaCuenta} filas nuevas de esta cuenta
+                    son idénticas
                   </li>
                 ))}
               </ul>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  disabled={subiendo}
+                  onClick={() =>
+                    enviarArchivo(cuentasCompartidas.archivo, cuentasCompartidas.hoja, true)
+                  }
+                  className="h-8 px-3 rounded-md bg-terracota text-white text-xs font-medium hover:opacity-90 active:scale-[0.99] transition disabled:opacity-50"
+                >
+                  Cargar igual ({cuentasCompartidas.filasNuevas} movimientos nuevos)
+                </button>
+                <button
+                  type="button"
+                  disabled={subiendo}
+                  onClick={() => {
+                    setCuentasCompartidas(null);
+                    if (fileInputRef.current) fileInputRef.current.value = "";
+                  }}
+                  className="h-8 px-3 rounded-md border border-terracota text-terracota text-xs font-medium hover:bg-paper transition disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+          {cantidadPosiblesDuplicados > 0 && (
+            <div className="mt-3 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
+              <p>
+                {cantidadPosiblesDuplicados === 1
+                  ? "1 movimiento nuevo se parece"
+                  : `${cantidadPosiblesDuplicados} movimientos nuevos se parecen`}{" "}
+                a uno ya cargado (misma cuenta, fecha e importe, pero distinto concepto,
+                referencia o saldo) — se cargaron igual, revisalos:
+              </p>
+              <ul className="mt-2 list-disc pl-5 text-xs">
+                {posiblesDuplicados.slice(0, 20).map((d) => (
+                  <li key={d.fila}>
+                    Fila {d.fila}: {d.fecha}, {d.bancoYCuenta}, ${formatearImporte(d.importe)} —{" "}
+                    {d.concepto}
+                  </li>
+                ))}
+              </ul>
+              {cantidadPosiblesDuplicados > 20 && (
+                <p className="mt-1 text-xs">y {cantidadPosiblesDuplicados - 20} más.</p>
+              )}
             </div>
           )}
           <AlertaContinuidadSaldo continuidadSaldo={continuidadSaldo} />
