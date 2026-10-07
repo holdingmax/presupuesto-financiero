@@ -19,6 +19,8 @@ import {
 import {
   normalizarCuenta,
   proponerUnidadPorCuenta,
+  proponerUnidadPorRazonSocial,
+  unidadDeLaLista,
   esUnidadDeLaLista,
 } from "@/lib/unidadesNegocio";
 import { aCentavos, centavosADecimal } from "@/lib/prorrateo";
@@ -199,7 +201,7 @@ export async function obtenerDatosSemana(
   // condición solo cuando el filtro está activo, sin cambiar nada más.
   const filtroClasificacion = soloSinClasificar ? { clasificacion: "SIN CLASIFICAR" } : {};
 
-  const [agregadoTotal, agregadoSumaReal, gruposUnidadSugerida, sinUnidadAsignada] = await Promise.all([
+  const [agregadoTotal, agregadoSumaReal, gruposUnidadSugerida, sinUnidadAsignada, sugerenciasClasificacion] = await Promise.all([
     prisma.movimientoBancario.aggregate({
       where: { ejecucionId: ejecucion.id, ...filtroClasificacion },
       _count: true,
@@ -220,6 +222,9 @@ export async function obtenerDatosSemana(
     // cuya unidad no pertenece a ninguna empresa — no van a entrar en el Reporte
     // de nadie, y una vez cerrada la semana ya no se pueden corregir.
     obtenerUnidadesConEmpresa().then((unidades) => contarSinUnidadEnSemana(ejecucion.id, unidades)),
+    // Panel de clasificaciones sugeridas: TODA la semana, no la página
+    // (decisión 2026-10-07 — antes se armaba con las filas de la página actual).
+    agruparSugerenciasClasificacion(ejecucion.id),
   ]);
 
   const totalMovimientos = agregadoTotal._count;
@@ -253,7 +258,68 @@ export async function obtenerDatosSemana(
     soloSinClasificar,
     unidadesSugeridas: agruparUnidadesSugeridas(gruposUnidadSugerida),
     sinUnidadAsignada,
+    sugerenciasClasificacion,
   };
+}
+
+export type FilaSugerenciaClasificacion = {
+  id: string;
+  fecha: string;
+  concepto: string;
+  bancoYCuenta: string;
+  importe: number;
+  clasificacion: string;
+  chequeIvaAmbiguo: boolean;
+};
+
+export type GrupoSugerenciaClasificacion = {
+  clasificacion: string;
+  // Totales de TODA la semana (no de la muestra).
+  cantidad: number;
+  ambiguas: number;
+  // Muestra para revisar/corregir de a una: hasta MUESTRA_POR_GRUPO filas, las
+  // ambiguas primero (esas solo se confirman de a una).
+  filas: FilaSugerenciaClasificacion[];
+};
+
+const MUESTRA_POR_GRUPO = 50;
+
+// Sugerencias de clasificación pendientes (sugeridaPorSistema) de TODA la
+// semana, agrupadas por clasificación — mismo criterio que el panel de unidades
+// sugeridas: un archivo de ~16.500 filas reparte las sugerencias en decenas de
+// páginas, y "Confirmar las N" tiene que confirmar las N de la semana, no las de
+// la página que se está viendo. Un groupBy (pocas filas) + una muestra por grupo.
+async function agruparSugerenciasClasificacion(
+  ejecucionId: string
+): Promise<GrupoSugerenciaClasificacion[]> {
+  const conteos = await prisma.movimientoBancario.groupBy({
+    by: ["clasificacion", "chequeIvaAmbiguo"],
+    where: { ejecucionId, sugeridaPorSistema: true },
+    _count: true,
+  });
+  const porClasificacion = new Map<string, { cantidad: number; ambiguas: number }>();
+  for (const c of conteos) {
+    const g = porClasificacion.get(c.clasificacion) ?? { cantidad: 0, ambiguas: 0 };
+    g.cantidad += c._count;
+    if (c.chequeIvaAmbiguo) g.ambiguas += c._count;
+    porClasificacion.set(c.clasificacion, g);
+  }
+  const grupos = await Promise.all(
+    Array.from(porClasificacion.entries()).map(async ([clasificacion, totales]) => {
+      const filas = await prisma.movimientoBancario.findMany({
+        where: { ejecucionId, sugeridaPorSistema: true, clasificacion },
+        orderBy: [{ chequeIvaAmbiguo: "desc" }, { fecha: "asc" }, { id: "asc" }],
+        take: MUESTRA_POR_GRUPO,
+        select: { id: true, fecha: true, concepto: true, bancoYCuenta: true, importe: true, clasificacion: true, chequeIvaAmbiguo: true },
+      });
+      return {
+        clasificacion,
+        ...totales,
+        filas: filas.map((m) => ({ ...m, fecha: m.fecha.toISOString().slice(0, 10), importe: Number(m.importe) })),
+      };
+    })
+  );
+  return grupos.sort((a, b) => a.clasificacion.localeCompare(b.clasificacion, "es"));
 }
 
 export type GrupoUnidadSugerida = {
@@ -976,8 +1042,9 @@ export async function subirExtracto(
   // columna "EMPRESA" con texto libre (ej. "QUINTEROS", "SIERRA"). Confirmado con Kike
   // (2026-10-06): EMPRESA es la razón social (SPP, LI, QUINTEROS, TUCSON), no la unidad
   // — un error de etiqueta. Por eso se lee en un campo aparte ("empresaColumna", nunca
-  // persistido) y queda DEBAJO de la sugerencia por cuenta en el orden de abajo: si se
-  // tratara como unidad explícita, en esos archivos la sugerencia nunca se activaría.
+  // persistido): queda DEBAJO de la sugerencia por cuenta y se traduce a unidad con el
+  // mapa por razón social (UNIDAD_POR_RAZON_SOCIAL, ver el orden más abajo) — nunca se
+  // guarda la razón social como si fuera una unidad.
   // Si el archivo sí trae "UNIDAD DE NEG" (el caso normal, incluido el maestro),
   // "EMPRESA" queda ignorada igual que siempre.
   if (!Object.values(encabezados).includes("unidadNegocio")) {
@@ -1055,16 +1122,25 @@ export async function subirExtracto(
       ? null
       : proponerClasificacionAutomatica(concepto);
 
-    // Orden (decisión 2026-10-06): "UNIDAD DE NEG" del archivo > sugerida por la
-    // cuenta (mapa) > columna "EMPRESA" (fallback, ver arriba por qué va debajo
-    // del mapa) > "SIN ASIGNAR". "UNIDAD DE NEG" NUNCA se pisa. "SIN ASIGNAR"
-    // literal en cualquiera de las dos columnas cuenta como vacío. .trim(): un
-    // mismo valor puede llegar con espacio final por archivo (ej. "SIERRA " vs
-    // "SIERRA") y sin esto quedaban como dos unidades de negocio distintas en la base.
+    // Orden (decisión 2026-10-07):
+    //   1. "UNIDAD DE NEG" con una unidad VÁLIDA de la lista → se respeta siempre
+    //      (guardada con el nombre canónico: "SPP " → "SPP").
+    //   2. mapa por cuenta bancaria (UNIDAD_POR_CUENTA) → sugerida.
+    //   3. mapa por razón social (UNIDAD_POR_RAZON_SOCIAL) → sugerida. La razón
+    //      social sale de la columna "EMPRESA" o, si "UNIDAD DE NEG" trae algo que
+    //      no es una unidad de la lista (ej. "QUINTEROS" — error de etiqueta
+    //      confirmado por Kike), de esa misma celda.
+    //   4. "SIN ASIGNAR" (incluidas las razones sociales MIXTAS: LI, TUCSON,
+    //      CREAR, CIELOS, LI RATIO — revisión manual).
+    // "SIN ASIGNAR" literal en cualquiera de las dos columnas cuenta como vacío.
     const bancoYCuenta = valores.bancoYCuenta ? String(valores.bancoYCuenta) : "(sin banco)";
-    const unidadExplicita = leerUnidadDeCelda(valores.unidadNegocio);
-    const unidadAutomatica = unidadExplicita ? null : proponerUnidadPorCuenta(bancoYCuenta);
-    const unidadEmpresaColumna = leerUnidadDeCelda(valores.empresaColumna);
+    const celdaUnidad = leerUnidadDeCelda(valores.unidadNegocio);
+    const unidadExplicita = celdaUnidad ? unidadDeLaLista(celdaUnidad) : null;
+    const unidadPorCuenta = unidadExplicita ? null : proponerUnidadPorCuenta(bancoYCuenta);
+    const razonSocial =
+      celdaUnidad && !unidadExplicita ? celdaUnidad : leerUnidadDeCelda(valores.empresaColumna);
+    const unidadPorRazonSocial =
+      unidadExplicita || unidadPorCuenta || !razonSocial ? null : proponerUnidadPorRazonSocial(razonSocial);
 
     filas.push({
       numeroFila,
@@ -1077,12 +1153,12 @@ export async function subirExtracto(
       bancoYCuenta,
       clasificacion: clasificacionExplicita ?? clasificacionAutomatica ?? "SIN CLASIFICAR",
       clasificacion2: valores.clasificacion2 ? String(valores.clasificacion2) : null,
-      unidadNegocio: unidadExplicita ?? unidadAutomatica ?? unidadEmpresaColumna ?? "SIN ASIGNAR",
+      unidadNegocio: unidadExplicita ?? unidadPorCuenta ?? unidadPorRazonSocial ?? "SIN ASIGNAR",
       detalle: valores.detalle ? String(valores.detalle) : null,
       detalle2: valores.detalle2 ? String(valores.detalle2) : null,
       sugeridaPorSistema: clasificacionAutomatica !== null,
       chequeIvaAmbiguo: false,
-      unidadSugeridaPorSistema: unidadAutomatica !== null,
+      unidadSugeridaPorSistema: unidadPorCuenta !== null || unidadPorRazonSocial !== null,
     });
   });
 
@@ -1289,20 +1365,18 @@ export type ResultadoConfirmarClasificacionesEnLote =
   | { ok: true; cantidad: number }
   | { ok: false; error: string };
 
-// Acepta tal cual un conjunto de sugerencias del sistema (motor de leyenda /
-// cruce de Liquidación final / cruce de cheques IVA) — solo limpia
-// sugeridaPorSistema, nunca toca `clasificacion` (el usuario está
-// confirmando lo que ya ve, no reeligiendo nada; eso pasa por
-// actualizarMovimiento, fila por fila). chequeIvaAmbiguo:false en el where
-// es una segunda barrera server-side: el cliente ya arma la lista de ids
-// excluyendo esas filas (ver PanelSugerenciasPendientes.tsx), pero esto
-// evita que un ID desactualizado o forjado directo a la acción cuele una
-// confirmación en lote de un cheque con match ambiguo.
+// Acepta tal cual TODAS las sugerencias de una clasificación en la semana
+// (motor de leyenda / cruce de Liquidación final / cruce de cheques IVA) — no
+// solo las de la página (decisión 2026-10-07): el panel se arma sobre toda la
+// semana. Solo limpia sugeridaPorSistema, nunca toca `clasificacion` (el
+// usuario confirma lo que ya ve; corregir pasa por actualizarMovimiento, fila
+// por fila). chequeIvaAmbiguo:false en el where: un cheque con match ambiguo
+// nunca se confirma en lote, solo de a uno.
 export async function confirmarClasificacionesEnLote(
   empresaSlug: string,
   periodo: string,
   numeroSemana: number,
-  ids: string[]
+  clasificacion: string
 ): Promise<ResultadoConfirmarClasificacionesEnLote> {
   const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
   const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
@@ -1312,14 +1386,13 @@ export async function confirmarClasificacionesEnLote(
   if (ejecucion.estado === "CERRADA") {
     return { ok: false, error: "Esta semana ya está cerrada, no se puede editar." };
   }
-  if (ids.length === 0) {
-    return { ok: false, error: "No hay ninguna sugerencia para confirmar." };
-  }
-
   const resultado = await prisma.movimientoBancario.updateMany({
-    where: { id: { in: ids }, ejecucionId: ejecucion.id, chequeIvaAmbiguo: false },
+    where: { ejecucionId: ejecucion.id, sugeridaPorSistema: true, clasificacion, chequeIvaAmbiguo: false },
     data: { sugeridaPorSistema: false },
   });
+  if (resultado.count === 0) {
+    return { ok: false, error: "No hay ninguna sugerencia para confirmar." };
+  }
 
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
   return { ok: true, cantidad: resultado.count };

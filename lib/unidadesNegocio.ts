@@ -112,3 +112,44 @@ const UNIDAD_POR_CUENTA: Record<string, string> = {
 export function proponerUnidadPorCuenta(bancoYCuenta: string): string | null {
   return UNIDAD_POR_CUENTA[normalizarCuenta(bancoYCuenta)] ?? null;
 }
+
+// Valor de una celda de unidad → el nombre canónico de UNIDADES_NEGOCIO si es
+// una unidad válida (comparación sin mayúsculas/tildes/espacios: "SPP " → "SPP",
+// "havanna" → "HAVANNA"), o null si no lo es.
+export function unidadDeLaLista(valor: string): string | null {
+  const clave = normalizarTexto(valor);
+  return (UNIDADES_NEGOCIO as readonly string[]).find((u) => u === clave) ?? null;
+}
+
+// Razón social → unidad madre (decisión 2026-10-07, confirmado por Kike). La
+// columna EMPRESA de los extractos trae la RAZÓN SOCIAL, no la unidad — y en
+// algunos archivos la misma razón social aparece en "UNIDAD DE NEG" (error de
+// etiqueta: QUINTEROS, SIERRA, … son apellidos/razones sociales de Fredy). Mismo
+// criterio que UNIDAD_POR_CUENTA: coincidencia EXACTA del texto normalizado, solo
+// casos confirmados. Las razones sociales MIXTAS (LI, LI RATIO, TUCSON, CREAR,
+// CIELOS — reparten entre varias unidades) quedan AFUERA a propósito: no tienen
+// una unidad madre, van a "SIN ASIGNAR" para revisión manual.
+const UNIDAD_POR_RAZON_SOCIAL: Record<string, string> = {
+  "QUINTEROS": "FREDY",
+  "SIERRA": "FREDY",
+  "WHEELER": "FREDY",
+  "GONZALEZ": "FREDY",
+  "ESTEVEZ": "FREDY",
+  "FREDY": "FREDY",
+  "INFO": "RADIO",
+  "INFO SAT": "RADIO",
+  "RADIO": "RADIO",
+  "PANINI": "HAVANNA",
+  "GOLD SEGURIDAD": "BRILLANTE",
+  "WEB MASTER": "LOGISTICA",
+  "FID ADM 2": "EXPENSAS",
+  "SPP RATIO": "SPP",
+  "SPP": "SPP",
+  "HWC": "HWC",
+};
+
+// Único punto de uso: subirExtracto. null si la razón social no está en el mapa
+// (incluidas las mixtas).
+export function proponerUnidadPorRazonSocial(razonSocial: string): string | null {
+  return UNIDAD_POR_RAZON_SOCIAL[normalizarTexto(razonSocial)] ?? null;
+}

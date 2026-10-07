@@ -80,6 +80,7 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
         chequeos={chequeos}
         unidadesSugeridas={datos.unidadesSugeridas}
         sinUnidadAsignada={datos.sinUnidadAsignada}
+        sugerenciasClasificacion={datos.sugerenciasClasificacion}
       />
     );
   }

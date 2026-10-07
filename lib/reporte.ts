@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { centavosDeDecimalTexto } from "@/lib/conteoMovimientos";
 import { normalizarCuenta } from "@/lib/unidadesNegocio";
+import { armarIndiceRubros, rubroDe } from "@/lib/rubros";
 
 // REAL del Reporte por UNIDAD DE NEGOCIO, no por empresa del extracto (decisión
 // 2026-10-07). Una cuenta bancaria puede mezclar unidades: un gasto de RADIO
@@ -28,13 +29,34 @@ export async function obtenerUnidadesConEmpresa(): Promise<string[]> {
   return filas.map((f) => normalizarCuenta(f.unidad));
 }
 
-// Centavos (con signo) por clasificación. El llamador decide cómo mostrarlos.
+// Clasificaciones GUARDADAS en movimientos del período que pertenecen a alguno
+// de los rubros pedidos, según la tabla de equivalencias (lib/rubros.ts: alias
+// confirmados + comparación sin mayúsculas/tildes). Son pocas (una fila por
+// valor distinto): se resuelven en código y se pasan crudas al ANY() de las
+// consultas, que siguen sumando en la base.
+async function clasificacionesDeRubros(periodo: string, rubros: readonly string[]): Promise<string[]> {
+  const indice = armarIndiceRubros(rubros);
+  const filas = await prisma.$queryRaw<{ clasificacion: string }[]>`
+    SELECT DISTINCT mb.clasificacion
+    FROM "MovimientoBancario" mb
+    JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
+    JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
+    WHERE pm.periodo = ${periodo}
+  `;
+  return filas.map((f) => f.clasificacion).filter((c) => rubroDe(indice, c) !== null);
+}
+
+// Centavos (con signo) por RUBRO — ya agrupados con la tabla de equivalencias
+// (ej. "COM Y GTOS BRIOS" suma en "Gastos bancarios"). El llamador decide cómo
+// mostrarlos.
 export async function calcularRealPorRubro(
   periodo: string,
   unidades: string[],
   rubros: readonly string[]
 ): Promise<Map<string, number>> {
   if (unidades.length === 0) return new Map();
+  const crudas = await clasificacionesDeRubros(periodo, rubros);
+  if (crudas.length === 0) return new Map();
   const filas = await prisma.$queryRaw<{ clasificacion: string; total: string | null }[]>`
     WITH mov AS (
       SELECT mb.id, mb.clasificacion, mb.importe, mb."unidadNegocio"
@@ -42,7 +64,7 @@ export async function calcularRealPorRubro(
       JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
       JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
       WHERE pm.periodo = ${periodo} AND es.estado = 'CERRADA' AND NOT mb.ignorado
-        AND mb.clasificacion = ANY(${[...rubros]}::text[])
+        AND mb.clasificacion = ANY(${crudas}::text[])
     )
     SELECT x.clasificacion, SUM(x.importe)::text AS total FROM (
       SELECT m.clasificacion, m.importe FROM mov m
@@ -55,9 +77,13 @@ export async function calcularRealPorRubro(
     ) x
     GROUP BY x.clasificacion
   `;
-  return new Map(
-    filas.map((f) => [f.clasificacion, f.total === null ? 0 : centavosDeDecimalTexto(f.total)])
-  );
+  const indice = armarIndiceRubros(rubros);
+  const porRubro = new Map<string, number>();
+  for (const f of filas) {
+    const rubro = rubroDe(indice, f.clasificacion)!;
+    porRubro.set(rubro, (porRubro.get(rubro) ?? 0) + (f.total === null ? 0 : centavosDeDecimalTexto(f.total)));
+  }
+  return porRubro;
 }
 
 export type NoAsignado = { unidad: string; centavos: number; movimientos: number };
@@ -73,6 +99,8 @@ export async function calcularNoAsignadoDelExtracto(
   rubros: readonly string[],
   unidadesConEmpresa: string[]
 ): Promise<{ porUnidad: NoAsignado[]; semanas: number[] }> {
+  const crudas = await clasificacionesDeRubros(periodo, rubros);
+  if (crudas.length === 0) return { porUnidad: [], semanas: [] };
   const filas = await prisma.$queryRaw<
     { unidad: string; total: string | null; movimientos: number; semanas: number[] }[]
   >`
@@ -83,7 +111,7 @@ export async function calcularNoAsignadoDelExtracto(
       JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
       WHERE pm."empresaId" = ${empresaId} AND pm.periodo = ${periodo}
         AND es.estado = 'CERRADA' AND NOT mb.ignorado
-        AND mb.clasificacion = ANY(${[...rubros]}::text[])
+        AND mb.clasificacion = ANY(${crudas}::text[])
     )
     SELECT x.unidad, SUM(x.importe)::text AS total, COUNT(DISTINCT x.id)::int AS movimientos,
            array_agg(DISTINCT x."numeroSemana" ORDER BY x."numeroSemana") AS semanas

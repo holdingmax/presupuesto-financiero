@@ -11,6 +11,7 @@ import {
   confirmarClasificacionesEnLote,
   confirmarUnidadesEnLote,
   type GrupoUnidadSugerida,
+  type GrupoSugerenciaClasificacion,
   type ResultadoChequeo,
   type ResultadoContinuidadSaldo,
   type ResultadoLiquidacionAmbigua,
@@ -68,6 +69,9 @@ type Props = {
   // Movimientos de toda la semana cuya unidad no pertenece a ninguna empresa
   // (ver contarSinUnidadEnSemana en lib/reporte.ts) — se avisa antes del cierre.
   sinUnidadAsignada: { unidad: string; movimientos: number }[];
+  // Sugerencias de clasificación de TODA la semana (no de la página), armadas
+  // en el server — ver agruparSugerenciasClasificacion en actions.ts.
+  sugerenciasClasificacion: GrupoSugerenciaClasificacion[];
 };
 
 export default function PanelImputacion({
@@ -84,6 +88,7 @@ export default function PanelImputacion({
   chequeos,
   unidadesSugeridas,
   sinUnidadAsignada,
+  sugerenciasClasificacion,
 }: Props) {
   const router = useRouter();
   const { empresa: empresaSlug, periodo } = useParams<{
@@ -243,19 +248,22 @@ export default function PanelImputacion({
     );
   }
 
-  // Confirma en lote: no cambia el valor de clasificacion, solo limpia
-  // sugeridaPorSistema — optimista primero (para que el panel de
-  // sugerencias reaccione al toque), y si el server la rechaza (ej. la
-  // semana se cerró en otra pestaña justo antes) se resincroniza con
-  // router.refresh() en vez de intentar revertir a mano.
-  async function confirmarGrupoSugerido(ids: string[]) {
-    setMovimientos((prev) =>
-      prev.map((m) => (ids.includes(m.id) ? { ...m, sugeridaPorSistema: false } : m))
-    );
-    const resultado = await confirmarClasificacionesEnLote(empresaSlug, periodo, numeroSemana, ids);
-    if (!resultado.ok) {
-      router.refresh();
-    }
+  // Confirma en lote TODAS las sugerencias de una clasificación en la semana
+  // (no solo las de la página): no cambia el valor, solo limpia
+  // sugeridaPorSistema. El panel viene del server, así que se espera la
+  // respuesta y se refresca.
+  async function confirmarGrupoSugerido(clasificacion: string) {
+    await confirmarClasificacionesEnLote(empresaSlug, periodo, numeroSemana, clasificacion);
+    router.refresh();
+  }
+
+  // Una fila del panel de sugerencias: se guarda esperando la respuesta (no en
+  // startTransition como la tabla) y se refresca, porque el panel viene del
+  // server sobre toda la semana.
+  async function confirmarFilaSugerida(id: string, valor: string) {
+    actualizarCampoLocal(id, "clasificacion", valor);
+    await actualizarMovimiento(empresaSlug, periodo, numeroSemana, id, { clasificacion: valor });
+    router.refresh();
   }
 
   // Confirma por cuenta sobre TODA la semana (no solo esta página): el panel
@@ -590,12 +598,9 @@ export default function PanelImputacion({
 
         {!cerrada && (
           <PanelSugerenciasPendientes
-            sugerencias={movimientos.filter((m) => m.sugeridaPorSistema)}
+            grupos={sugerenciasClasificacion}
             clasificacionesDisponibles={clasificacionesDisponibles}
-            onConfirmarFila={(id, valor) => {
-              actualizarCampoLocal(id, "clasificacion", valor);
-              guardarCampo(id, "clasificacion", valor);
-            }}
+            onConfirmarFila={confirmarFilaSugerida}
             onConfirmarGrupo={confirmarGrupoSugerido}
           />
         )}

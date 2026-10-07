@@ -26,9 +26,9 @@ export default function PanelUnidadesSugeridas({ grupos, onConfirmarCuenta, conf
     <div className="mb-8 rounded-lg border border-line-strong border-l-4 border-l-marino bg-paper-raised px-5 py-4">
       <p className="text-sm font-medium mb-1">Unidades de negocio sugeridas ({total})</p>
       <p className="text-xs text-ink-muted mb-3">
-        Movimientos que vinieron sin unidad de negocio y tomaron la unidad madre de su cuenta
-        bancaria. Confirmá por cuenta, o corregí una fila puntual en la tabla antes de confirmar
-        el resto.
+        Movimientos que vinieron sin una unidad de negocio válida y tomaron la unidad madre de su
+        cuenta bancaria o de su razón social. Confirmá por cuenta, o corregí una fila puntual en
+        la tabla antes de confirmar el resto.
       </p>
       <div className="rounded-md border border-line-hairline bg-paper">
         <table className="w-full text-sm">

@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { formatearImporte } from "./formato";
+import type { GrupoSugerenciaClasificacion } from "./actions";
 
 // Sin librería de íconos en el proyecto — SVG a mano, mismo criterio que
 // IconoMenu/IconoChevron en TablaMovimientos.tsx.
@@ -23,18 +24,11 @@ function IconoChevron() {
   );
 }
 
-export type FilaSugerencia = {
-  id: string;
-  fecha: string;
-  concepto: string;
-  bancoYCuenta: string;
-  importe: number;
-  clasificacion: string;
-  chequeIvaAmbiguo: boolean;
-};
-
 type Props = {
-  sugerencias: FilaSugerencia[];
+  // Armado del server sobre TODA la semana (agruparSugerenciasClasificacion en
+  // actions.ts), no sobre la página que se está viendo: cantidad/ambiguas son los
+  // totales reales; `filas` es una muestra de hasta 50 por grupo.
+  grupos: GrupoSugerenciaClasificacion[];
   clasificacionesDisponibles: string[];
   // Se llama tanto cuando el <select> de una fila cambia de valor de verdad
   // (onChange normal) como cuando se aprieta "Confirmar" reeligiendo el
@@ -42,36 +36,28 @@ type Props = {
   // porque actualizarMovimiento (el server action detrás de esto en
   // PanelImputacion) limpia sugeridaPorSistema sin excepción cuando
   // clasificacion viene en el payload, sin comparar contra el valor anterior.
-  onConfirmarFila: (id: string, valor: string) => void;
-  // Bulk: no cambia el valor de clasificacion, solo confirma tal cual.
-  onConfirmarGrupo: (ids: string[]) => void;
+  onConfirmarFila: (id: string, valor: string) => Promise<void>;
+  // Bulk: confirma TODAS las de esa clasificación en la semana (menos las
+  // ambiguas), sin cambiar el valor.
+  onConfirmarGrupo: (clasificacion: string) => Promise<void>;
 };
 
 export default function PanelSugerenciasPendientes({
-  sugerencias,
+  grupos,
   clasificacionesDisponibles,
   onConfirmarFila,
   onConfirmarGrupo,
 }: Props) {
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
-  // Solo trackea lo que el usuario todavía no confirmó: en cuanto se
-  // confirma una fila (individual o en lote), sale de `sugerencias` en el
-  // próximo render y este estado para esa fila queda simplemente sin usar.
+  // Solo trackea lo que el usuario todavía no confirmó, para el <select> de cada
+  // fila. Las filas confirmadas se ocultan al toque (ocultas) y desaparecen de
+  // verdad cuando el server refresca los grupos.
   const [valores, setValores] = useState<Record<string, string>>({});
+  const [ocultas, setOcultas] = useState<Set<string>>(new Set());
+  const [confirmandoGrupo, setConfirmandoGrupo] = useState<string | null>(null);
 
-  const grupos = useMemo(() => {
-    const porClasificacion = new Map<string, FilaSugerencia[]>();
-    for (const f of sugerencias) {
-      const grupo = porClasificacion.get(f.clasificacion);
-      if (grupo) grupo.push(f);
-      else porClasificacion.set(f.clasificacion, [f]);
-    }
-    return Array.from(porClasificacion.entries()).sort((a, b) =>
-      a[0].localeCompare(b[0], "es")
-    );
-  }, [sugerencias]);
-
-  if (sugerencias.length === 0) return null;
+  const total = grupos.reduce((suma, g) => suma + g.cantidad, 0);
+  if (total === 0) return null;
 
   function toggleGrupo(clasificacion: string) {
     setAbiertos((prev) => {
@@ -82,44 +68,58 @@ export default function PanelSugerenciasPendientes({
     });
   }
 
-  function valorDe(f: FilaSugerencia) {
-    return valores[f.id] ?? f.clasificacion;
+  async function confirmarFila(id: string, valor: string) {
+    setOcultas((prev) => new Set(prev).add(id));
+    await onConfirmarFila(id, valor);
+  }
+
+  async function confirmarGrupo(clasificacion: string) {
+    setConfirmandoGrupo(clasificacion);
+    await onConfirmarGrupo(clasificacion);
+    setConfirmandoGrupo(null);
   }
 
   return (
     <div className="mb-8 rounded-lg border border-line-strong border-l-4 border-l-marino bg-paper-raised px-5 py-4">
-      <p className="text-sm font-medium mb-1">
-        Sugerencias pendientes ({sugerencias.length})
-      </p>
+      <p className="text-sm font-medium mb-1">Sugerencias pendientes ({total})</p>
       <p className="text-xs text-ink-muted mb-3">
-        Clasificaciones propuestas automáticamente, todavía sin confirmar. Revisá por grupo y
-        confirmá de una, o corregí una fila puntual antes de confirmar el resto.
+        Clasificaciones propuestas automáticamente en toda la semana, todavía sin confirmar. Revisá
+        por grupo y confirmá de una, o corregí una fila puntual antes de confirmar el resto.
       </p>
       <div className="space-y-2">
-        {grupos.map(([clasificacion, filas]) => {
-          const abierto = abiertos.has(clasificacion);
-          const confirmablesEnLote = filas.filter((f) => !f.chequeIvaAmbiguo);
+        {grupos.map((grupo) => {
+          const abierto = abiertos.has(grupo.clasificacion);
+          const filasVisibles = grupo.filas.filter((f) => !ocultas.has(f.id));
+          const ocultasDelGrupo = grupo.filas.length - filasVisibles.length;
+          const ocultasNoAmbiguas = grupo.filas.filter((f) => ocultas.has(f.id) && !f.chequeIvaAmbiguo).length;
+          const cantidad = grupo.cantidad - ocultasDelGrupo;
+          const confirmablesEnLote = grupo.cantidad - grupo.ambiguas - ocultasNoAmbiguas;
+          const fueraDeMuestra = grupo.cantidad - grupo.filas.length;
+          if (cantidad <= 0) return null;
 
           return (
-            <div key={clasificacion} className="rounded-md border border-line-hairline bg-paper">
+            <div key={grupo.clasificacion} className="rounded-md border border-line-hairline bg-paper">
               <div className="flex items-center justify-between gap-3 px-3 py-2">
                 <button
                   type="button"
-                  onClick={() => toggleGrupo(clasificacion)}
+                  onClick={() => toggleGrupo(grupo.clasificacion)}
                   className="flex items-center gap-1.5 text-sm text-ink-secondary hover:text-ink"
                 >
                   <span className={`transition-transform ${abierto ? "rotate-0" : "-rotate-90"}`}>
                     <IconoChevron />
                   </span>
-                  {clasificacion} ({filas.length})
+                  {grupo.clasificacion} ({cantidad})
                 </button>
-                {confirmablesEnLote.length > 0 && (
+                {confirmablesEnLote > 0 && (
                   <button
                     type="button"
-                    onClick={() => onConfirmarGrupo(confirmablesEnLote.map((f) => f.id))}
-                    className="h-7 shrink-0 px-3 rounded-md bg-marino text-white text-xs font-medium hover:bg-marino-dark active:scale-[0.99] transition"
+                    disabled={confirmandoGrupo !== null}
+                    onClick={() => confirmarGrupo(grupo.clasificacion)}
+                    className="h-7 shrink-0 px-3 rounded-md bg-marino text-white text-xs font-medium hover:bg-marino-dark active:scale-[0.99] transition disabled:opacity-50"
                   >
-                    Confirmar las {confirmablesEnLote.length}
+                    {confirmandoGrupo === grupo.clasificacion
+                      ? "Confirmando..."
+                      : `Confirmar las ${confirmablesEnLote}`}
                   </button>
                 )}
               </div>
@@ -128,64 +128,68 @@ export default function PanelSugerenciasPendientes({
                 <div className="overflow-x-auto border-t border-line-hairline">
                   <table className="w-full min-w-[640px] text-xs">
                     <tbody>
-                      {filas.map((f) => (
-                        <tr key={f.id} className="border-t border-line-hairline first:border-t-0">
-                          <td className="py-1.5 pl-3 pr-2 whitespace-nowrap text-ink-secondary">
-                            {f.fecha}
-                          </td>
-                          <td className="py-1.5 pr-2 max-w-[240px] truncate" title={f.concepto}>
-                            {f.chequeIvaAmbiguo && (
-                              <span
-                                title="Esta referencia tiene más de un cheque real con el mismo N° e importe en la planilla de Macchi — confirmá solo después de revisarla a mano."
-                                className="mr-1 inline-block align-middle text-terracota"
-                              >
-                                <IconoAlerta />
-                              </span>
-                            )}
-                            {f.concepto}
-                          </td>
-                          <td className="py-1.5 pr-2 whitespace-nowrap text-ink-secondary">
-                            {f.bancoYCuenta}
-                          </td>
-                          <td
-                            className={`py-1.5 pr-2 text-right tabular whitespace-nowrap ${
-                              f.importe < 0 ? "text-negative" : "text-positive"
-                            }`}
-                          >
-                            ${formatearImporte(f.importe)}
-                          </td>
-                          <td className="py-1.5 pr-2">
-                            <select
-                              value={valorDe(f)}
-                              onChange={(e) => {
-                                setValores((prev) => ({ ...prev, [f.id]: e.target.value }));
-                                onConfirmarFila(f.id, e.target.value);
-                              }}
-                              className="w-36 rounded-md border border-line bg-transparent px-1.5 py-1 text-xs outline-none focus:border-marino"
-                            >
-                              {!clasificacionesDisponibles.includes(valorDe(f)) && (
-                                <option value={valorDe(f)}>{valorDe(f)}</option>
+                      {filasVisibles.map((f) => {
+                        const valor = valores[f.id] ?? f.clasificacion;
+                        return (
+                          <tr key={f.id} className="border-t border-line-hairline first:border-t-0">
+                            <td className="py-1.5 pl-3 pr-2 whitespace-nowrap text-ink-secondary">{f.fecha}</td>
+                            <td className="py-1.5 pr-2 max-w-[240px] truncate" title={f.concepto}>
+                              {f.chequeIvaAmbiguo && (
+                                <span
+                                  title="Esta referencia tiene más de un cheque real con el mismo N° e importe en la planilla de Macchi — confirmá solo después de revisarla a mano."
+                                  className="mr-1 inline-block align-middle text-terracota"
+                                >
+                                  <IconoAlerta />
+                                </span>
                               )}
-                              {clasificacionesDisponibles.map((c) => (
-                                <option key={c} value={c}>
-                                  {c}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="py-1.5 pr-3">
-                            <button
-                              type="button"
-                              onClick={() => onConfirmarFila(f.id, valorDe(f))}
-                              className="h-6 whitespace-nowrap px-2 rounded-md border border-line text-ink-secondary hover:bg-paper-cool hover:text-ink transition"
+                              {f.concepto}
+                            </td>
+                            <td className="py-1.5 pr-2 whitespace-nowrap text-ink-secondary">{f.bancoYCuenta}</td>
+                            <td
+                              className={`py-1.5 pr-2 text-right tabular whitespace-nowrap ${
+                                f.importe < 0 ? "text-negative" : "text-positive"
+                              }`}
                             >
-                              Confirmar
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                              ${formatearImporte(f.importe)}
+                            </td>
+                            <td className="py-1.5 pr-2">
+                              <select
+                                value={valor}
+                                onChange={(e) => {
+                                  setValores((prev) => ({ ...prev, [f.id]: e.target.value }));
+                                  confirmarFila(f.id, e.target.value);
+                                }}
+                                className="w-36 rounded-md border border-line bg-transparent px-1.5 py-1 text-xs outline-none focus:border-marino"
+                              >
+                                {!clasificacionesDisponibles.includes(valor) && <option value={valor}>{valor}</option>}
+                                {clasificacionesDisponibles.map((c) => (
+                                  <option key={c} value={c}>
+                                    {c}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="py-1.5 pr-3">
+                              <button
+                                type="button"
+                                onClick={() => confirmarFila(f.id, valor)}
+                                className="h-6 whitespace-nowrap px-2 rounded-md border border-line text-ink-secondary hover:bg-paper-cool hover:text-ink transition"
+                              >
+                                Confirmar
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
+                  {fueraDeMuestra > 0 && (
+                    <p className="border-t border-line-hairline px-3 py-2 text-xs text-ink-muted">
+                      Se muestran las primeras {grupo.filas.length}; hay {fueraDeMuestra} más en la
+                      semana. &quot;Confirmar las {confirmablesEnLote}&quot; las confirma todas (menos
+                      las ambiguas, que se confirman de a una).
+                    </p>
+                  )}
                 </div>
               )}
             </div>

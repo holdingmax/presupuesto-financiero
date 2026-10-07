@@ -8,6 +8,8 @@ import {
   calcularNoAsignadoDelExtracto,
   type NoAsignado,
 } from "@/lib/reporte";
+import { armarIndiceRubros, rubroDe } from "@/lib/rubros";
+import { centavosDeDecimalTexto } from "@/lib/conteoMovimientos";
 import ReportePresupuestoMesAMes from "./ReportePresupuestoMesAMes";
 
 type Props = {
@@ -69,18 +71,31 @@ export default async function ReportePage({ params }: Props) {
     throw error;
   }
 
-  // PRESUPUESTADO: suma de LineaPresupuesto por clasificación técnica, sin
-  // importar el signo con el que se haya cargado (ver diagnóstico: hoy el
-  // 100% de las líneas reales se guardan en positivo, pero esto no depende
-  // de eso).
+  // PRESUPUESTADO: suma de LineaPresupuesto por RUBRO, sin importar el signo con
+  // el que se haya cargado (ver diagnóstico: hoy el 100% de las líneas reales se
+  // guardan en positivo, pero esto no depende de eso). Cada clasificación
+  // guardada se asigna a su rubro con la tabla de equivalencias (lib/rubros.ts)
+  // — la misma que usa el REAL, así presupuestado y real se emparejan aunque
+  // Presupuesto y Ejecución guarden strings distintos para el mismo concepto.
+  // Sumado en centavos (texto exacto de la base, sin float).
+  const indiceRubros = armarIndiceRubros(RUBROS_EGRESOS);
   const sumasPresupuestadas = await prisma.lineaPresupuesto.groupBy({
     by: ["clasificacion"],
     where: { presupuestoId },
     _sum: { importe: true },
   });
-  const presupuestadoPorClasificacion = new Map<string, number>();
+  const presupuestadoCentavos = new Map<string, number>();
   for (const s of sumasPresupuestadas) {
-    presupuestadoPorClasificacion.set(s.clasificacion, Math.abs(Number(s._sum.importe ?? 0)));
+    const rubro = rubroDe(indiceRubros, s.clasificacion);
+    if (!rubro || s._sum.importe === null) continue;
+    presupuestadoCentavos.set(
+      rubro,
+      (presupuestadoCentavos.get(rubro) ?? 0) + centavosDeDecimalTexto(s._sum.importe.toFixed(2))
+    );
+  }
+  const presupuestadoPorClasificacion = new Map<string, number>();
+  for (const [rubro, centavos] of presupuestadoCentavos) {
+    presupuestadoPorClasificacion.set(rubro, Math.abs(centavos) / 100);
   }
 
   // REAL por UNIDAD DE NEGOCIO, no por empresa del extracto (ver lib/reporte.ts):
