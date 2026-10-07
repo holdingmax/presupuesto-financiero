@@ -178,6 +178,26 @@ export const requireAdmin = cache(async (): Promise<Usuario> => {
   return usuario;
 });
 
+// Rol FINANZAS (decisión 2026-10-07, para Kike): entra a la administración
+// FINANCIERA — /admin/pago-referencia, /admin/cheque-iva-referencia y
+// /admin/unidades-negocio, que son tablas globales del holding — pero NO a la
+// gestión de usuarios (/admin/usuarios sigue con requireAdmin). No cambia qué
+// empresas ve: FINANZAS, igual que GERENTE, solo ve las que tiene asignadas en
+// UsuarioEmpresa (puedeAccederEmpresa solo saltea ese chequeo para ADMIN).
+export function esAdminOFinanzas(usuario: Pick<Usuario, "rol">): boolean {
+  return usuario.rol === "ADMIN" || usuario.rol === "FINANZAS";
+}
+
+// Mismo uso que requireAdmin (Server Actions + chequeo defensivo de cada
+// page.tsx), para las pantallas financieras de /admin.
+export const requireAdminOFinanzas = cache(async (): Promise<Usuario> => {
+  const usuario = await requireUsuarioAlDia();
+  if (!esAdminOFinanzas(usuario)) {
+    throw new PermisoDenegadoError("No tenés permisos para la administración financiera.");
+  }
+  return usuario;
+});
+
 export async function cerrarSesion() {
   const token = (await cookies()).get(NOMBRE_COOKIE)?.value;
   if (token) {

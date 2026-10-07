@@ -1,11 +1,11 @@
-import { requireAdmin, PermisoDenegadoError } from "@/lib/auth";
+import { requireAdminOFinanzas, PermisoDenegadoError } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import PagoReferenciaForm from "./PagoReferenciaForm";
 
 export default async function PagoReferenciaPage() {
   let estadoInicial;
   try {
-    await requireAdmin();
+    await requireAdminOFinanzas();
     const [total, ultima, liquidacionesFinales] = await Promise.all([
       prisma.pagoReferencia.count(),
       prisma.pagoReferencia.findFirst({ orderBy: { createdAt: "desc" }, select: { createdAt: true } }),

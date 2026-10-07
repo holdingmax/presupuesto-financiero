@@ -1,11 +1,11 @@
 import { prisma } from "@/lib/prisma";
-import { requireAdmin, PermisoDenegadoError } from "@/lib/auth";
+import { requireAdminOFinanzas, PermisoDenegadoError } from "@/lib/auth";
 import UnidadesNegocioForm from "./UnidadesNegocioForm";
 
 export default async function UnidadesNegocioPage() {
   let empresas;
   try {
-    await requireAdmin();
+    await requireAdminOFinanzas();
     empresas = await prisma.empresa.findMany({
       where: { activo: true },
       orderBy: { nombre: "asc" },

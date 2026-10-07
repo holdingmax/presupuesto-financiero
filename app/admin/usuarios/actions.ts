@@ -118,17 +118,28 @@ export async function actualizarUsuario(
     return { ok: false, errores };
   }
 
+  // Hallazgo 2026-10-07: antes se borraban TODAS las filas de UsuarioEmpresa y se
+  // recreaban solo con empresaId — cualquier guardado (cambiar rol, nombre o
+  // "activo") ponía en false puedeOperarEjecucion/puedeRevisarPresupuesto, que
+  // esta pantalla no muestra ni edita. Ahora: las empresas que siguen tildadas
+  // conservan su fila tal cual (con sus permisos); se borran solo las destildadas
+  // y se crean solo las nuevas (sin permisos — skipDuplicates no toca las que ya
+  // existen, @@id([usuarioId, empresaId])). Un ADMIN no necesita filas (ve todo):
+  // al pasar a ADMIN se borran todas, igual que antes.
   await prisma.$transaction([
     prisma.usuario.update({
       where: { id },
       data: { nombre: datos.nombre, email: datos.email, rol: datos.rol as Rol, activo },
     }),
-    prisma.usuarioEmpresa.deleteMany({ where: { usuarioId: id } }),
     ...(datos.rol === "ADMIN"
-      ? []
+      ? [prisma.usuarioEmpresa.deleteMany({ where: { usuarioId: id } })]
       : [
+          prisma.usuarioEmpresa.deleteMany({
+            where: { usuarioId: id, empresaId: { notIn: datos.empresaIds } },
+          }),
           prisma.usuarioEmpresa.createMany({
             data: datos.empresaIds.map((empresaId) => ({ usuarioId: id, empresaId })),
+            skipDuplicates: true,
           }),
         ]),
   ]);

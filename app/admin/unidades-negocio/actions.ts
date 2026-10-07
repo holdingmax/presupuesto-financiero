@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdminOFinanzas } from "@/lib/auth";
 import { esUnidadDeLaLista } from "@/lib/unidadesNegocio";
 
 type ResultadoGuardarUnidades = { ok: true; unidades: string[] } | { ok: false; error: string };
@@ -17,7 +17,7 @@ export async function guardarUnidadesEmpresa(
   empresaId: string,
   unidades: string[]
 ): Promise<ResultadoGuardarUnidades> {
-  await requireAdmin();
+  await requireAdminOFinanzas();
 
   const limpias = Array.from(new Set(unidades.map((u) => u.trim()).filter(Boolean))).sort();
   const invalidas = limpias.filter((u) => !esUnidadDeLaLista(u));

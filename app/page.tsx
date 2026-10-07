@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUsuarioAlDia } from "@/lib/auth";
+import { requireUsuarioAlDia, esAdminOFinanzas } from "@/lib/auth";
 import { logout } from "@/app/login/actions";
 import { prisma } from "@/lib/prisma";
 import { listarEmpresas, slugify } from "@/lib/slug";
@@ -31,10 +31,13 @@ export default async function MisEmpresasPage() {
         </div>
         <div className="flex items-center gap-4 text-sm text-ink-secondary">
           {usuario.rol === "ADMIN" && (
+            <Link href="/admin/usuarios" className="underline underline-offset-2 hover:text-ink">
+              Gestión de usuarios
+            </Link>
+          )}
+          {/* FINANZAS ve la administración financiera, no la de usuarios (decisión 2026-10-07). */}
+          {esAdminOFinanzas(usuario) && (
             <>
-              <Link href="/admin/usuarios" className="underline underline-offset-2 hover:text-ink">
-                Gestión de usuarios
-              </Link>
               <Link href="/admin/pago-referencia" className="underline underline-offset-2 hover:text-ink">
                 Pagos de referencia
               </Link>

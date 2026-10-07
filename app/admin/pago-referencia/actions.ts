@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdminOFinanzas } from "@/lib/auth";
 import { parsearPagoReferencia } from "@/lib/pagoReferencia";
 
 type ResultadoSubirPagoReferencia =
@@ -16,7 +16,7 @@ type ResultadoSubirPagoReferencia =
 export async function subirPagoReferencia(
   formData: FormData
 ): Promise<ResultadoSubirPagoReferencia> {
-  await requireAdmin();
+  await requireAdminOFinanzas();
 
   const archivo = formData.get("archivo");
   if (!(archivo instanceof File) || archivo.size === 0) {

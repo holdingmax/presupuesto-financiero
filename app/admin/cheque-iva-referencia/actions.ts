@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdminOFinanzas } from "@/lib/auth";
 import { parsearChequeIvaReferencia } from "@/lib/chequeIvaReferencia";
 
 type ResultadoSubirChequeIvaReferencia =
@@ -16,7 +16,7 @@ type ResultadoSubirChequeIvaReferencia =
 export async function subirChequeIvaReferencia(
   formData: FormData
 ): Promise<ResultadoSubirChequeIvaReferencia> {
-  await requireAdmin();
+  await requireAdminOFinanzas();
 
   const archivo = formData.get("archivo");
   if (!(archivo instanceof File) || archivo.size === 0) {

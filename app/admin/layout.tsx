@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { requireUsuarioAlDia } from "@/lib/auth";
+import { requireUsuarioAlDia, esAdminOFinanzas } from "@/lib/auth";
 
 type Props = { children: ReactNode };
 
@@ -8,10 +8,12 @@ type Props = { children: ReactNode };
 // redirect o un error, un usuario logueado sin permisos ve un panel
 // explicándolo. requireUsuarioAlDia() ya cubre "no hay sesión" (-> /login)
 // y "falta definir contraseña propia" (-> /cuenta).
+// Deja pasar ADMIN y FINANZAS (decisión 2026-10-07): FINANZAS usa las pantallas
+// financieras de /admin. /admin/usuarios tiene su propio layout, solo ADMIN.
 export default async function AdminLayout({ children }: Props) {
   const usuario = await requireUsuarioAlDia();
 
-  if (usuario.rol !== "ADMIN") {
+  if (!esAdminOFinanzas(usuario)) {
     return (
       <div className="mx-auto w-full max-w-5xl px-6 py-10">
         <p className="text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
