@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { centavosDeDecimalTexto } from "@/lib/conteoMovimientos";
 import { normalizarCuenta } from "@/lib/unidadesNegocio";
 import { armarIndiceRubros, rubroDe } from "@/lib/rubros";
+import { claveEquivalencia } from "@/lib/reporte/motor";
 
 // REAL del Reporte por UNIDAD DE NEGOCIO, no por empresa del extracto (decisión
 // 2026-10-07). Una cuenta bancaria puede mezclar unidades: un gasto de RADIO
@@ -84,6 +85,54 @@ export async function calcularRealPorRubro(
     porRubro.set(rubro, (porRubro.get(rubro) ?? 0) + (f.total === null ? 0 : centavosDeDecimalTexto(f.total)));
   }
   return porRubro;
+}
+
+// Reporte por plantilla (Etapa 2a): la misma suma que calcularRealPorRubro, pero
+// para varios períodos en UNA consulta y devuelta por período y clasificación
+// CRUDA guardada — el motor (lib/reporte/motor.ts) las agrupa por fila de la
+// plantilla. Qué valores guardados entran se decide en código con la misma
+// equivalencia que usa el motor (sin mayúsculas/tildes + alias de lib/rubros.ts).
+export async function calcularRealPorClasificacion(
+  periodos: string[],
+  unidades: string[],
+  clasificaciones: string[]
+): Promise<Map<string, Map<string, number>>> {
+  const resultado = new Map<string, Map<string, number>>(periodos.map((p) => [p, new Map()]));
+  if (unidades.length === 0 || periodos.length === 0 || clasificaciones.length === 0) return resultado;
+  const pedidas = new Set(clasificaciones.map(claveEquivalencia));
+  const guardadas = await prisma.$queryRaw<{ clasificacion: string }[]>`
+    SELECT DISTINCT mb.clasificacion
+    FROM "MovimientoBancario" mb
+    JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
+    JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
+    WHERE pm.periodo = ANY(${periodos}::text[])
+  `;
+  const crudas = guardadas.map((f) => f.clasificacion).filter((c) => pedidas.has(claveEquivalencia(c)));
+  if (crudas.length === 0) return resultado;
+  const filas = await prisma.$queryRaw<{ periodo: string; clasificacion: string; total: string | null }[]>`
+    WITH mov AS (
+      SELECT mb.id, pm.periodo, mb.clasificacion, mb.importe, mb."unidadNegocio"
+      FROM "MovimientoBancario" mb
+      JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
+      JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
+      WHERE pm.periodo = ANY(${periodos}::text[]) AND es.estado = 'CERRADA' AND NOT mb.ignorado
+        AND mb.clasificacion = ANY(${crudas}::text[])
+    )
+    SELECT x.periodo, x.clasificacion, SUM(x.importe)::text AS total FROM (
+      SELECT m.periodo, m.clasificacion, m.importe FROM mov m
+      WHERE upper(btrim(m."unidadNegocio")) = ANY(${unidades}::text[])
+        AND NOT EXISTS (SELECT 1 FROM "MovimientoBancarioDesglose" d WHERE d."movimientoId" = m.id)
+      UNION ALL
+      SELECT m.periodo, m.clasificacion, d.importe FROM mov m
+      JOIN "MovimientoBancarioDesglose" d ON d."movimientoId" = m.id
+      WHERE upper(btrim(d."unidadNegocio")) = ANY(${unidades}::text[])
+    ) x
+    GROUP BY x.periodo, x.clasificacion
+  `;
+  for (const f of filas) {
+    resultado.get(f.periodo)?.set(f.clasificacion, f.total === null ? 0 : centavosDeDecimalTexto(f.total));
+  }
+  return resultado;
 }
 
 export type NoAsignado = { unidad: string; centavos: number; movimientos: number };

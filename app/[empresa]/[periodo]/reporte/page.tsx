@@ -1,20 +1,31 @@
+import type { Usuario } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { resolverEmpresaPorSlug } from "@/lib/slug";
-import { requireAccesoEmpresa, AccesoDenegadoError } from "@/lib/auth";
+import { requireAccesoEmpresa, AccesoDenegadoError, esAdminOFinanzas } from "@/lib/auth";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
 import {
   obtenerUnidadesConEmpresa,
   calcularRealPorRubro,
+  calcularRealPorClasificacion,
   calcularNoAsignadoDelExtracto,
   type NoAsignado,
 } from "@/lib/reporte";
 import { armarIndiceRubros, rubroDe } from "@/lib/rubros";
 import { centavosDeDecimalTexto } from "@/lib/conteoMovimientos";
+import { armarReporte, clasificacionesDePlantilla, periodosHasta, type Plantilla } from "@/lib/reporte/motor";
+import { plantillaDeEmpresa } from "@/lib/reporte/plantillas";
 import ReportePresupuestoMesAMes from "./ReportePresupuestoMesAMes";
+import ReportePlantilla from "./ReportePlantilla";
 
 type Props = {
   params: Promise<{ empresa: string; periodo: string }>;
 };
+
+const FORMATO_PERIODO = /^\d{4}-\d{2}$/;
+
+// Cuántos meses lado a lado muestra el Reporte por plantilla: los que terminan
+// en el período de la URL. Pregunta 3 del diagnóstico, todavía abierta.
+const MESES_VISIBLES = 3;
 
 // Fase 1 del reporte "PRESUPUESTO MES A MES": solo la sección de Egresos —
 // los rubros que matchean limpio contra LineaPresupuesto/MovimientoBancario
@@ -50,18 +61,16 @@ export default async function ReportePage({ params }: Props) {
   let empresaNombre: string;
   let empresaId: string;
   let unidadesEmpresa: string[];
-  let presupuestoId: string;
+  let usuario: Usuario;
   try {
     const empresa = await resolverEmpresaPorSlug(empresaSlug);
     if (!empresa) {
       throw new Error(`No existe una empresa para "${empresaSlug}".`);
     }
-    await requireAccesoEmpresa(empresa.id);
-    const presupuesto = await obtenerOCrearPresupuesto(empresa.id, periodo);
+    usuario = await requireAccesoEmpresa(empresa.id);
     empresaNombre = empresa.nombre;
     empresaId = empresa.id;
     unidadesEmpresa = empresa.unidadesNegocio;
-    presupuestoId = presupuesto.id;
   } catch (error) {
     // Ver el comentario equivalente en presupuesto/page.tsx: el layout ya
     // muestra su propio panel de "sin acceso", esto solo evita que se vea
@@ -70,6 +79,28 @@ export default async function ReportePage({ params }: Props) {
     if (error instanceof AccesoDenegadoError) return null;
     throw error;
   }
+
+  // Etapa 2a: las 7 empresas con plantilla (réplica del PF de Macchi) toman el
+  // camino nuevo; el resto sigue con la Fase 1 tal cual.
+  const plantilla = plantillaDeEmpresa(empresaSlug);
+  if (plantilla) {
+    // El layout ya muestra el aviso de período inválido; acá solo se evita
+    // calcular meses a partir de un texto que no es AAAA-MM.
+    if (!FORMATO_PERIODO.test(periodo)) return null;
+    return (
+      <ReportePorPlantilla
+        plantilla={plantilla}
+        empresaId={empresaId}
+        empresaNombre={empresaNombre}
+        empresaSlug={empresaSlug}
+        periodo={periodo}
+        unidadesEmpresa={unidadesEmpresa}
+        verPendientes={esAdminOFinanzas(usuario)}
+      />
+    );
+  }
+
+  const presupuestoId = (await obtenerOCrearPresupuesto(empresaId, periodo)).id;
 
   // PRESUPUESTADO: suma de LineaPresupuesto por RUBRO, sin importar el signo con
   // el que se haya cargado (ver diagnóstico: hoy el 100% de las líneas reales se
@@ -139,6 +170,90 @@ export default async function ReportePage({ params }: Props) {
       filas={filas}
       sinUnidades={unidadesEmpresa.length === 0}
       noAsignado={noAsignadoPesos.map((n) => ({ unidad: n.unidad, importe: n.pesos, movimientos: n.movimientos }))}
+      semanasConNoAsignado={noAsignado.semanas}
+    />
+  );
+}
+
+// Reporte por plantilla (Etapa 2a, docs/reporte_etapa2a_plan.md): varios meses
+// lado a lado. Solo lee: el presupuesto de cada mes se busca sin crearlo (un mes
+// sin PresupuestoMensual se muestra "sin presupuesto"), y el Real de todos los
+// meses sale de una sola consulta.
+async function ReportePorPlantilla({
+  plantilla,
+  empresaId,
+  empresaNombre,
+  empresaSlug,
+  periodo,
+  unidadesEmpresa,
+  verPendientes,
+}: {
+  plantilla: Plantilla;
+  empresaId: string;
+  empresaNombre: string;
+  empresaSlug: string;
+  periodo: string;
+  unidadesEmpresa: string[];
+  verPendientes: boolean;
+}) {
+  const periodos = periodosHasta(periodo, MESES_VISIBLES);
+  const clasificaciones = clasificacionesDePlantilla(plantilla);
+
+  const presupuestos = await prisma.presupuestoMensual.findMany({
+    where: { empresaId, periodo: { in: periodos } },
+    select: { id: true, periodo: true },
+  });
+  const sumasPresupuesto =
+    presupuestos.length === 0
+      ? []
+      : await prisma.lineaPresupuesto.groupBy({
+          by: ["presupuestoId", "clasificacion"],
+          where: { presupuestoId: { in: presupuestos.map((p) => p.id) } },
+          _sum: { importe: true },
+        });
+  // Por período: clasificación guardada → centavos, tal como se cargó (sin
+  // Math.abs). Solo los meses que tienen PresupuestoMensual.
+  const presupuestoPorPeriodo = new Map<string, Map<string, number>>();
+  for (const p of presupuestos) presupuestoPorPeriodo.set(p.periodo, new Map());
+  const periodoDePresupuesto = new Map(presupuestos.map((p) => [p.id, p.periodo]));
+  for (const s of sumasPresupuesto) {
+    if (s._sum.importe === null) continue;
+    const delMes = presupuestoPorPeriodo.get(periodoDePresupuesto.get(s.presupuestoId)!)!;
+    delMes.set(
+      s.clasificacion,
+      (delMes.get(s.clasificacion) ?? 0) + centavosDeDecimalTexto(s._sum.importe.toFixed(2))
+    );
+  }
+
+  const unidadesConEmpresa = await obtenerUnidadesConEmpresa();
+  const [realPorPeriodo, noAsignado] = await Promise.all([
+    calcularRealPorClasificacion(periodos, unidadesEmpresa, clasificaciones),
+    // Mismo bloque de control que la Fase 1, para el mes de la URL.
+    calcularNoAsignadoDelExtracto(empresaId, periodo, clasificaciones, unidadesConEmpresa),
+  ]);
+
+  const reporte = armarReporte(
+    plantilla,
+    periodos.map((p) => ({
+      periodo: p,
+      real: realPorPeriodo.get(p) ?? new Map(),
+      presupuesto: presupuestoPorPeriodo.get(p) ?? null,
+    }))
+  );
+
+  return (
+    <ReportePlantilla
+      empresaNombre={empresaNombre}
+      empresaSlug={empresaSlug}
+      periodo={periodo}
+      reporte={reporte}
+      verPendientes={verPendientes}
+      sinUnidades={unidadesEmpresa.length === 0}
+      noAsignado={noAsignado.porUnidad.map((n) => ({
+        unidad: n.unidad,
+        importe: Math.abs(n.centavos) / 100,
+        movimientos: n.movimientos,
+      }))}
       semanasConNoAsignado={noAsignado.semanas}
     />
   );
