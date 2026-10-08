@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { validarPlantilla } from "@/lib/reporte/motor";
-import { PLANTILLAS_POR_SLUG } from "@/lib/reporte/plantillas";
+import { PLANTILLAS_POR_SLUG, plantillaDeEmpresa } from "@/lib/reporte/plantillas";
 import { TEXTOS_MACCHI } from "./fixtures/textosMacchi";
 
 // Estructura de las 7 plantillas (docs/reporte_etapa2a_plan.md §5.2):
@@ -13,6 +13,7 @@ test("hay plantilla para las 7 empresas de formato completo", () => {
   assert.deepEqual(Object.keys(PLANTILLAS_POR_SLUG).sort(), [
     "brillante",
     "conexion-logistica",
+    "conexion-logistica-spp",
     "fredy-publicidad",
     "havanna",
     "hwc",
@@ -21,7 +22,16 @@ test("hay plantilla para las 7 empresas de formato completo", () => {
   ]);
 });
 
+test("el slug de testing de Conexión usa la misma plantilla", () => {
+  assert.equal(plantillaDeEmpresa("conexion-logistica-spp"), PLANTILLAS_POR_SLUG["conexion-logistica"]);
+});
+
+test("no hay match por prefijo: havanna-peru no devuelve plantilla", () => {
+  assert.equal(plantillaDeEmpresa("havanna-peru"), null);
+});
+
 for (const [slug, plantilla] of Object.entries(PLANTILLAS_POR_SLUG)) {
+  if (!(slug in TEXTOS_MACCHI)) continue; // alias de otra base: misma plantilla ya cubierta
   test(`${slug}: estructura válida`, () => {
     assert.deepEqual(validarPlantilla(plantilla), []);
   });
