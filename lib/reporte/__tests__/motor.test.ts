@@ -111,3 +111,39 @@ test("periodosHasta cruza el cambio de año", () => {
   assert.deepEqual(periodosHasta("2026-01", 3), ["2025-11", "2025-12", "2026-01"]);
   assert.deepEqual(periodosHasta("2026-09", 3), ["2026-07", "2026-08", "2026-09"]);
 });
+
+test("falta ejecutar es null si no hay presupuestado (0, vacío o sin presupuesto), no un negativo", () => {
+  const conCeroEnLinea = celda(PLANTILLA, [mes("2026-07", [["SUELDOS", -50000]], [["SUELDOS", 0]])], "sueldos");
+  assert.equal(conCeroEnLinea.faltaEjecutar, null);
+  // Presupuesto del mes sin línea de esa categoría → 0.
+  const sinLinea = celda(PLANTILLA, [mes("2026-07", [["SUELDOS", -50000]], [["COBRANZAS", 1]])], "sueldos");
+  assert.equal(sinLinea.presupuestado, 0);
+  assert.equal(sinLinea.faltaEjecutar, null);
+  const sinPresupuestoMes = celda(PLANTILLA, [mes("2026-07", [["SUELDOS", -50000]], null)], "sueldos");
+  assert.equal(sinPresupuestoMes.faltaEjecutar, null);
+  // Un total con presupuestado 0 tampoco muestra "falta".
+  const total0 = celda(PLANTILLA, [mes("2026-07", [["SUELDOS", -50000]], [["SUELDOS", 0]])], "teo");
+  assert.equal(total0.faltaEjecutar, null);
+  // Con presupuestado sí se calcula, aunque dé negativo (se pasó).
+  const pasado = celda(PLANTILLA, [mes("2026-07", [["SUELDOS", -150000]], [["SUELDOS", 100000]])], "sueldos");
+  assert.equal(pasado.faltaEjecutar, -50000);
+});
+
+test("un mes sin semanas cerradas tiene el Real en null (no 0) y se marca sin ejecución", () => {
+  const sinSemanas: DatosMes = { ...mes("2026-08", [], [["SUELDOS", 100000]]), semanasCerradas: 0 };
+  const conSemanas: DatosMes = { ...mes("2026-07", [["SUELDOS", -30000]], [["SUELDOS", 100000]]), semanasCerradas: 2 };
+  const reporte = armarReporte(PLANTILLA, [conSemanas, sinSemanas]);
+  assert.deepEqual(reporte.sinEjecucion, [false, true]);
+  const sueldos = reporte.filas.find((f) => f.fila.clave === "sueldos")!;
+  assert.equal(sueldos.celdas[0].real, 30000);
+  assert.equal(sueldos.celdas[1].real, null);
+  assert.equal(sueldos.celdas[1].avance, null);
+  assert.equal(sueldos.celdas[1].faltaEjecutar, null);
+  assert.equal(sueldos.celdas[1].presupuestado, 100000);
+  const teo = reporte.filas.find((f) => f.fila.clave === "teo")!;
+  assert.equal(teo.celdas[1].real, null);
+  // Sin el dato (undefined) se asume que hay ejecución: Real en 0, como antes.
+  const sinDato = armarReporte(PLANTILLA, [mes("2026-08", [], null)]);
+  assert.deepEqual(sinDato.sinEjecucion, [false]);
+  assert.equal(sinDato.filas.find((f) => f.fila.clave === "sueldos")!.celdas[0].real, 0);
+});

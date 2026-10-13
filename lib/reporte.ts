@@ -135,6 +135,23 @@ export async function calcularRealPorClasificacion(
   return resultado;
 }
 
+// Semanas CERRADAS de Ejecución por período, de cualquier empresa (el Real del
+// Reporte sale de las unidades, no del extracto de la empresa). Todos los
+// períodos pedidos aparecen en el Map, con 0 si no tienen ninguna.
+export async function contarSemanasCerradasPorPeriodo(periodos: string[]): Promise<Map<string, number>> {
+  const resultado = new Map<string, number>(periodos.map((p) => [p, 0]));
+  if (periodos.length === 0) return resultado;
+  const filas = await prisma.$queryRaw<{ periodo: string; semanas: number }[]>`
+    SELECT pm.periodo, COUNT(*)::int AS semanas
+    FROM "EjecucionSemanal" es
+    JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
+    WHERE pm.periodo = ANY(${periodos}::text[]) AND es.estado = 'CERRADA'
+    GROUP BY pm.periodo
+  `;
+  for (const f of filas) resultado.set(f.periodo, f.semanas);
+  return resultado;
+}
+
 export type NoAsignado = { unidad: string; centavos: number; movimientos: number };
 
 // Bloque "No asignado a ninguna empresa" del Reporte: SOLO de los extractos de

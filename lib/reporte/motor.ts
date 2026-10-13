@@ -60,6 +60,10 @@ export type DatosMes = {
   // Clasificación guardada en LineaPresupuesto → centavos. null = el mes no
   // tiene PresupuestoMensual ("sin presupuesto"; mirar el reporte no lo crea).
   presupuesto: Map<string, number> | null;
+  // Semanas CERRADAS de Ejecución del mes (de cualquier empresa: el Real sale de
+  // las unidades). 0 = el mes no tiene ejecución: el Real es "—", no 0. Sin dato
+  // (undefined) se asume que hay ejecución.
+  semanasCerradas?: number;
 };
 
 export type Celda = {
@@ -79,6 +83,8 @@ export type FilaReporte = { fila: Fila; celdas: Celda[] };
 export type Reporte = {
   periodos: string[];
   sinPresupuesto: boolean[];
+  // Mes sin ninguna semana cerrada: todo el Real del mes queda en null.
+  sinEjecucion: boolean[];
   filas: FilaReporte[];
   // Códigos K de la plantilla, en orden, sin repetir.
   pendientes: CodigoPendiente[];
@@ -145,6 +151,7 @@ export function armarReporte(plantilla: Plantilla, meses: DatosMes[]): Reporte {
     }
   }
 
+  const sinEjecucion = meses.map((m) => m.semanasCerradas === 0);
   const celdasPorClave = new Map<string, Celda[]>();
   const filas: FilaReporte[] = [];
   const realPorMes = meses.map((m) => sumarAgrupado(m.real, indiceReal));
@@ -159,7 +166,7 @@ export function armarReporte(plantilla: Plantilla, meses: DatosMes[]): Reporte {
     if (fila.tipo === "linea") {
       celdas = meses.map((_, i) => {
         const real =
-          fila.real.tipo === "clasificaciones" ? aplicarSigno(fila.signo, realPorMes[i].get(fila.clave) ?? 0) : null;
+          fila.real.tipo === "clasificaciones" && !sinEjecucion[i] ? aplicarSigno(fila.signo, realPorMes[i].get(fila.clave) ?? 0) : null;
         const presupuestosMes = presupuestoPorMes[i];
         const presupuestado =
           fila.presupuesto.tipo === "categorias" && presupuestosMes
@@ -197,6 +204,7 @@ export function armarReporte(plantilla: Plantilla, meses: DatosMes[]): Reporte {
   return {
     periodos: meses.map((m) => m.periodo),
     sinPresupuesto: meses.map((m) => m.presupuesto === null),
+    sinEjecucion,
     filas,
     pendientes,
   };
@@ -218,7 +226,8 @@ function completarCelda(
     presupuestado,
     real,
     avance: presupuestado === null || real === null || presupuestado === 0 ? null : porcentaje(real, presupuestado),
-    faltaEjecutar: presupuestado === null || real === null ? null : presupuestado - real,
+    // Sin presupuestado (0 o vacío) no hay "falta": un número negativo engaña.
+    faltaEjecutar: presupuestado === null || presupuestado === 0 || real === null ? null : presupuestado - real,
     presupuestoIncompleto,
     realIncompleto,
   };

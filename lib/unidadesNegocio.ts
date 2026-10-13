@@ -12,9 +12,10 @@ import { normalizarTexto } from "@/lib/texto";
 // - BRADENTON (agregada 2026-10-07): unidad propia de la empresa Bradenton.
 // Qué unidad pertenece a qué empresa NO vive acá: es Empresa.unidadesNegocio,
 // editable en /admin/unidades-negocio.
-// - Fuera a propósito: CREAR, las razones sociales que entraban por la columna
-//   EMPRESA (QUINTEROS, WHEELER, GONZALEZ, SIERRA, ESTEVEZ), Gold Seguridad,
-//   Cielos y Tucson (razones sociales), "SIN ASIGNAR" (es la marca de vacío),
+// - HANDYWAY (agregada 2026-10-13): unidad propia, tabla oficial de Kike.
+// - Fuera a propósito: CREAR y Tucson (razones sociales), las razones sociales
+//   que entraban por la columna EMPRESA (QUINTEROS, WHEELER, GONZALEZ, SIERRA,
+//   ESTEVEZ), Gold Seguridad, Cielos, "SIN ASIGNAR" (es la marca de vacío),
 //   "SPP " con espacio y TEST2. Una fila vieja con uno de esos valores no se
 //   rompe: el <select> lo muestra como opción extra (ver opcionesUnidad).
 // Las unidades de UNIDAD_POR_CUENTA (más abajo) tienen que estar todas acá.
@@ -24,6 +25,7 @@ export const UNIDADES_NEGOCIO = [
   "BRILLANTE",
   "EXPENSAS",
   "FREDY",
+  "HANDYWAY",
   "HAVANNA",
   "HWC",
   "JPS",
@@ -92,7 +94,10 @@ const UNIDAD_POR_CUENTA: Record<string, string> = {
 
   "FRANCES 891": "LOGISTICA",
   "MACRO 777": "LOGISTICA",
-  "GALICIA 455": "LOGISTICA",
+  // Excepción de la razón social LI (→ BRILLANTE): esta cuenta es de SPP
+  // (Conexión), tabla oficial de Kike 2026-10-13. La cuenta gana sobre la razón
+  // social (ver subirExtracto).
+  "GALICIA 455": "SPP",
 
   "BSE 560": "SPP",
   "MACRO 281": "SPP",
@@ -121,13 +126,15 @@ export function unidadDeLaLista(valor: string): string | null {
   return (UNIDADES_NEGOCIO as readonly string[]).find((u) => u === clave) ?? null;
 }
 
-// Razón social → unidad madre (decisión 2026-10-07, confirmado por Kike). La
+// Razón social → unidad madre (decisión 2026-10-07, confirmado por Kike; tabla
+// oficial actualizada 2026-10-13: TUCSON→RADIO, CREAR→MANTENOR, LI→BRILLANTE,
+// HANDYWAY→HANDYWAY). La
 // columna EMPRESA de los extractos trae la RAZÓN SOCIAL, no la unidad — y en
 // algunos archivos la misma razón social aparece en "UNIDAD DE NEG" (error de
 // etiqueta: QUINTEROS, SIERRA, … son apellidos/razones sociales de Fredy). Mismo
 // criterio que UNIDAD_POR_CUENTA: coincidencia EXACTA del texto normalizado, solo
-// casos confirmados. Las razones sociales MIXTAS (LI, LI RATIO, TUCSON, CREAR,
-// CIELOS — reparten entre varias unidades) quedan AFUERA a propósito: no tienen
+// casos confirmados. Las razones sociales MIXTAS (LI RATIO, SPP RATIO, CIELOS —
+// Kike no las incluyó en la tabla) quedan AFUERA a propósito: no tienen
 // una unidad madre, van a "SIN ASIGNAR" para revisión manual.
 const UNIDAD_POR_RAZON_SOCIAL: Record<string, string> = {
   "QUINTEROS": "FREDY",
@@ -139,6 +146,10 @@ const UNIDAD_POR_RAZON_SOCIAL: Record<string, string> = {
   "INFO": "RADIO",
   "INFO SAT": "RADIO",
   "RADIO": "RADIO",
+  "TUCSON": "RADIO",
+  "CREAR": "MANTENOR",
+  "LI": "BRILLANTE",
+  "HANDYWAY": "HANDYWAY",
   "PANINI": "HAVANNA",
   "GOLD SEGURIDAD": "BRILLANTE",
   "WEB MASTER": "LOGISTICA",

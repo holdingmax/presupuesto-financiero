@@ -44,7 +44,7 @@ export default function ReportePlantilla({
   noAsignado,
   semanasConNoAsignado,
 }: Props) {
-  const { periodos, sinPresupuesto } = reporte;
+  const { periodos, sinPresupuesto, sinEjecucion } = reporte;
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-10">
       <div className="mb-8">
@@ -76,6 +76,7 @@ export default function ReportePlantilla({
                 <th key={p} colSpan={4} className="pt-2 px-3 text-center font-medium border-l border-line-hairline">
                   {nombreMes(p)}
                   {sinPresupuesto[i] && <span className="ml-2 font-normal text-ink-muted">· sin presupuesto</span>}
+                  {sinEjecucion[i] && <span className="ml-2 font-normal text-ink-muted">· sin ejecución</span>}
                 </th>
               ))}
             </tr>

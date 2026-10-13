@@ -8,6 +8,7 @@ import {
   calcularRealPorRubro,
   calcularRealPorClasificacion,
   calcularNoAsignadoDelExtracto,
+  contarSemanasCerradasPorPeriodo,
   type NoAsignado,
 } from "@/lib/reporte";
 import { armarIndiceRubros, rubroDe } from "@/lib/rubros";
@@ -226,8 +227,9 @@ async function ReportePorPlantilla({
   }
 
   const unidadesConEmpresa = await obtenerUnidadesConEmpresa();
-  const [realPorPeriodo, noAsignado] = await Promise.all([
+  const [realPorPeriodo, semanasCerradas, noAsignado] = await Promise.all([
     calcularRealPorClasificacion(periodos, unidadesEmpresa, clasificaciones),
+    contarSemanasCerradasPorPeriodo(periodos),
     // Mismo bloque de control que la Fase 1, para el mes de la URL.
     calcularNoAsignadoDelExtracto(empresaId, periodo, clasificaciones, unidadesConEmpresa),
   ]);
@@ -238,6 +240,7 @@ async function ReportePorPlantilla({
       periodo: p,
       real: realPorPeriodo.get(p) ?? new Map(),
       presupuesto: presupuestoPorPeriodo.get(p) ?? null,
+      semanasCerradas: semanasCerradas.get(p) ?? 0,
     }))
   );
 
