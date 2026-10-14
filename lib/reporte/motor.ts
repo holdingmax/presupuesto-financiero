@@ -1,33 +1,59 @@
 import { armarIndiceRubros, rubroDe } from "@/lib/rubros";
 import { normalizarTexto } from "@/lib/texto";
 import { CLASIFICACIONES_PRESUPUESTO_TODAS } from "@/app/[empresa]/[periodo]/presupuesto/clasificacionesPresupuesto";
-import { PENDIENTES, type CodigoPendiente } from "@/lib/reporte/pendientes";
+import { PENDIENTES, PENDIENTES_DE_REAL, type CodigoPendiente } from "@/lib/reporte/pendientes";
 
-// Motor del Reporte por plantilla (Etapa 2a, docs/reporte_etapa2a_plan.md §3).
-// Puro: sin Prisma ni nada de servidor — recibe la plantilla de la empresa y,
-// por mes, el Real por clasificación cruda (centavos con signo de banco) y el
-// Presupuesto por clasificación guardada (centavos), y devuelve la grilla
-// filas × meses × {presupuestado, real, % avance, falta ejecutar}. El motor no
-// sabe nada de empresas: solo interpreta la plantilla.
+// Motor del Reporte por plantilla (Etapa 2a, docs/reporte_etapa2a_plan.md §3, y
+// Etapa 2b, docs/reporte_etapa2b_plan.md §7.2). Puro: sin Prisma ni nada de
+// servidor — recibe la plantilla de la empresa y, por mes, el Real por
+// clasificación cruda (centavos con signo de banco), el Presupuesto por
+// clasificación guardada (centavos) y los valores manuales cargados, y devuelve la
+// grilla filas × meses × {presupuestado, real, % avance, falta ejecutar}. El motor
+// no sabe nada de empresas: solo interpreta la plantilla.
 //
-// Todo en centavos enteros: nada de float para sumar.
+// Todo en centavos enteros: nada de float para sumar. Las celdas se calculan por
+// dependencias (no por el orden visual): p. ej. "Prestamos" de Mantenor, que está
+// abajo, toma el Disponible, que está más abajo todavía.
 
-// 2b agrega DISPONIBILIDADES y CIERRE.
-export type Bloque = "INGRESOS" | "EGRESOS" | "ABAJO";
+export type Bloque = "DISPONIBILIDADES" | "INGRESOS" | "EGRESOS" | "ABAJO" | "CIERRE";
+
+export type Sentido = "creditos" | "debitos";
 
 export type FuenteReal =
   // Valores crudos de Ejecución; se comparan sin mayúsculas/tildes y con los
   // alias confirmados de lib/rubros.ts (COM Y GTOS BRIOS ↔ Gastos bancarios…).
-  | { tipo: "clasificaciones"; clasificaciones: string[] }
-  // Valor que en la planilla se tipea (Resultado FCI, MS sin clasificar…): 2b.
-  | { tipo: "manual2b" }
-  // Espejo de un componente de Disponibilidades (Reserva aguinaldo, cheques
-  // después del 10/15): 2b.
-  | { tipo: "espejo2b" }
+  // Sin `sentido` es el neto (créditos + débitos). Con `sentido`, solo los
+  // importes positivos (creditos) o negativos (debitos): así una misma
+  // clasificación puede ir en dos filas (Préstamo MS: entrada y devolución).
+  | { tipo: "clasificaciones"; clasificaciones: string[]; sentido?: Sentido }
+  // Valor que en la planilla se tipea (Disponibilidades, Resultado FCI…): sale de
+  // ValorManualReporte (columna REAL). Sin cargar = null ("—").
+  | { tipo: "manual" }
+  // R = P de la misma fila (el `=+P` de la planilla).
+  | { tipo: "igualPresupuesto" }
   | { tipo: "ninguna" };
 
 // valorPersistido de clasificacionesPresupuesto.ts.
-export type FuentePresupuesto = { tipo: "categorias"; categorias: string[] } | { tipo: "ninguna" };
+export type FuentePresupuesto =
+  | { tipo: "categorias"; categorias: string[] }
+  // ValorManualReporte (columna PRESUPUESTADO).
+  | { tipo: "manual" }
+  // P = R de la misma fila: los componentes de Disponibilidades llevan el mismo
+  // número en las dos columnas.
+  | { tipo: "igualReal" }
+  // Espejo de otra fila (cheques después del 10, acreditación de tarjetas…).
+  | {
+      tipo: "espejo";
+      fila: string;
+      columna: "presupuestado" | "real";
+      mes: "actual" | "anterior";
+      factor: 1 | -1;
+    }
+  // = DISPONIBLE SI − CAPITAL DE TRABAJO del mismo mes.
+  | { tipo: "disponible" }
+  | { tipo: "ninguna" };
+
+export type CodigosPendientes = CodigoPendiente | CodigoPendiente[];
 
 export type FilaTitulo = { clave: string; bloque: Bloque; tipo: "titulo"; texto: string };
 export type FilaLinea = {
@@ -38,25 +64,73 @@ export type FilaLinea = {
   texto: string;
   // Ingresos +1, egresos −1: valor = signo × neto con signo de banco. Un egreso
   // normal queda positivo; uno con más devoluciones que gastos queda negativo y
-  // se muestra con "−", a propósito (sin Math.abs).
+  // se muestra con "−", a propósito (sin Math.abs). Los valores manuales se
+  // guardan tal como se muestran (sin signo).
   signo: 1 | -1;
   real: FuenteReal;
   presupuesto: FuentePresupuesto;
-  pendiente?: CodigoPendiente;
+  pendiente?: CodigosPendientes;
   // Lo calculado es solo una parte (ej. Sueldos sin el reparto de nómina).
   parcial?: boolean;
   // De dónde sale en la planilla de Macchi.
   nota?: string;
+  // Solo en DISPONIBILIDADES: "cuadre" = parte de la plata del cierre anterior;
+  // "ajuste" = se suma o resta aparte (docs/reporte_etapa2b_plan.md §1).
+  arrastre?: "cuadre" | "ajuste";
+  // La planilla de Macchi no la incluye en el total (E1 del plan 2b §6). Un valor
+  // cargado acá no entra en el total y la pantalla lo marca.
+  excluidaDelTotal?: boolean;
 };
-export type FilaTotal = { clave: string; bloque: Bloque; tipo: "total"; texto: string; suma: string[] };
-export type Fila = FilaTitulo | FilaLinea | FilaTotal;
+export type FilaTotal = {
+  clave: string;
+  bloque: Bloque;
+  tipo: "total";
+  texto: string;
+  suma: string[];
+  // Se restan (Saldo = Disponible antes de gastos − Total egresos).
+  resta?: string[];
+  // Si alguna de estas filas no tiene valor, el total tampoco (D8: sin
+  // Disponibilidades cargadas, todo el cierre queda en "—").
+  requiere?: string[];
+  // Su Presupuestado depende de que el mes tenga PresupuestoMensual.
+  soloConPresupuesto?: boolean;
+  // Filas que el control de arrastre necesita encontrar.
+  rol?: "totalDisponibilidades" | "saldo";
+};
+export type ReglaCapital = { terminos: { fila: string; factor: number }[]; fijo?: number };
+export type FilaCapital = {
+  clave: string;
+  bloque: "CIERRE";
+  tipo: "capital";
+  texto: string;
+  // Regla por defecto (la fórmula de agosto de cada empresa), o "manual" si la
+  // planilla lo tipea. Un valor manual (P) siempre la reemplaza.
+  regla: ReglaCapital | "manual";
+  pendiente?: CodigosPendientes;
+  nota?: string;
+};
+export type FilaDisponible = {
+  clave: string;
+  bloque: "CIERRE";
+  tipo: "disponible";
+  texto: string;
+  base: string; // Total Disponibilidades
+  resta: string; // Capital de trabajo
+  suma?: string[]; // Havanna: + Préstamo
+  pendiente?: CodigosPendientes;
+  nota?: string;
+};
+export type Fila = FilaTitulo | FilaLinea | FilaTotal | FilaCapital | FilaDisponible;
 
 export type Plantilla = { empresa: string; filas: Fila[] };
 
 export type DatosMes = {
   periodo: string;
-  // Clasificación cruda de Ejecución → centavos con signo de banco.
+  // Clasificación cruda de Ejecución → centavos con signo de banco (neto).
   real: Map<string, number>;
+  // Solo los importes positivos / negativos, para las filas con `sentido`.
+  realCreditos?: Map<string, number>;
+  realDebitos?: Map<string, number>;
   // Clasificación guardada en LineaPresupuesto → centavos. null = el mes no
   // tiene PresupuestoMensual ("sin presupuesto"; mirar el reporte no lo crea).
   presupuesto: Map<string, number> | null;
@@ -64,6 +138,12 @@ export type DatosMes = {
   // las unidades). 0 = el mes no tiene ejecución: el Real es "—", no 0. Sin dato
   // (undefined) se asume que hay ejecución.
   semanasCerradas?: number;
+  // Mes cerrado (mes pasado sin semanas ABIERTAS: mismo criterio que la regla de
+  // bloqueo). Las filas con R = P (espejos, reservas) muestran R solo si el mes
+  // está cerrado; en curso, "—". Sin dato = en curso.
+  mesCerrado?: boolean;
+  // ValorManualReporte del mes: filaClave → centavos, por columna.
+  manuales?: { presupuesto: Map<string, number>; real: Map<string, number> };
 };
 
 export type Celda = {
@@ -72,13 +152,24 @@ export type Celda = {
   // Porcentaje (98.5 = 98,5 %). null si falta P o R, o si P es 0.
   avance: number | null;
   faltaEjecutar: number | null;
-  // Falta información para completar el valor (fila pendiente, parcial o de
-  // carga manual; en un total: alguna de las filas que suma).
+  // Falta información para completar el valor (fila pendiente o parcial; en un
+  // total: alguna de las filas que suma).
   presupuestoIncompleto: boolean;
   realIncompleto: boolean;
 };
 
 export type FilaReporte = { fila: Fila; celdas: Celda[] };
+
+// Control de arrastre (D9): Total Disponibilidades del mes contra el cierre REAL
+// del mes anterior más los componentes "de ajuste".
+export type ControlArrastre = {
+  cierreRealAnterior: number | null;
+  ajustes: number;
+  totalDisponibilidades: number | null;
+  diferencia: number | null;
+  // |diferencia| < $1. null si no se puede calcular.
+  cuadra: boolean | null;
+};
 
 export type Reporte = {
   periodos: string[];
@@ -88,6 +179,8 @@ export type Reporte = {
   filas: FilaReporte[];
   // Códigos K de la plantilla, en orden, sin repetir.
   pendientes: CodigoPendiente[];
+  // Uno por mes; null si la plantilla no tiene Disponibilidades.
+  arrastre: (ControlArrastre | null)[];
 };
 
 // Clave para emparejar una clasificación (de Ejecución o de Presupuesto) con la
@@ -102,23 +195,27 @@ export function claveEquivalencia(valor: string): string {
 
 const CATEGORIAS_PRESUPUESTO = new Set(CLASIFICACIONES_PRESUPUESTO_TODAS.map((o) => o.valorPersistido));
 
-function esCargaManual(fila: FilaLinea) {
-  return fila.real.tipo === "manual2b" || fila.real.tipo === "espejo2b";
+// Diferencia máxima (centavos) para dar por cuadrado el arrastre: $1. El máximo
+// observado en los Excel de Macchi es $0,66.
+export const UMBRAL_ARRASTRE_CENTAVOS = 100;
+
+export function pendientesDe(fila: Fila): CodigoPendiente[] {
+  if (fila.tipo === "titulo" || fila.tipo === "total" || fila.pendiente === undefined) return [];
+  return Array.isArray(fila.pendiente) ? fila.pendiente : [fila.pendiente];
 }
 
 function realIncompletoDe(fila: FilaLinea): boolean {
-  if (fila.parcial || esCargaManual(fila)) return true;
-  // K8 es una pregunta de presupuesto: no deja incompleto el real.
-  return fila.real.tipo === "ninguna" && fila.pendiente !== undefined && fila.pendiente !== "K8";
+  if (fila.parcial) return true;
+  // K8–K14 son preguntas de presupuesto, arrastre o cierre: no vacían el Real.
+  return fila.real.tipo === "ninguna" && pendientesDe(fila).some((k) => PENDIENTES_DE_REAL.includes(k));
 }
 
 function presupuestoIncompletoDe(fila: FilaLinea): boolean {
-  return fila.presupuesto.tipo === "ninguna" && (fila.pendiente !== undefined || esCargaManual(fila));
+  return fila.presupuesto.tipo === "ninguna" && pendientesDe(fila).length > 0;
 }
 
 // −1 × 0 da −0 en JS: un egreso sin movimientos tiene que ser 0, no "−0".
-function aplicarSigno(signo: 1 | -1, centavos: number): number {
-  const valor = signo * centavos;
+function sinMenosCero(valor: number): number {
   return valor === 0 ? 0 : valor;
 }
 
@@ -126,111 +223,278 @@ function porcentaje(real: number, presupuestado: number): number {
   return (real / presupuestado) * 100;
 }
 
-function sumarAgrupado(datos: Map<string, number>, indice: Map<string, string>): Map<string, number> {
+type SlotReal = "neto" | "creditos" | "debitos";
+type EntradaIndice = Partial<Record<SlotReal, string>>;
+
+function sumarAgrupado(datos: Map<string, number> | undefined, indice: Map<string, EntradaIndice>, slot: SlotReal) {
   const porFila = new Map<string, number>();
+  if (!datos) return porFila;
   for (const [clasificacion, centavos] of datos) {
-    const clave = indice.get(claveEquivalencia(clasificacion));
+    const clave = indice.get(claveEquivalencia(clasificacion))?.[slot];
     if (clave === undefined) continue;
     porFila.set(clave, (porFila.get(clave) ?? 0) + centavos);
   }
   return porFila;
 }
 
-export function armarReporte(plantilla: Plantilla, meses: DatosMes[]): Reporte {
+type Valor = { v: number | null; inc: boolean };
+type Columna = "P" | "R";
+
+// Suma solo las filas con valor; sin ninguna con valor, null.
+function sumarNoNulos(valores: (number | null)[]): number | null {
+  const conValor = valores.filter((v): v is number => v !== null);
+  return conValor.length === 0 ? null : conValor.reduce((a, b) => a + b, 0);
+}
+
+// `mesesDeContexto`: los primeros meses de `meses` se usan solo para calcular
+// (espejo del mes anterior, control de arrastre del primer mes visible) y no
+// aparecen en el resultado.
+export function armarReporte(plantilla: Plantilla, meses: DatosMes[], mesesDeContexto = 0): Reporte {
+  const filaPorClave = new Map(plantilla.filas.map((f) => [f.clave, f]));
+  const filaDisponible = plantilla.filas.find((f): f is FilaDisponible => f.tipo === "disponible");
+
   // Índices clave de equivalencia → clave de fila. validarPlantilla garantiza
-  // que ninguna clasificación ni categoría aparece en dos filas.
-  const indiceReal = new Map<string, string>();
-  const indicePresupuesto = new Map<string, string>();
+  // que ninguna clasificación ni categoría aparece en dos filas con el mismo
+  // sentido.
+  const indiceReal = new Map<string, EntradaIndice>();
+  const indicePresupuesto = new Map<string, EntradaIndice>();
   for (const fila of plantilla.filas) {
     if (fila.tipo !== "linea") continue;
     if (fila.real.tipo === "clasificaciones") {
-      for (const c of fila.real.clasificaciones) indiceReal.set(claveEquivalencia(c), fila.clave);
+      const slot: SlotReal = fila.real.sentido ?? "neto";
+      for (const c of fila.real.clasificaciones) {
+        const clave = claveEquivalencia(c);
+        indiceReal.set(clave, { ...indiceReal.get(clave), [slot]: fila.clave });
+      }
     }
     if (fila.presupuesto.tipo === "categorias") {
-      for (const c of fila.presupuesto.categorias) indicePresupuesto.set(claveEquivalencia(c), fila.clave);
+      for (const c of fila.presupuesto.categorias) indicePresupuesto.set(claveEquivalencia(c), { neto: fila.clave });
     }
   }
 
   const sinEjecucion = meses.map((m) => m.semanasCerradas === 0);
-  const celdasPorClave = new Map<string, Celda[]>();
-  const filas: FilaReporte[] = [];
-  const realPorMes = meses.map((m) => sumarAgrupado(m.real, indiceReal));
-  const presupuestoPorMes = meses.map((m) => (m.presupuesto ? sumarAgrupado(m.presupuesto, indicePresupuesto) : null));
+  const sinPresupuesto = meses.map((m) => m.presupuesto === null);
+  const realPorMes = meses.map((m) => ({
+    neto: sumarAgrupado(m.real, indiceReal, "neto"),
+    creditos: sumarAgrupado(m.realCreditos, indiceReal, "creditos"),
+    debitos: sumarAgrupado(m.realDebitos, indiceReal, "debitos"),
+  }));
+  const presupuestoPorMes = meses.map((m) =>
+    m.presupuesto ? sumarAgrupado(m.presupuesto, indicePresupuesto, "neto") : null
+  );
 
-  for (const fila of plantilla.filas) {
-    if (fila.tipo === "titulo") {
-      filas.push({ fila, celdas: [] });
-      continue;
-    }
-    let celdas: Celda[];
-    if (fila.tipo === "linea") {
-      celdas = meses.map((_, i) => {
-        const real =
-          fila.real.tipo === "clasificaciones" && !sinEjecucion[i] ? aplicarSigno(fila.signo, realPorMes[i].get(fila.clave) ?? 0) : null;
-        const presupuestosMes = presupuestoPorMes[i];
-        const presupuestado =
-          fila.presupuesto.tipo === "categorias" && presupuestosMes
-            ? presupuestosMes.get(fila.clave) ?? 0
-            : null;
-        return completarCelda(presupuestado, real, presupuestoIncompletoDe(fila), realIncompletoDe(fila));
-      });
-    } else {
-      const sumandos = fila.suma.map((clave) => {
-        const c = celdasPorClave.get(clave);
-        if (!c) throw new Error(`El total "${fila.clave}" suma "${clave}", que no está antes en la plantilla.`);
-        return c;
-      });
-      celdas = meses.map((_, i) => {
-        const delMes = sumandos.map((c) => c[i]);
-        return completarCelda(
-          sumarNoNulos(delMes.map((c) => c.presupuestado)),
-          sumarNoNulos(delMes.map((c) => c.real)),
-          delMes.some((c) => c.presupuestoIncompleto),
-          delMes.some((c) => c.realIncompleto)
-        );
-      });
-    }
-    celdasPorClave.set(fila.clave, celdas);
-    filas.push({ fila, celdas });
+  const memo = new Map<string, Valor>();
+  const enCurso = new Set<string>();
+
+  function valor(clave: string, i: number, col: Columna): Valor {
+    const k = `${clave}|${i}|${col}`;
+    const guardado = memo.get(k);
+    if (guardado) return guardado;
+    if (enCurso.has(k)) throw new Error(`Ciclo de dependencias en la plantilla: ${clave}`);
+    const fila = filaPorClave.get(clave);
+    if (!fila) throw new Error(`La plantilla no tiene la fila "${clave}".`);
+    enCurso.add(k);
+    const resultado = calcular(fila, i, col);
+    enCurso.delete(k);
+    memo.set(k, resultado);
+    return resultado;
   }
+
+  function presupuestadoDeLinea(fila: FilaLinea, i: number): Valor {
+    const inc = presupuestoIncompletoDe(fila);
+    const p = fila.presupuesto;
+    switch (p.tipo) {
+      case "categorias": {
+        const delMes = presupuestoPorMes[i];
+        return { v: delMes ? (delMes.get(fila.clave) ?? 0) : null, inc };
+      }
+      case "manual":
+        return { v: meses[i].manuales?.presupuesto.get(fila.clave) ?? null, inc };
+      case "igualReal":
+        return { v: valor(fila.clave, i, "R").v, inc };
+      case "espejo": {
+        const columna: Columna = p.columna === "presupuestado" ? "P" : "R";
+        const j = p.mes === "actual" ? i : i - 1;
+        // Sin mes anterior no hay valor.
+        if (j < 0) return { v: null, inc };
+        const origen = valor(p.fila, j, columna).v;
+        return { v: origen === null ? null : sinMenosCero(p.factor * origen), inc };
+      }
+      case "disponible": {
+        if (!filaDisponible) throw new Error(`${fila.clave}: la plantilla no tiene fila de Disponible.`);
+        return { v: valor(filaDisponible.clave, i, "P").v, inc };
+      }
+      case "ninguna":
+        return { v: null, inc };
+    }
+  }
+
+  function realDeLinea(fila: FilaLinea, i: number): Valor {
+    const inc = realIncompletoDe(fila);
+    const r = fila.real;
+    switch (r.tipo) {
+      case "clasificaciones": {
+        if (sinEjecucion[i]) return { v: null, inc };
+        const delMes = realPorMes[i][r.sentido ?? "neto"];
+        return { v: aplicarSigno(fila.signo, delMes.get(fila.clave) ?? 0), inc };
+      }
+      case "manual":
+        return { v: meses[i].manuales?.real.get(fila.clave) ?? null, inc };
+      case "igualPresupuesto": {
+        // Se resuelve igual (ciclos); en un mes en curso el R queda vacío.
+        const p = valor(fila.clave, i, "P").v;
+        return { v: meses[i].mesCerrado ? p : null, inc };
+      }
+      case "ninguna":
+        return { v: null, inc };
+    }
+  }
+
+  function calcular(fila: Fila, i: number, col: Columna): Valor {
+    switch (fila.tipo) {
+      case "titulo":
+        return { v: null, inc: false };
+      case "linea":
+        return col === "P" ? presupuestadoDeLinea(fila, i) : realDeLinea(fila, i);
+      case "total": {
+        // Se resuelven todas las dependencias, aunque alguna no haga falta, para
+        // que un ciclo se detecte siempre.
+        const sumandos = fila.suma.map((c) => valor(c, i, col));
+        const restas = (fila.resta ?? []).map((c) => valor(c, i, col));
+        const requeridas = (fila.requiere ?? []).map((c) => valor(c, i, col));
+        const inc = [...sumandos, ...restas].some((x) => x.inc);
+        if (col === "P" && fila.soloConPresupuesto && sinPresupuesto[i]) return { v: null, inc };
+        if (requeridas.some((x) => x.v === null)) return { v: null, inc };
+        const suma = sumarNoNulos(sumandos.map((x) => x.v));
+        if (suma === null) return { v: null, inc };
+        const resta = restas.reduce((a, x) => a + (x.v ?? 0), 0);
+        return { v: sinMenosCero(suma - resta), inc };
+      }
+      case "capital": {
+        if (col === "R") return { v: null, inc: false };
+        const regla = fila.regla;
+        // Se resuelven los términos siempre (ciclos); un manual reemplaza el resultado.
+        const terminos = regla === "manual" ? [] : regla.terminos.map((t) => ({ t, x: valor(t.fila, i, "P") }));
+        const manual = meses[i].manuales?.presupuesto.get(fila.clave);
+        if (manual !== undefined) return { v: manual, inc: false };
+        if (regla === "manual" || sinPresupuesto[i]) return { v: null, inc: false };
+        if (terminos.every((x) => x.x.v === null)) return { v: null, inc: false };
+        const suma = terminos.reduce((a, x) => a + x.t.factor * (x.x.v ?? 0), 0) + (regla.fijo ?? 0);
+        return { v: sinMenosCero(Math.round(suma)), inc: terminos.some((x) => x.x.inc) };
+      }
+      case "disponible": {
+        if (col === "R") return { v: null, inc: false };
+        const base = valor(fila.base, i, "P").v;
+        const capital = valor(fila.resta, i, "P").v;
+        const extra = (fila.suma ?? []).map((c) => valor(c, i, "P").v);
+        if (base === null || capital === null) return { v: null, inc: false };
+        return { v: sinMenosCero(base - capital + extra.reduce<number>((a, x) => a + (x ?? 0), 0)), inc: false };
+      }
+    }
+  }
+
+  const filas: FilaReporte[] = plantilla.filas.map((fila) => {
+    if (fila.tipo === "titulo") return { fila, celdas: [] };
+    const conPorcentajes = fila.bloque !== "DISPONIBILIDADES" && fila.tipo !== "capital" && fila.tipo !== "disponible";
+    const celdas = meses.map((_, i) => {
+      const p = valor(fila.clave, i, "P");
+      const r = valor(fila.clave, i, "R");
+      return completarCelda(p.v, r.v, p.inc, r.inc, conPorcentajes);
+    });
+    return { fila, celdas };
+  });
 
   const pendientes: CodigoPendiente[] = [];
   for (const fila of plantilla.filas) {
-    if (fila.tipo === "linea" && fila.pendiente && !pendientes.includes(fila.pendiente)) {
-      pendientes.push(fila.pendiente);
-    }
+    for (const k of pendientesDe(fila)) if (!pendientes.includes(k)) pendientes.push(k);
   }
 
-  return {
-    periodos: meses.map((m) => m.periodo),
-    sinPresupuesto: meses.map((m) => m.presupuesto === null),
-    sinEjecucion,
-    filas,
-    pendientes,
-  };
-}
+  const filaTotalDisp = plantilla.filas.find((f) => f.tipo === "total" && f.rol === "totalDisponibilidades");
+  const filaSaldo = plantilla.filas.find((f) => f.tipo === "total" && f.rol === "saldo");
+  const arrastre = meses.map((_, i): ControlArrastre | null => {
+    if (!filaTotalDisp || !filaSaldo) return null;
+    const cierreRealAnterior = i > 0 ? valor(filaSaldo.clave, i - 1, "R").v : null;
+    let ajustes = 0;
+    for (const f of plantilla.filas) {
+      if (f.tipo !== "linea" || f.arrastre !== "ajuste" || f.excluidaDelTotal) continue;
+      ajustes += valor(f.clave, i, "R").v ?? 0;
+    }
+    const totalDisponibilidades = valor(filaTotalDisp.clave, i, "R").v;
+    const diferencia =
+      totalDisponibilidades === null || cierreRealAnterior === null
+        ? null
+        : totalDisponibilidades - (cierreRealAnterior + ajustes);
+    return {
+      cierreRealAnterior,
+      ajustes,
+      totalDisponibilidades,
+      diferencia,
+      cuadra: diferencia === null ? null : Math.abs(diferencia) < UMBRAL_ARRASTRE_CENTAVOS,
+    };
+  });
 
-// Se suman solo las filas con valor; sin ninguna con valor, el total es null.
-function sumarNoNulos(valores: (number | null)[]): number | null {
-  const conValor = valores.filter((v): v is number => v !== null);
-  return conValor.length === 0 ? null : conValor.reduce((a, b) => a + b, 0);
+  const desde = mesesDeContexto;
+  return {
+    periodos: meses.slice(desde).map((m) => m.periodo),
+    sinPresupuesto: sinPresupuesto.slice(desde),
+    sinEjecucion: sinEjecucion.slice(desde),
+    filas: filas.map((f) => ({ fila: f.fila, celdas: f.celdas.slice(desde) })),
+    pendientes,
+    arrastre: arrastre.slice(desde),
+  };
 }
 
 function completarCelda(
   presupuestado: number | null,
   real: number | null,
   presupuestoIncompleto: boolean,
-  realIncompleto: boolean
+  realIncompleto: boolean,
+  conPorcentajes: boolean
 ): Celda {
   return {
     presupuestado,
     real,
-    avance: presupuestado === null || real === null || presupuestado === 0 ? null : porcentaje(real, presupuestado),
+    avance:
+      !conPorcentajes || presupuestado === null || real === null || presupuestado === 0
+        ? null
+        : porcentaje(real, presupuestado),
     // Sin presupuestado (0 o vacío) no hay "falta": un número negativo engaña.
-    faltaEjecutar: presupuestado === null || presupuestado === 0 || real === null ? null : presupuestado - real,
+    faltaEjecutar:
+      !conPorcentajes || presupuestado === null || presupuestado === 0 || real === null ? null : presupuestado - real,
     presupuestoIncompleto,
     realIncompleto,
   };
+}
+
+// −1 × 0 → ver sinMenosCero; el signo de una fila se aplica solo al Real por clasificación.
+function aplicarSigno(signo: 1 | -1, centavos: number): number {
+  return sinMenosCero(signo * centavos);
+}
+
+// Un valor que se carga a mano en la pantalla /reporte/carga.
+export type CampoManual = {
+  clave: string;
+  texto: string;
+  bloque: Bloque;
+  columna: "PRESUPUESTADO" | "REAL";
+};
+
+// Todos los campos manuales de una plantilla, en el orden de la planilla. Los
+// componentes de Disponibilidades tienen un solo campo (REAL; P = R). El Capital
+// de trabajo tiene el campo P, que reemplaza a la regla.
+export function camposManuales(plantilla: Plantilla): CampoManual[] {
+  const campos: CampoManual[] = [];
+  for (const f of plantilla.filas) {
+    if (f.tipo === "linea") {
+      if (f.real.tipo === "manual") campos.push({ clave: f.clave, texto: f.texto, bloque: f.bloque, columna: "REAL" });
+      if (f.presupuesto.tipo === "manual") {
+        campos.push({ clave: f.clave, texto: f.texto, bloque: f.bloque, columna: "PRESUPUESTADO" });
+      }
+    } else if (f.tipo === "capital") {
+      campos.push({ clave: f.clave, texto: f.texto, bloque: f.bloque, columna: "PRESUPUESTADO" });
+    }
+  }
+  return campos;
 }
 
 // Errores de estructura de una plantilla (vacío = válida). Lo usan los tests de
@@ -238,26 +502,52 @@ function completarCelda(
 export function validarPlantilla(plantilla: Plantilla): string[] {
   const errores: string[] = [];
   const vistas = new Set<string>();
-  const clasificacionEnFila = new Map<string, string>();
+  const todas = new Set(plantilla.filas.map((f) => f.clave));
+  // clave de equivalencia → filas y sentido ("neto" si no tiene).
+  const clasificacionEnFila = new Map<string, { fila: string; sentido: string }[]>();
   const categoriaEnFila = new Map<string, string>();
+  const existe = (de: string, clave: string, anterior = false) => {
+    if (!todas.has(clave)) errores.push(`${de} apunta a "${clave}", que no existe`);
+    else if (anterior && !vistas.has(clave)) errores.push(`${de} suma "${clave}", que no existe antes`);
+  };
   for (const fila of plantilla.filas) {
     if (vistas.has(fila.clave)) errores.push(`Clave repetida: ${fila.clave}`);
     if (fila.tipo === "total") {
-      for (const clave of fila.suma) {
-        if (!vistas.has(clave)) errores.push(`${fila.clave} suma "${clave}", que no existe antes`);
+      for (const clave of [...fila.suma, ...(fila.resta ?? []), ...(fila.requiere ?? [])]) {
+        existe(fila.clave, clave, true);
       }
     }
+    if (fila.tipo === "capital" && fila.regla !== "manual") {
+      for (const t of fila.regla.terminos) existe(fila.clave, t.fila);
+    }
+    if (fila.tipo === "disponible") {
+      for (const clave of [fila.base, fila.resta, ...(fila.suma ?? [])]) existe(fila.clave, clave);
+    }
     vistas.add(fila.clave);
+    for (const k of pendientesDe(fila)) {
+      if (!(k in PENDIENTES)) errores.push(`${fila.clave}: pendiente ${k} fuera del catálogo`);
+    }
     if (fila.tipo !== "linea") continue;
-    if (fila.pendiente && !(fila.pendiente in PENDIENTES)) {
-      errores.push(`${fila.clave}: pendiente ${fila.pendiente} fuera del catálogo`);
+    if (fila.bloque === "DISPONIBILIDADES" && !fila.arrastre) {
+      errores.push(`${fila.clave}: un componente de Disponibilidades necesita 'arrastre'`);
+    }
+    if (fila.presupuesto.tipo === "espejo") existe(fila.clave, fila.presupuesto.fila);
+    if (fila.presupuesto.tipo === "disponible" && !plantilla.filas.some((f) => f.tipo === "disponible")) {
+      errores.push(`${fila.clave}: toma el Disponible, pero la plantilla no tiene esa fila`);
     }
     if (fila.real.tipo === "clasificaciones") {
+      const sentido = fila.real.sentido ?? "neto";
       for (const c of fila.real.clasificaciones) {
         const clave = claveEquivalencia(c);
-        const otra = clasificacionEnFila.get(clave);
-        if (otra) errores.push(`La clasificación ${c} está en ${otra} y en ${fila.clave}`);
-        clasificacionEnFila.set(clave, fila.clave);
+        const otras = clasificacionEnFila.get(clave) ?? [];
+        for (const otra of otras) {
+          // Dos filas pueden compartir la clasificación solo con sentidos distintos.
+          if (otra.sentido === sentido || otra.sentido === "neto" || sentido === "neto") {
+            errores.push(`La clasificación ${c} está en ${otra.fila} y en ${fila.clave}`);
+          }
+        }
+        otras.push({ fila: fila.clave, sentido });
+        clasificacionEnFila.set(clave, otras);
       }
     }
     if (fila.presupuesto.tipo === "categorias") {
@@ -268,6 +558,14 @@ export function validarPlantilla(plantilla: Plantilla): string[] {
         if (otra) errores.push(`La categoría ${c} está en ${otra} y en ${fila.clave}`);
         categoriaEnFila.set(clave, fila.clave);
       }
+    }
+  }
+  if (errores.length === 0) {
+    // Ciclos: se arma un mes vacío; el motor resuelve todas las dependencias.
+    try {
+      armarReporte(plantilla, [{ periodo: "2000-01", real: new Map(), presupuesto: new Map() }]);
+    } catch (e) {
+      errores.push(e instanceof Error ? e.message : String(e));
     }
   }
   return errores;

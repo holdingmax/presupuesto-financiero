@@ -92,12 +92,22 @@ export async function calcularRealPorRubro(
 // CRUDA guardada — el motor (lib/reporte/motor.ts) las agrupa por fila de la
 // plantilla. Qué valores guardados entran se decide en código con la misma
 // equivalencia que usa el motor (sin mayúsculas/tildes + alias de lib/rubros.ts).
+// 2b: además del neto, créditos (importes > 0) y débitos (importes < 0) por
+// separado, para las clasificaciones que van en dos filas según el sentido
+// (Préstamo MS: entrada en Ingresos, devolución en Egresos).
+export type RealDelMes = {
+  neto: Map<string, number>;
+  creditos: Map<string, number>;
+  debitos: Map<string, number>;
+};
+
 export async function calcularRealPorClasificacion(
   periodos: string[],
   unidades: string[],
   clasificaciones: string[]
-): Promise<Map<string, Map<string, number>>> {
-  const resultado = new Map<string, Map<string, number>>(periodos.map((p) => [p, new Map()]));
+): Promise<Map<string, RealDelMes>> {
+  const vacio = (): RealDelMes => ({ neto: new Map(), creditos: new Map(), debitos: new Map() });
+  const resultado = new Map<string, RealDelMes>(periodos.map((p) => [p, vacio()]));
   if (unidades.length === 0 || periodos.length === 0 || clasificaciones.length === 0) return resultado;
   const pedidas = new Set(clasificaciones.map(claveEquivalencia));
   const guardadas = await prisma.$queryRaw<{ clasificacion: string }[]>`
@@ -109,7 +119,9 @@ export async function calcularRealPorClasificacion(
   `;
   const crudas = guardadas.map((f) => f.clasificacion).filter((c) => pedidas.has(claveEquivalencia(c)));
   if (crudas.length === 0) return resultado;
-  const filas = await prisma.$queryRaw<{ periodo: string; clasificacion: string; total: string | null }[]>`
+  const filas = await prisma.$queryRaw<
+    { periodo: string; clasificacion: string; total: string | null; creditos: string | null; debitos: string | null }[]
+  >`
     WITH mov AS (
       SELECT mb.id, pm.periodo, mb.clasificacion, mb.importe, mb."unidadNegocio"
       FROM "MovimientoBancario" mb
@@ -118,7 +130,9 @@ export async function calcularRealPorClasificacion(
       WHERE pm.periodo = ANY(${periodos}::text[]) AND es.estado = 'CERRADA' AND NOT mb.ignorado
         AND mb.clasificacion = ANY(${crudas}::text[])
     )
-    SELECT x.periodo, x.clasificacion, SUM(x.importe)::text AS total FROM (
+    SELECT x.periodo, x.clasificacion, SUM(x.importe)::text AS total,
+           SUM(CASE WHEN x.importe > 0 THEN x.importe ELSE 0 END)::text AS creditos,
+           SUM(CASE WHEN x.importe < 0 THEN x.importe ELSE 0 END)::text AS debitos FROM (
       SELECT m.periodo, m.clasificacion, m.importe FROM mov m
       WHERE upper(btrim(m."unidadNegocio")) = ANY(${unidades}::text[])
         AND NOT EXISTS (SELECT 1 FROM "MovimientoBancarioDesglose" d WHERE d."movimientoId" = m.id)
@@ -129,8 +143,13 @@ export async function calcularRealPorClasificacion(
     ) x
     GROUP BY x.periodo, x.clasificacion
   `;
+  const centavos = (texto: string | null) => (texto === null ? 0 : centavosDeDecimalTexto(texto));
   for (const f of filas) {
-    resultado.get(f.periodo)?.set(f.clasificacion, f.total === null ? 0 : centavosDeDecimalTexto(f.total));
+    const delMes = resultado.get(f.periodo);
+    if (!delMes) continue;
+    delMes.neto.set(f.clasificacion, centavos(f.total));
+    delMes.creditos.set(f.clasificacion, centavos(f.creditos));
+    delMes.debitos.set(f.clasificacion, centavos(f.debitos));
   }
   return resultado;
 }

@@ -1,8 +1,33 @@
 import type { Plantilla } from "@/lib/reporte/motor";
-import { abajo, cat, clasif, egreso, ingreso, MANUAL_2B, SIN_PRESUPUESTO, SIN_REAL, titulo, total } from "./filas";
+import {
+  abajo,
+  capital,
+  cat,
+  clasif,
+  clasifSentido,
+  disp,
+  disponible,
+  egreso,
+  ingreso,
+  PRESUPUESTO_DISPONIBLE,
+  PRESUPUESTO_MANUAL,
+  REAL_MANUAL,
+  SIN_PRESUPUESTO,
+  SIN_REAL,
+  titulo,
+  total,
+} from "./filas";
 
 // "PF - MANTENOR - AGOSTO 2026", hoja PRESUPUESTO MES A MES (diagnóstico §2.6).
 // Unidad de negocio: MANTENOR.
+
+// Disponibilidades (sin título, como la planilla): componentes tipeados por Macchi.
+const disponibilidades = [
+  disp("mn.dBancoFci", "BANCO Y FCI", "cuadre"),
+  disp("mn.dEfectivo", "EFECTIVO", "cuadre", { pendiente: "K9" }),
+  disp("mn.dDolares", "DOLARES", "cuadre"),
+  disp("mn.dChequesNegociados", "CHEQUES NEGOCIADOS PENDIENTES DE INGRESO", "cuadre"),
+];
 
 const ingresos = [
   ingreso("mn.cobranzaJujuy", "Cobranza Mantenor Jujuy", clasif("COBRANZAS"), cat("COBRANZAS"), {
@@ -10,13 +35,16 @@ const ingresos = [
     parcial: true,
     nota: "Hasta resolver K4 lleva toda la cobranza de la unidad (Jujuy + MSNT).",
   }),
-  ingreso("mn.cobranzaMsnt", "Cobranza MSNT Av Papa F./Av Siria / Av Sarmiento", SIN_REAL, SIN_PRESUPUESTO, {
+  ingreso("mn.cobranzaMsnt", "Cobranza MSNT Av Papa F./Av Siria / Av Sarmiento", SIN_REAL, PRESUPUESTO_MANUAL, {
     pendiente: "K4",
   }),
-  ingreso("mn.traspasoSaldoInicial", "Traspaso Saldo Inicial Brillante - Mantenor", MANUAL_2B, SIN_PRESUPUESTO),
-  ingreso("mn.traspasoPrestamoMs", "Traspaso Saldo Prestamo MS - Brillante a Mantenor", MANUAL_2B, SIN_PRESUPUESTO),
-  ingreso("mn.resultadoFci", "Resultado FCI", MANUAL_2B, cat("Intereses FCI")),
-  ingreso("mn.prestamoMs", "Préstamo MS", SIN_REAL, SIN_PRESUPUESTO, { pendiente: "K8" }),
+  ingreso("mn.traspasoSaldoInicial", "Traspaso Saldo Inicial Brillante - Mantenor", REAL_MANUAL, SIN_PRESUPUESTO),
+  ingreso("mn.traspasoPrestamoMs", "Traspaso Saldo Prestamo MS - Brillante a Mantenor", REAL_MANUAL, SIN_PRESUPUESTO),
+  ingreso("mn.resultadoFci", "Resultado FCI", REAL_MANUAL, cat("Intereses FCI")),
+  ingreso("mn.prestamoMs", "Préstamo MS", clasifSentido("creditos", "PRESTAMOS MS"), PRESUPUESTO_MANUAL, {
+    pendiente: ["K8", "K13"],
+    nota: "Entrada de préstamo MS: créditos de PRESTAMOS MS (sin verificar, K13).",
+  }),
 ];
 
 const egresos = [
@@ -63,7 +91,10 @@ const egresos = [
 ];
 
 const deAbajo = [
-  abajo("mn.prestamos", "Prestamos", clasif("PRESTAMOS MS"), cat("Préstamo MS")),
+  abajo("mn.prestamos", "Prestamos", clasifSentido("debitos", "PRESTAMOS MS"), PRESUPUESTO_DISPONIBLE, {
+    pendiente: "K13",
+    nota: "P = DISPONIBLE SI - CAPITAL DE TRABAJO del mes (agosto).",
+  }),
   abajo("mn.dividendos", "Dividendos", clasif("DIVIDENDOS"), cat("Dividendos")),
   abajo("mn.inversiones", "Inversiones", clasif("INVERSIONES"), cat("INVERSIONES")),
 ];
@@ -71,13 +102,32 @@ const deAbajo = [
 export const PLANTILLA_MANTENOR: Plantilla = {
   empresa: "Mantenor",
   filas: [
+    ...disponibilidades,
+    total("mn.totalDisponibilidades", "DISPONIBILIDADES", "EFECTIVO DISPONIBLE (principios de mes)", disponibilidades.map((f) => f.clave), {
+      rol: "totalDisponibilidades",
+    }),
     titulo("mn.tituloIngresos", "INGRESOS", "INGRESOS"),
     ...ingresos,
     total("mn.totalIngresos", "INGRESOS", "TOTAL INGRESOS", ingresos.map((f) => f.clave)),
+    total("mn.disponibleAntes", "CIERRE", "DISPONIBLE ANTES DE GASTOS", ["mn.totalDisponibilidades", "mn.totalIngresos"], {
+      requiere: ["mn.totalDisponibilidades"],
+      soloConPresupuesto: true,
+    }),
     titulo("mn.tituloGastos", "EGRESOS", "GASTOS"),
     ...egresos,
     total("mn.totalGastosOperativos", "EGRESOS", "TOTAL GASTOS OPERATIVOS", egresos.map((f) => f.clave)),
     ...deAbajo,
     total("mn.totalGastos", "ABAJO", "TOTAL GASTOS", ["mn.totalGastosOperativos", ...deAbajo.map((f) => f.clave)]),
+    total("mn.saldo", "CIERRE", "POSICIÓN DE EFECTIVO (fin de mes)", ["mn.disponibleAntes"], {
+      resta: ["mn.totalGastos"],
+      requiere: ["mn.disponibleAntes"],
+      soloConPresupuesto: true,
+      rol: "saldo",
+    }),
+    capital("mn.capital", "CAPITAL DE TRABAJO PROPUESTO (SUELDOS)", "manual", {
+      pendiente: "K11",
+      nota: "Planilla (agosto): 231.200.000 tipeado.",
+    }),
+    disponible("mn.disponible", "DISPONIBLE SI - CAPITAL DE TRABAJO", "mn.totalDisponibilidades", "mn.capital"),
   ],
 };

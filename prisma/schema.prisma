@@ -45,6 +45,7 @@ model Empresa {
 
   presupuestos PresupuestoMensual[]
   usuarios     UsuarioEmpresa[]
+  valoresManualesReporte ValorManualReporte[]
 
   @@index([cuit])
 }
@@ -61,6 +62,7 @@ model Usuario {
 
   empresas UsuarioEmpresa[]
   sesiones Sesion[]
+  valoresManualesReporte ValorManualReporte[]
 }
 
 // Sesión en base (no JWT sin estado): borrar la fila invalida esa sesión al
@@ -337,4 +339,31 @@ model Adjunto {
 
   lineaPresupuesto LineaPresupuesto?   @relation(fields: [lineaPresupuestoId], references: [id])
   movimiento       MovimientoBancario? @relation(fields: [movimientoId], references: [id])
+}
+
+enum ColumnaReporte {
+  PRESUPUESTADO
+  REAL
+}
+
+// Valores que en la planilla de Macchi se tipean a mano (Disponibilidades,
+// Resultado FCI, reservas, Capital de trabajo cuando se reemplaza, etc.).
+// filaClave = clave de la fila de la plantilla (lib/reporte/plantillas), p. ej.
+// "cx.banco". Uno por empresa, período, fila y columna. Vacío = no hay fila.
+model ValorManualReporte {
+  id           String         @id @default(uuid())
+  empresaId    String
+  periodo      String         // "YYYY-MM"
+  filaClave    String
+  columna      ColumnaReporte
+  importe      Decimal        @db.Decimal(18, 2)
+  nota         String?        // la cuenta tal como se tipeó ("321235,44+17755,22") o una aclaración
+  cargadoPorId String
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  empresa    Empresa @relation(fields: [empresaId], references: [id])
+  cargadoPor Usuario @relation(fields: [cargadoPorId], references: [id])
+
+  @@unique([empresaId, periodo, filaClave, columna])
 }

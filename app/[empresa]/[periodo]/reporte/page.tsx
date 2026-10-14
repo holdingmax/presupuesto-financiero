@@ -6,9 +6,7 @@ import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
 import {
   obtenerUnidadesConEmpresa,
   calcularRealPorRubro,
-  calcularRealPorClasificacion,
   calcularNoAsignadoDelExtracto,
-  contarSemanasCerradasPorPeriodo,
   type NoAsignado,
 } from "@/lib/reporte";
 import { armarIndiceRubros, rubroDe } from "@/lib/rubros";
@@ -16,6 +14,7 @@ import { centavosDeDecimalTexto } from "@/lib/conteoMovimientos";
 import { armarReporte, clasificacionesDePlantilla, periodosHasta, type Plantilla } from "@/lib/reporte/motor";
 import { plantillaDeEmpresa } from "@/lib/reporte/plantillas";
 import ReportePresupuestoMesAMes from "./ReportePresupuestoMesAMes";
+import { cargarDatosMeses } from "@/lib/reporte/cargarMeses";
 import ReportePlantilla from "./ReportePlantilla";
 
 type Props = {
@@ -197,52 +196,18 @@ async function ReportePorPlantilla({
   unidadesEmpresa: string[];
   verPendientes: boolean;
 }) {
-  const periodos = periodosHasta(periodo, MESES_VISIBLES);
+  // Un mes más de contexto (no se muestra): el control de arrastre y los espejos del mes
+  // anterior lo necesitan para el primer mes visible.
+  const periodos = periodosHasta(periodo, MESES_VISIBLES + 1);
   const clasificaciones = clasificacionesDePlantilla(plantilla);
 
-  const presupuestos = await prisma.presupuestoMensual.findMany({
-    where: { empresaId, periodo: { in: periodos } },
-    select: { id: true, periodo: true },
-  });
-  const sumasPresupuesto =
-    presupuestos.length === 0
-      ? []
-      : await prisma.lineaPresupuesto.groupBy({
-          by: ["presupuestoId", "clasificacion"],
-          where: { presupuestoId: { in: presupuestos.map((p) => p.id) } },
-          _sum: { importe: true },
-        });
-  // Por período: clasificación guardada → centavos, tal como se cargó (sin
-  // Math.abs). Solo los meses que tienen PresupuestoMensual.
-  const presupuestoPorPeriodo = new Map<string, Map<string, number>>();
-  for (const p of presupuestos) presupuestoPorPeriodo.set(p.periodo, new Map());
-  const periodoDePresupuesto = new Map(presupuestos.map((p) => [p.id, p.periodo]));
-  for (const s of sumasPresupuesto) {
-    if (s._sum.importe === null) continue;
-    const delMes = presupuestoPorPeriodo.get(periodoDePresupuesto.get(s.presupuestoId)!)!;
-    delMes.set(
-      s.clasificacion,
-      (delMes.get(s.clasificacion) ?? 0) + centavosDeDecimalTexto(s._sum.importe.toFixed(2))
-    );
-  }
-
   const unidadesConEmpresa = await obtenerUnidadesConEmpresa();
-  const [realPorPeriodo, semanasCerradas, noAsignado] = await Promise.all([
-    calcularRealPorClasificacion(periodos, unidadesEmpresa, clasificaciones),
-    contarSemanasCerradasPorPeriodo(periodos),
+  const [meses, noAsignado] = await Promise.all([
+    cargarDatosMeses(empresaId, unidadesEmpresa, plantilla, periodos),
     // Mismo bloque de control que la Fase 1, para el mes de la URL.
     calcularNoAsignadoDelExtracto(empresaId, periodo, clasificaciones, unidadesConEmpresa),
   ]);
-
-  const reporte = armarReporte(
-    plantilla,
-    periodos.map((p) => ({
-      periodo: p,
-      real: realPorPeriodo.get(p) ?? new Map(),
-      presupuesto: presupuestoPorPeriodo.get(p) ?? null,
-      semanasCerradas: semanasCerradas.get(p) ?? 0,
-    }))
-  );
+  const reporte = armarReporte(plantilla, meses, 1);
 
   return (
     <ReportePlantilla
@@ -251,6 +216,7 @@ async function ReportePorPlantilla({
       periodo={periodo}
       reporte={reporte}
       verPendientes={verPendientes}
+      verControl={verPendientes}
       sinUnidades={unidadesEmpresa.length === 0}
       noAsignado={noAsignado.porUnidad.map((n) => ({
         unidad: n.unidad,

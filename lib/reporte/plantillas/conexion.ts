@@ -1,26 +1,65 @@
 import type { Plantilla } from "@/lib/reporte/motor";
-import { abajo, cat, clasif, egreso, ESPEJO_2B, ingreso, MANUAL_2B, SIN_PRESUPUESTO, SIN_REAL, titulo, total } from "./filas";
+import {
+  abajo,
+  capital,
+  cat,
+  clasif,
+  clasifSentido,
+  disp,
+  disponible,
+  egreso,
+  espejoDe,
+  ingreso,
+  PRESUPUESTO_MANUAL,
+  REAL_IGUAL_PRESUPUESTO,
+  REAL_MANUAL,
+  SIN_PRESUPUESTO,
+  SIN_REAL,
+  titulo,
+  total,
+} from "./filas";
 
 // "PF - CONEXION LOGISTICA - AGOSTO 2026", hoja PRESUPUESTO Y REAL MES A MES
 // (diagnóstico §2.1). Unidades de negocio: SPP + LOGISTICA.
+
+// Disponibilidades (principios de mes): componentes tipeados por Macchi. "ajuste" =
+// se suma o resta aparte del cierre del mes anterior (plan 2b §1, pregunta K9).
+const disponibilidades = [
+  disp("cx.dBanco", "BANCO", "cuadre"),
+  disp("cx.dEfectivo", "EFECTIVO", "cuadre"),
+  disp("cx.dDolares", "DOLARES", "cuadre"),
+  disp("cx.dChequesEnCartera", "CHEQUES EN CARTERA ", "cuadre"),
+  disp("cx.dChequesNegociados", "CHEQUES NEGOCIADOS PENDIENTES DE INGRESO", "cuadre"),
+  disp("cx.dCobranzaTechPack", "COBRANZA TECH PACK 02 Y 09", "ajuste"),
+  disp("cx.dReservaAguinaldo", "RESERVA AGUINALDO", "cuadre", { pendiente: "K10" }),
+  disp("cx.dChequesDespuesDel10", "CHEQUES EN CARTERA DESPUES DEL 10", "ajuste", { pendiente: "K9" }),
+  disp("cx.dAdicionalesPendientes", "ADICIONALES PENDIENTES", "ajuste"),
+  disp("cx.dRecuperoBlanqueo", "RECUPERO APORTE BLANQUEO", "ajuste"),
+  disp("cx.dGastosJps", "GASTOS JET PARTS SOLUTIONS A RECUPERAR", "ajuste"),
+];
 
 const ingresos = [
   ingreso("cx.cobranzaContado", "Cobranza Contado", clasif("COBRANZAS"), cat("COBRANZAS"), {
     nota: "Jul-26: COBRANZAS SPP+LOGISTICA 2.317,2M; la planilla tipea 2.311,3M (dif. 5,8M).",
   }),
   ingreso("cx.cobranzaChequeDiferido", "Cobranza Cheque Diferido", SIN_REAL, SIN_PRESUPUESTO),
-  ingreso("cx.otrasOperaciones", "Otras operaciones (VENTA MOTO)", SIN_REAL, SIN_PRESUPUESTO, { pendiente: "K8" }),
-  ingreso("cx.prestamoMsCiber", "Prestamo MS Ciber", SIN_REAL, SIN_PRESUPUESTO, { pendiente: "K8" }),
-  ingreso("cx.resultadoFci", "Resultado FCI", MANUAL_2B, cat("Intereses FCI"), {
+  ingreso("cx.otrasOperaciones", "Otras operaciones (VENTA MOTO)", SIN_REAL, PRESUPUESTO_MANUAL, { pendiente: "K8" }),
+  ingreso("cx.prestamoMsCiber", "Prestamo MS Ciber", clasifSentido("creditos", "PRESTAMOS MS"), PRESUPUESTO_MANUAL, {
+    pendiente: ["K8", "K13"],
+    nota: "Entrada de préstamo MS: créditos de PRESTAMOS MS (sin verificar, K13).",
+  }),
+  ingreso("cx.resultadoFci", "Resultado FCI", REAL_MANUAL, cat("Intereses FCI"), {
     nota: "Rendimientos de FCI tipeados a mano.",
   }),
-  ingreso("cx.reservaAguinaldo", "Reserva Aguinaldo", ESPEJO_2B, SIN_PRESUPUESTO, {
-    nota: "Espejo de RESERVA AGUINALDO de Disponibilidades.",
+  ingreso("cx.reservaAguinaldo", "Reserva Aguinaldo", REAL_IGUAL_PRESUPUESTO, PRESUPUESTO_MANUAL, {
+    pendiente: "K10",
+    nota: "Espejo de RESERVA AGUINALDO de Disponibilidades en el mes de pago del SAC; P a mano, R = P.",
   }),
-  ingreso("cx.prestamo", "Préstamo", SIN_REAL, SIN_PRESUPUESTO, { pendiente: "K8" }),
+  ingreso("cx.prestamo", "Préstamo", SIN_REAL, PRESUPUESTO_MANUAL, { pendiente: "K8" }),
   ingreso("cx.gastosMsARecuperar", "Gastos MS a recuperar", SIN_REAL, SIN_PRESUPUESTO),
-  ingreso("cx.chequesDespuesDel10", "Cheques en cartera despues del 10", ESPEJO_2B, SIN_PRESUPUESTO, {
-    nota: "Espejo de CHEQUES EN CARTERA DESPUES DEL 10 de Disponibilidades.",
+  ingreso("cx.chequesDespuesDel10", "Cheques en cartera despues del 10", REAL_IGUAL_PRESUPUESTO, espejoDe("cx.dChequesDespuesDel10"), {
+    pendiente: "K9",
+    nota: "P = menos CHEQUES EN CARTERA DESPUES DEL 10 de Disponibilidades; R = P.",
   }),
   ingreso("cx.gastosAvionARecuperar", "Gastos avion a recuperar", SIN_REAL, SIN_PRESUPUESTO),
 ];
@@ -64,10 +103,12 @@ const egresos = [
   }),
   egreso("cx.peru", "Peru", SIN_REAL, SIN_PRESUPUESTO),
   egreso("cx.bolivia", "Bolivia", SIN_REAL, SIN_PRESUPUESTO),
-  egreso("cx.proveedoresIva", "Proveedores IVA", SIN_REAL, cat("IVA"), { pendiente: "K3" }),
+  egreso("cx.proveedoresIva", "Proveedores IVA", REAL_MANUAL, cat("IVA"), { pendiente: "K3" }),
   egreso("cx.liquidacionesFinales", "Liquidaciones Finales", clasif("LIQ FINAL"), cat("Liquidación final")),
   egreso("cx.juicios", "Juicios y requerimientos AFIP", clasif("JUICIOS"), cat("Juicios")),
-  egreso("cx.prestamoMs", "Préstamo MS", clasif("PRESTAMOS MS"), cat("Préstamo MS")),
+  egreso("cx.prestamoMs", "Préstamo MS", clasifSentido("debitos", "PRESTAMOS MS"), cat("Préstamo MS"), {
+    pendiente: "K13",
+  }),
 ];
 
 const deAbajo = [
@@ -86,7 +127,7 @@ const deAbajo = [
   abajo("cx.expensasAmericanas", "Expensas Empresas Americanas a recuperar", SIN_REAL, SIN_PRESUPUESTO),
   abajo("cx.ajusteCaja", "Ajuste Caja - A conciliar", SIN_REAL, SIN_PRESUPUESTO),
   abajo("cx.reintegroExpensas", "Reintegro expensas grupo ", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("cx.dividendosExpensas", "Dividendos - Expensas Havanna Peru y Americanas", MANUAL_2B, SIN_PRESUPUESTO, {
+  abajo("cx.dividendosExpensas", "Dividendos - Expensas Havanna Peru y Americanas", REAL_MANUAL, SIN_PRESUPUESTO, {
     nota: "Jul-26: 28.990.000 tipeado.",
   }),
   abajo("cx.dividendosEfectivo", "Dividendos en efectivo", clasif("DIVIDENDOS"), cat("Dividendos")),
@@ -101,9 +142,18 @@ const deAbajo = [
 export const PLANTILLA_CONEXION: Plantilla = {
   empresa: "Conexión Logística",
   filas: [
+    titulo("cx.tituloDisponibilidades", "DISPONIBILIDADES", "DISPONIBILIDADES "),
+    ...disponibilidades,
+    total("cx.totalDisponibilidades", "DISPONIBILIDADES", " TOTAL DISPONIBILIDADES", disponibilidades.map((f) => f.clave), {
+      rol: "totalDisponibilidades",
+    }),
     titulo("cx.tituloIngresos", "INGRESOS", "INGRESOS"),
     ...ingresos,
     total("cx.totalIngresos", "INGRESOS", "TOTAL INGRESOS", ingresos.map((f) => f.clave)),
+    total("cx.disponibleAntes", "CIERRE", "DISPONIBLE ANTES DE GASTOS", ["cx.totalDisponibilidades", "cx.totalIngresos"], {
+      requiere: ["cx.totalDisponibilidades"],
+      soloConPresupuesto: true,
+    }),
     titulo("cx.tituloEgresos", "EGRESOS", "EGRESOS"),
     ...egresos,
     total("cx.totalEgresosOperativos", "EGRESOS", "TOTAL EGRESOS OPERATIVOS", egresos.map((f) => f.clave)),
@@ -112,5 +162,23 @@ export const PLANTILLA_CONEXION: Plantilla = {
       "cx.totalEgresosOperativos",
       ...deAbajo.map((f) => f.clave),
     ]),
+    total("cx.saldo", "CIERRE", "SALDO INICIAL + INGRESOS - TOTAL EGRESOS", ["cx.disponibleAntes"], {
+      resta: ["cx.totalEgresos"],
+      requiere: ["cx.disponibleAntes"],
+      soloConPresupuesto: true,
+      rol: "saldo",
+    }),
+    capital(
+      "cx.capital",
+      "CAPITAL DE TRABAJO PROPUESTO (15 DIAS)",
+      {
+        terminos: [
+          { fila: "cx.totalEgresosOperativos", factor: 0.5 },
+          { fila: "cx.reservaAguinaldo", factor: -0.5 },
+        ],
+      },
+      { nota: "Planilla: (TOTAL EGRESOS OPERATIVOS − Reserva Aguinaldo de Ingresos) / 2." }
+    ),
+    disponible("cx.disponible", "DISPONIBLE SI - CAPITAL DE TRABAJO", "cx.totalDisponibilidades", "cx.capital"),
   ],
 };
