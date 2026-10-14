@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { formatearCentavos, parsearCuenta } from "@/lib/reporte/bloqueo";
+import { AVISO_UNA_VEZ, formatearCentavos, parsearCuenta } from "@/lib/reporte/bloqueo";
 import { guardarValoresManuales } from "./actions";
 
 export type CampoVista = {
@@ -31,6 +31,9 @@ const TITULOS: Record<string, string> = {
 const ORDEN = ["DISPONIBILIDADES", "INGRESOS", "EGRESOS", "ABAJO", "CIERRE"];
 
 const clave = (c: CampoVista) => `${c.clave}|${c.columna}`;
+
+// Período bloqueado: un campo vacío admite la primera carga; uno con valor es solo lectura.
+const soloLectura = (c: CampoVista) => !!c.bloqueo && c.valor !== "";
 
 export default function CargaValoresManuales({
   empresaSlug,
@@ -75,7 +78,7 @@ export default function CargaValoresManuales({
   async function guardar() {
     setGuardando(true);
     setMensaje(null);
-    const cambiados = campos.filter((c) => !c.bloqueo && (textos[clave(c)] ?? "") !== c.valor);
+    const cambiados = campos.filter((c) => !soloLectura(c) && (textos[clave(c)] ?? "") !== c.valor);
     const r = await guardarValoresManuales(
       empresaSlug,
       periodo,
@@ -139,13 +142,17 @@ export default function CargaValoresManuales({
                           {c.nota ? ` · cuenta: ${c.nota}` : ""}
                         </p>
                       )}
-                      {c.bloqueo && <p className="text-[11px] text-terracota">Bloqueado: {c.bloqueo}</p>}
+                      {c.bloqueo && (
+                        <p className="text-[11px] text-terracota">
+                          {soloLectura(c) ? `Bloqueado: ${c.bloqueo}` : AVISO_UNA_VEZ}
+                        </p>
+                      )}
                       {c.reglaCapital !== undefined && (
                         <p className="text-[11px] text-ink-muted">
                           Regla de la plantilla: {c.reglaCapital ?? "—"}. Vacío = usar la regla.
                         </p>
                       )}
-                      {sugerido !== null && !c.bloqueo && (
+                      {sugerido !== null && !soloLectura(c) && (
                         <button
                           type="button"
                           className="text-[11px] underline"
@@ -160,8 +167,8 @@ export default function CargaValoresManuales({
                       type="text"
                       inputMode="decimal"
                       value={t}
-                      readOnly={!!c.bloqueo}
-                      disabled={!!c.bloqueo}
+                      readOnly={soloLectura(c)}
+                      disabled={soloLectura(c)}
                       onChange={(e) => setTextos((p) => ({ ...p, [clave(c)]: e.target.value }))}
                       className={`rounded-md border px-2 py-1 text-right tabular ${invalido ? "border-terracota" : "border-line-strong"} disabled:bg-paper-cool`}
                       aria-invalid={invalido}

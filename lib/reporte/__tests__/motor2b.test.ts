@@ -26,7 +26,7 @@ import {
   titulo,
   total,
 } from "@/lib/reporte/plantillas/filas";
-import { esMesCerrado, formatearCentavos, motivoBloqueo, parsearCuenta } from "@/lib/reporte/bloqueo";
+import { esMesCerrado, formatearCentavos, motivoBloqueo, motivoRechazoCambio, parsearCuenta } from "@/lib/reporte/bloqueo";
 import { CLAVES_MANUALES } from "./fixtures/clavesManuales";
 
 // Plantilla mínima con todas las fuentes de la 2b.
@@ -236,6 +236,27 @@ test("bloqueo: R manual de flujo, mes pasado sin semanas ABIERTAS", () => {
   assert.equal(motivoBloqueo({ ...f, semanas: { abiertas: 1, cerradas: 0 } }), null);
   assert.equal(motivoBloqueo({ ...f, periodo: "2026-08" }), null);
 });
+
+// Primera carga en período bloqueado: se crea, no se modifica ni se borra.
+const tiposBloqueados = [
+  { nombre: "Disponibilidades", columna: "REAL" as const, bloque: "DISPONIBILIDADES" as const, semanas: { abiertas: 0, cerradas: 2 }, presupuestoValidado: false },
+  { nombre: "R manual de flujo", columna: "REAL" as const, bloque: "INGRESOS" as const, semanas: { abiertas: 0, cerradas: 2 }, presupuestoValidado: false },
+  { nombre: "P / Capital manual", columna: "PRESUPUESTADO" as const, bloque: "CIERRE" as const, semanas: { abiertas: 0, cerradas: 2 }, presupuestoValidado: true },
+];
+for (const t of tiposBloqueados) {
+  const motivo = motivoBloqueo({ ...base, ...t });
+  test(`período bloqueado (${t.nombre}): crear permitido, modificar y borrar rechazados`, () => {
+    assert.ok(motivo, "el período debería estar bloqueado");
+    assert.equal(motivoRechazoCambio(motivo, false), null); // crear: no existe
+    assert.equal(motivoRechazoCambio(motivo, true), motivo); // modificar o borrar: existe
+  });
+  test(`período abierto (${t.nombre}): todo permitido`, () => {
+    const abierto = motivoBloqueo({ ...base, ...t, periodo: "2026-08", presupuestoValidado: false, semanas: { abiertas: 1, cerradas: 0 } });
+    assert.equal(abierto, null);
+    assert.equal(motivoRechazoCambio(abierto, false), null);
+    assert.equal(motivoRechazoCambio(abierto, true), null);
+  });
+}
 
 test("mes cerrado = pasó y sin semanas abiertas", () => {
   assert.equal(esMesCerrado("2026-07", "2026-08", { abiertas: 0, cerradas: 2 }), true);

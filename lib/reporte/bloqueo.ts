@@ -45,6 +45,14 @@ export function motivoBloqueo(e: EntradaBloqueo): string | null {
   return pasado && e.semanas.abiertas === 0 ? "El mes ya pasó y no tiene semanas abiertas." : null;
 }
 
+// Un período bloqueado admite la PRIMERA carga (crear un valor que no existe); lo que no admite
+// es modificar ni borrar un valor ya cargado. `motivo` es el de motivoBloqueo. null = permitido.
+export function motivoRechazoCambio(motivo: string | null, existia: boolean): string | null {
+  return motivo !== null && existia ? motivo : null;
+}
+
+export const AVISO_UNA_VEZ = "Período cerrado: solo se puede cargar una vez";
+
 function terminoACentavos(texto: string): number | null {
   const limpio = texto.replace(/[$\s]/g, "");
   if (!/^\d[\d.]*(,\d+)?$/.test(limpio) && !/^\d+(\.\d+)?$/.test(limpio)) return null;

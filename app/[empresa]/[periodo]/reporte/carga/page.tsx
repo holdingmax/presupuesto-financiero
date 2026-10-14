@@ -111,7 +111,7 @@ export default async function CargaPage({ params }: Props) {
       <h1 className="mt-1 text-3xl font-serif font-semibold tracking-tight">Valores del reporte</h1>
       <p className="mt-2 text-sm text-ink-secondary">
         Los números que en la planilla se tipean a mano. Se aceptan cuentas como 321.235,44+17.755,22. Un campo vacío
-        borra el valor. Lo que ya cerró no se modifica para atrás: la corrección se carga en el período siguiente.
+        borra el valor. Lo que ya cerró no se modifica ni se borra para atrás (la corrección se carga en el período siguiente), pero un campo vacío de un período cerrado se puede cargar una vez.
       </p>
       <Link href={`/${slug}/${periodo}/reporte`} className="mt-3 inline-block text-sm underline">
         Volver al reporte
