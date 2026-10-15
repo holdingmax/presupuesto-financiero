@@ -47,6 +47,9 @@ export default async function MisEmpresasPage() {
               <Link href="/admin/unidades-negocio" className="underline underline-offset-2 hover:text-ink">
                 Unidades de negocio
               </Link>
+              <Link href="/admin/cuentas-bancarias" className="underline underline-offset-2 hover:text-ink">
+                Cuentas bancarias
+              </Link>
             </>
           )}
           <Link href="/cuenta" className="underline underline-offset-2 hover:text-ink">

@@ -2,7 +2,6 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import ExcelJS from "exceljs";
 import { resolverEmpresaPorSlug, quitarDiacriticos } from "@/lib/slug";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
 import {
@@ -11,19 +10,23 @@ import {
   obtenerUltimaEjecucion,
 } from "@/lib/ejecucion";
 import { requireAccesoEmpresa, requireOperadorEjecucion, puedeOperarEjecucion } from "@/lib/auth";
-import {
-  calcularClasificacionesDisponibles,
-  normalizarClasificacion,
-  proponerClasificacionAutomatica,
-} from "@/lib/clasificaciones";
+import { calcularClasificacionesDisponibles } from "@/lib/clasificaciones";
 import {
   normalizarCuenta,
   proponerUnidadPorCuenta,
-  proponerUnidadPorRazonSocial,
-  unidadDeLaLista,
   esUnidadDeLaLista,
 } from "@/lib/unidadesNegocio";
 import { aCentavos, centavosADecimal } from "@/lib/prorrateo";
+import { leerArchivoSubido } from "@/lib/extractos/archivo";
+import { type FilaMadre } from "@/lib/extractos/madre";
+import {
+  analizarContinuidad,
+  avisosDeContinuidad,
+  verificarContinuidadSaldo,
+  type ResultadoContinuidadSaldo,
+} from "@/lib/extractos/continuidad";
+import { NOMBRE_BANCO } from "@/lib/extractos/tipos";
+import { controlarCuentaDelArchivo, sugerirCuenta } from "@/lib/cuentasBancarias";
 import { obtenerUnidadesConEmpresa, contarSinUnidadEnSemana } from "@/lib/reporte";
 import {
   centavosDeNumero,
@@ -36,46 +39,9 @@ import {
 } from "@/lib/conteoMovimientos";
 import type { Prisma } from "@prisma/client";
 
-const NOMBRE_HOJA_EXTRACTO = "Hoja1";
 const FILAS_POR_PAGINA = 200;
 
 // Coincidencia exacta de string (post-normalización), no fuzzy — cada clave nueva es un
-// sinónimo puntual confirmado contra un archivo real, no una adivinanza. Varias claves
-// pueden apuntar al mismo campo (ver NRO REFERENCIA/NRO. DE REFERENCIA/NRO DE REFERENCIA):
-// si algún archivo futuro trajera dos de esas columnas a la vez para el mismo campo (ej.
-// "Descripcion" Y "Concepto" juntas), gana la que se procese después en la fila de
-// encabezados — no hay merge ni prioridad definida. No es el caso de ningún archivo visto
-// hasta ahora, así que no se resolvió; queda documentado acá para quien lo retome.
-const COLUMNAS: Record<string, string> = {
-  "FECHA": "fecha",
-  "NRO REFERENCIA": "nroReferencia",
-  "NRO. DE REFERENCIA": "nroReferencia",
-  "NRO DE REFERENCIA": "nroReferencia",
-  "NRO, DE REFERENCIA": "nroReferencia", // ej. archivo de prueba de Macchi: coma en vez de espacio después de "Nro"
-  "CAUSAL": "causal",
-  "CONCEPTO": "concepto",
-  "DESCRIPCION": "concepto", // ej. HWC: "Descripcion" es el texto completo del movimiento
-  "IMPORTE": "importe",
-  "SALDO": "saldo",
-  "BANCO Y CTA": "bancoYCuenta",
-  "BANCO": "bancoYCuenta", // ej. HWC: solo trae "Banco" a secas, sin el número de cuenta
-  "DETALLE": "detalle",
-  "DESC": "detalle", // ej. HWC: "Desc" (abreviado) es una aclaración corta, no la Descripcion completa
-  "CLASIFICACION": "clasificacion",
-  "CLASIF 2": "clasificacion2",
-  "UNIDAD DE NEG": "unidadNegocio",
-  "DETALLE 2": "detalle2",
-};
-
-// Tolerante a tildes/mayúsculas/espacios: "Clasificación", "CLASIFICACION" y
-// "clasificación" tienen que matchear la misma clave en COLUMNAS (mismo fix
-// aplicado en presupuesto/actions.ts). El colapso de espacios múltiples
-// importa para claves de varias palabras como "BANCO Y CTA"/"UNIDAD DE NEG".
-function normalizarEncabezado(texto: string) {
-  return quitarDiacriticos(texto).trim().toUpperCase().replace(/\s+/g, " ");
-}
-
-// El layout de [empresa]/[periodo] ya garantiza, al renderizar una página, que el slug
 // matchea una empresa real y que el usuario logueado tiene acceso a ella. Esta resolución
 // (empresa + autorización) es defensiva para las Server Actions, que se invocan directo
 // desde el cliente y no vuelven a pasar por el layout.
@@ -244,6 +210,15 @@ export async function obtenerDatosSemana(
     include: { desglose: { orderBy: { createdAt: "asc" } } },
   });
 
+  // Cuentas activas de la empresa para el selector de "Subir extracto" (solo si puede operar).
+  const cuentasBancarias = puedeOperar
+    ? await prisma.cuentaBancaria.findMany({
+        where: { empresaId: empresa.id, activa: true },
+        orderBy: { nombre: "asc" },
+        select: { nombre: true, banco: true },
+      })
+    : [];
+
   return {
     empresaNombre: empresa.nombre,
     numeroSemana: ejecucion.numeroSemana,
@@ -269,6 +244,7 @@ export async function obtenerDatosSemana(
     unidadesSugeridas: agruparUnidadesSugeridas(gruposUnidadSugerida),
     sinUnidadAsignada,
     sugerenciasClasificacion,
+    cuentasBancarias,
   };
 }
 
@@ -598,19 +574,8 @@ async function aplicarCruceChequeIva(
   }
 }
 
-export type ResultadoContinuidadSaldo = {
-  bancoYCuenta: string;
-  cantidad: number;
-  rupturas: {
-    fechaAnterior: string;
-    saldoAnterior: number;
-    fechaSiguiente: string;
-    concepto: string;
-    saldoEsperado: number;
-    saldoReal: number;
-    diferencia: number;
-  }[];
-};
+// Re-export: el cliente (AlertaContinuidadSaldo) lo importa desde acá.
+export type { ResultadoContinuidadSaldo } from "@/lib/extractos/continuidad";
 
 // Casi-duplicado: fila NUEVA (no reconocida como ya cargada) cuya cuenta + fecha +
 // importe coinciden con un movimiento ya cargado de la misma empresa, pero que
@@ -641,6 +606,24 @@ export type CuentaCompartida = {
 // archivo de ~16.500 filas la lista completa no se puede leer igual.
 const MAX_POSIBLES_DUPLICADOS = 200;
 
+// Resumen de un extracto crudo ANTES de cargarlo (aprobado 2026-10-15): lo que Flavia
+// compara con la pantalla del banco para confirmar. No se escribió nada.
+export type VistaPreviaExtracto = {
+  banco: string;
+  cuenta: string;
+  filas: number;
+  desde: string;
+  hasta: string;
+  creditos: number;
+  debitos: number;
+  neto: number;
+  nuevas: number;
+  yaCargadas: number;
+  posiblesDuplicados: number;
+  avisos: string[];
+  continuidadSaldo: ResultadoContinuidadSaldo[];
+};
+
 type ResultadoImportar =
   | {
       ok: true;
@@ -650,18 +633,24 @@ type ResultadoImportar =
       cantidadPosiblesDuplicados: number;
       continuidadSaldo: ResultadoContinuidadSaldo[];
       liquidacionesAmbiguas: ResultadoLiquidacionAmbigua[];
+      // Avisos informativos (cuenta no verificable, saldo previo, sin saldo, CUIT…).
+      avisos: string[];
       // Solo viene seteado cuando la hoja se resolvió por selección explícita del
       // usuario (ver requiereSeleccionHoja) — así el mensaje de éxito puede dejar
       // trazado con qué hoja se cargó. En el caso normal (una sola hoja, o "Hoja1")
       // queda undefined a propósito, para no agregar ruido al mensaje de siempre.
       hoja?: string;
     }
-  | { ok: false; error: string }
+  // cuentaSugerida: el selector la propone cuando el archivo trae su número de cuenta.
+  | { ok: false; error: string; cuentaSugerida?: string }
   // Archivo con más de una hoja y ninguna llamada "Hoja1": antes se tomaba
   // worksheets[0] en silencio, lo que podía atribuirle a una empresa los
   // movimientos de otra hoja/empresa sin ningún aviso. Este resultado no importa
   // nada todavía — el panel le muestra las hojas al usuario para que elija.
   | { ok: false; requiereSeleccionHoja: true; hojas: string[] }
+  // Extracto crudo: no se cargó NADA todavía, se muestra el resumen y, si el usuario
+  // confirma, se reenvía el archivo con confirmarVistaPrevia = true.
+  | { ok: false; requiereVistaPrevia: true; vista: VistaPreviaExtracto }
   // Alguna cuenta numerada de las filas nuevas ya tiene movimientos en otra
   // empresa: no se cargó NADA todavía — el panel muestra la lista y, si el usuario
   // confirma, reenvía el archivo con confirmarCuentasCompartidas = true. Avisa, no
@@ -674,71 +663,6 @@ type ResultadoImportar =
       filasNuevas: number;
       filasYaCargadas: number;
     };
-
-// Kike sube el extracto acumulativo completo cada semana (todo el período hasta la
-// fecha, no solo lo nuevo) — así que no hace falta comparar contra ninguna semana ya
-// persistida en la base: alcanza con validar que el saldo corrido sea consistente
-// DENTRO del archivo recién subido, antes de guardar nada. Agrupa por bancoYCuenta
-// normalizado (mismo criterio que normalizarClasificacion: tolera mayúsculas/tildes/
-// espacios) — es el hecho físico de la cuenta bancaria, agnóstico a unidadNegocio/
-// empresa, así que una cuenta troncal como CREAR (mezcla Fredy y Mantenor) se valida
-// igual de bien sin necesitar ningún caso especial. Usa numeroFila (orden real del
-// Excel, todavía disponible acá porque corre antes de que subirExtracto lo descarte
-// para el createMany) para desempatar varios movimientos con la misma fecha — a
-// diferencia de una consulta contra la base ya persistida, donde ese orden se pierde.
-// No bloquea la carga — solo avisa, mismo criterio que posiblesDuplicados.
-function verificarContinuidadSaldo(
-  filas: {
-    numeroFila: number;
-    fecha: Date;
-    concepto: string;
-    importe: number;
-    saldo: number | null;
-    bancoYCuenta: string;
-  }[]
-): ResultadoContinuidadSaldo[] {
-  const porCuenta = new Map<string, typeof filas>();
-  for (const fila of filas) {
-    const clave = quitarDiacriticos(fila.bancoYCuenta).trim().toUpperCase().replace(/\s+/g, " ");
-    const grupo = porCuenta.get(clave);
-    if (grupo) grupo.push(fila);
-    else porCuenta.set(clave, [fila]);
-  }
-
-  const resultados: ResultadoContinuidadSaldo[] = [];
-  for (const grupo of porCuenta.values()) {
-    const ordenado = [...grupo].sort((a, b) => a.numeroFila - b.numeroFila);
-    const rupturas: ResultadoContinuidadSaldo["rupturas"] = [];
-
-    for (let i = 1; i < ordenado.length; i++) {
-      const anterior = ordenado[i - 1];
-      const actual = ordenado[i];
-      // Saldo null en cualquiera de los dos extremos: no verificable, se salta sin
-      // marcar ni como ok ni como ruptura (no es lo mismo "no sé" que "está mal").
-      if (anterior.saldo === null || actual.saldo === null) continue;
-
-      const saldoEsperado = anterior.saldo + actual.importe;
-      const diferencia = actual.saldo - saldoEsperado;
-      if (Math.abs(diferencia) >= 0.01) {
-        rupturas.push({
-          fechaAnterior: anterior.fecha.toISOString().slice(0, 10),
-          saldoAnterior: anterior.saldo,
-          fechaSiguiente: actual.fecha.toISOString().slice(0, 10),
-          concepto: actual.concepto,
-          saldoEsperado,
-          saldoReal: actual.saldo,
-          diferencia,
-        });
-      }
-    }
-
-    if (rupturas.length > 0) {
-      resultados.push({ bancoYCuenta: grupo[0].bancoYCuenta, cantidad: rupturas.length, rupturas });
-    }
-  }
-
-  return resultados.sort((a, b) => a.bancoYCuenta.localeCompare(b.bancoYCuenta, "es"));
-}
 
 // fecha + importe — la usa aplicarCruceLiquidacionFinal para emparejar contra
 // PagoReferencia (el reconocimiento de lo ya cargado usa claveMovimiento, más
@@ -893,64 +817,39 @@ async function buscarCuentasCompartidas(
     .sort((a, b) => a.cuenta.localeCompare(b.cuenta, "es") || a.empresa.localeCompare(b.empresa, "es"));
 }
 
-// Una celda con fórmula viene de ExcelJS como { formula, result, ... } en vez de un número
-// plano; una celda con un error de fórmula rota (ej. #REF!) viene como { error: "#REF!" }.
-function esObjetoConResultadoNumerico(valor: unknown): valor is { result: number } {
-  return (
-    typeof valor === "object" &&
-    valor !== null &&
-    "result" in valor &&
-    typeof (valor as { result: unknown }).result === "number" &&
-    Number.isFinite((valor as { result: number }).result)
+type OpcionesSubida = {
+  // Hoja elegida tras el selector (archivo con varias hojas).
+  hoja?: string;
+  // true solo en el reenvío después de que el usuario vio el aviso de cuentas
+  // compartidas con otra empresa y eligió "Cargar igual".
+  confirmarCuentasCompartidas?: boolean;
+  // true solo en el reenvío después de la vista previa de un extracto crudo.
+  confirmarVistaPrevia?: boolean;
+};
+
+// Fila lista para importar. Las del extracto crudo traen además los centavos exactos
+// (importeCentavos/saldoCentavos): se usan tal cual, sin pasar por el float.
+type FilaAImportar = FilaMadre & { importeCentavos?: number; saldoCentavos?: number | null };
+
+const pesos = (centavos: number) => centavos / 100;
+
+// Cuenta + fecha + importe de lo ya cargado de UNA cuenta en UN período (presupuesto): para
+// detectar que la misma cuenta se está cargando por dos caminos (madre y crudo).
+async function obtenerFechaImporteDeLaCuentaEnElPeriodo(
+  tx: Prisma.TransactionClient,
+  presupuestoId: string,
+  cuenta: string
+) {
+  const filas = await tx.$queryRaw<{ fecha: Date; importe: string; bancoYCuenta: string }[]>`
+    SELECT mb.fecha, mb.importe::text AS importe, mb."bancoYCuenta"
+    FROM "MovimientoBancario" mb
+    JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
+    WHERE es."presupuestoId" = ${presupuestoId}
+      AND regexp_replace(upper(trim(mb."bancoYCuenta")), '\s+', ' ', 'g') = ${cuenta}
+  `;
+  return new Set(
+    filas.map((m) => claveFechaImporteCuenta(m.fecha, centavosDeDecimalTexto(m.importe), m.bancoYCuenta))
   );
-}
-
-function esObjetoConError(valor: unknown): valor is { error: string } {
-  return typeof valor === "object" && valor !== null && "error" in valor;
-}
-
-// Importe es obligatorio: si la celda venía con fórmula, se resuelve con .result;
-// si no se puede resolver a un número válido, se devuelve null y la fila se descarta.
-function extraerImporte(valorCrudo: unknown): { valor: number | null; corregidoPorFormula: boolean } {
-  if (valorCrudo == null) return { valor: 0, corregidoPorFormula: false };
-  if (typeof valorCrudo === "number") {
-    return { valor: Number.isFinite(valorCrudo) ? valorCrudo : null, corregidoPorFormula: false };
-  }
-  if (esObjetoConResultadoNumerico(valorCrudo)) {
-    return { valor: valorCrudo.result, corregidoPorFormula: true };
-  }
-  return { valor: null, corregidoPorFormula: false };
-}
-
-// Saldo es opcional (nullable en el schema): un error de fórmula (#REF!) es un problema real
-// del Excel original, no de nuestro parseo — se guarda como null sin descartar la fila.
-function extraerSaldo(
-  valorCrudo: unknown
-): { valor: number | null; corregidoPorFormula: boolean; tuvoError: boolean } {
-  if (valorCrudo == null) return { valor: null, corregidoPorFormula: false, tuvoError: false };
-  if (typeof valorCrudo === "number") {
-    return {
-      valor: Number.isFinite(valorCrudo) ? valorCrudo : null,
-      corregidoPorFormula: false,
-      tuvoError: false,
-    };
-  }
-  if (esObjetoConError(valorCrudo)) {
-    return { valor: null, corregidoPorFormula: false, tuvoError: true };
-  }
-  if (esObjetoConResultadoNumerico(valorCrudo)) {
-    return { valor: valorCrudo.result, corregidoPorFormula: true, tuvoError: false };
-  }
-  return { valor: null, corregidoPorFormula: false, tuvoError: false };
-}
-
-// Celda de unidad ("UNIDAD DE NEG" o "EMPRESA") → valor recortado, o null si viene
-// vacía o dice "SIN ASIGNAR" (cuenta como vacío, decisión 2026-10-06 — así puede
-// caer al siguiente escalón del orden en subirExtracto).
-function leerUnidadDeCelda(valorCrudo: unknown): string | null {
-  const texto = valorCrudo ? String(valorCrudo).trim() : "";
-  if (!texto || normalizarCuenta(texto) === "SIN ASIGNAR") return null;
-  return texto;
 }
 
 export async function subirExtracto(
@@ -958,20 +857,23 @@ export async function subirExtracto(
   periodo: string,
   numeroSemana: number,
   formData: FormData,
-  hojaElegida?: string,
-  // true solo en el reenvío después de que el usuario vio el aviso de cuentas
-  // compartidas con otra empresa y eligió "Cargar igual".
-  confirmarCuentasCompartidas = false
+  opciones: OpcionesSubida = {}
 ): Promise<ResultadoImportar> {
+  const { hoja: hojaElegida, confirmarCuentasCompartidas = false, confirmarVistaPrevia = false } = opciones;
   const archivo = formData.get("archivo");
 
   if (!(archivo instanceof File) || archivo.size === 0) {
     return { ok: false, error: "Elegí un archivo antes de subir." };
   }
 
-  if (!archivo.name.toLowerCase().endsWith(".xlsx")) {
-    return { ok: false, error: "El archivo tiene que ser un .xlsx." };
+  // La extensión solo filtra lo obvio: el camino (madre o extracto de un banco) se decide
+  // por el CONTENIDO del archivo.
+  if (!/\.(xlsx|xls|csv)$/i.test(archivo.name)) {
+    return { ok: false, error: "El archivo tiene que ser un .xlsx, .xls o .csv." };
   }
+
+  // Cuenta elegida en el selector ("" = archivo madre, que trae sus propias cuentas).
+  const cuentaElegida = String(formData.get("cuenta") ?? "").trim();
 
   const { empresa, presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
   const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
@@ -982,211 +884,120 @@ export async function subirExtracto(
     return { ok: false, error: "La semana ya está cerrada, no se pueden subir más movimientos." };
   }
 
-  // Dispara en paralelo con el parseo del Excel (que sigue abajo) — así no suma un
+  // Dispara en paralelo con el parseo del archivo (que sigue abajo) — así no suma un
   // round-trip secuencial más. Solo alimenta un aviso (casi-duplicados), así que
   // puede leerse fuera de la transacción de más abajo.
   const fechaImporteCuentaPromise = obtenerFechaImporteCuentaDeLaEmpresa(empresa.id);
 
-  const buffer = await archivo.arrayBuffer();
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer);
+  const bytes = new Uint8Array(await archivo.arrayBuffer());
+  const leido = await leerArchivoSubido(bytes, hojaElegida);
 
-  // Si el usuario ya eligió una hoja explícitamente (reintento tras el selector de abajo),
-  // se usa esa directo sin volver a evaluar nada.
-  let hoja = hojaElegida ? workbook.getWorksheet(hojaElegida) : undefined;
-  if (hojaElegida && !hoja) {
-    return { ok: false, error: `No encontré la hoja "${hojaElegida}" en el archivo.` };
-  }
+  if (leido.tipo === "error") return { ok: false, error: leido.error };
+  if (leido.tipo === "seleccionHoja") return { ok: false, requiereSeleccionHoja: true, hojas: leido.hojas };
 
-  if (!hoja) {
-    if (workbook.worksheets.length === 1) {
-      hoja = workbook.worksheets[0];
-    } else {
-      const hojaPorNombre = workbook.getWorksheet(NOMBRE_HOJA_EXTRACTO);
-      if (hojaPorNombre) {
-        hoja = hojaPorNombre;
-      } else {
-        // Más de una hoja y ninguna se llama "Hoja1": antes se tomaba worksheets[0]
-        // en silencio, lo que podía traer los movimientos de la empresa equivocada
-        // sin ningún aviso. Ahora se corta acá y se le pide al usuario que elija.
-        return {
-          ok: false,
-          requiereSeleccionHoja: true,
-          hojas: workbook.worksheets.map((h) => h.name),
-        };
-      }
+  let filas: FilaAImportar[];
+  let cuentaCruda: { nombre: string } | null = null;
+  let avisos: string[] = [];
+  let continuidadSaldo: ResultadoContinuidadSaldo[];
+  let resumenCrudo: { banco: string; cuenta: string } | null = null;
+
+  if (leido.tipo === "madre") {
+    if (cuentaElegida) {
+      return {
+        ok: false,
+        error:
+          'El archivo madre trae sus propias cuentas: dejá el selector en "Archivo madre (trae varias cuentas)".',
+      };
     }
-  }
-
-  if (!hoja) {
-    return { ok: false, error: "El archivo no tiene ninguna hoja." };
-  }
-
-  const FILA_HEADERS = 1;
-  const encabezados: Record<number, string> = {};
-  // Texto crudo de cada columna, matcheada o no en COLUMNAS — los fallbacks de abajo
-  // (ej. "EMPRESA") necesitan poder encontrar una columna que el diccionario ignoró.
-  const encabezadosCrudos: Record<number, string> = {};
-  const filaEncabezado = hoja.getRow(FILA_HEADERS);
-  filaEncabezado.eachCell((celda, colNumero) => {
-    const texto = normalizarEncabezado(String(celda.value ?? ""));
-    encabezadosCrudos[colNumero] = texto;
-    const campo = COLUMNAS[texto];
-    if (campo) encabezados[colNumero] = campo;
-  });
-
-  // Algunos exports por empresa (recortados del maestro) vienen sin la columna
-  // "CLASIFICACION" y dejan la clasificación real bajo "CLASIF 2" — sin este fallback,
-  // esas filas se importaban todas como "SIN CLASIFICAR" en vez de leer el dato real.
-  // Si el archivo sí trae "CLASIFICACION" (el caso normal), esto no cambia nada.
-  if (!Object.values(encabezados).includes("clasificacion")) {
-    const colClasificacion2 = Object.keys(encabezados).find(
-      (col) => encabezados[Number(col)] === "clasificacion2"
-    );
-    if (colClasificacion2) {
-      encabezados[Number(colClasificacion2)] = "clasificacion";
+    filas = leido.filas;
+    if (filas.length === 0) {
+      return { ok: false, error: "No encontré ninguna fila con datos para importar." };
     }
-  }
+    // Sobre TODAS las filas del archivo (también las que ya estaban cargadas): la
+    // continuidad es una propiedad del extracto en sí, y numeroFila (el orden real
+    // del Excel) solo existe acá — no se guarda en la base. El orden (más viejo→más
+    // nuevo o al revés) y si el saldo es el de antes o el de después del movimiento se
+    // detectan solos (lib/extractos/continuidad.ts).
+    const analisis = analizarContinuidad(filas);
+    continuidadSaldo = verificarContinuidadSaldo(filas);
+    avisos = avisosDeContinuidad(analisis, { incluirSinSaldo: false });
+  } else {
+    const { lectura } = leido;
 
-  // Algunos exports por empresa no traen "UNIDAD DE NEG" y en su lugar tienen una
-  // columna "EMPRESA" con texto libre (ej. "QUINTEROS", "SIERRA"). Confirmado con Kike
-  // (2026-10-06): EMPRESA es la razón social (SPP, LI, QUINTEROS, TUCSON), no la unidad
-  // — un error de etiqueta. Por eso se lee en un campo aparte ("empresaColumna", nunca
-  // persistido): queda DEBAJO de la sugerencia por cuenta y se traduce a unidad con el
-  // mapa por razón social (UNIDAD_POR_RAZON_SOCIAL, ver el orden más abajo) — nunca se
-  // guarda la razón social como si fuera una unidad.
-  // Si el archivo sí trae "UNIDAD DE NEG" (el caso normal, incluido el maestro),
-  // "EMPRESA" queda ignorada igual que siempre.
-  if (!Object.values(encabezados).includes("unidadNegocio")) {
-    const colEmpresa = Object.keys(encabezadosCrudos).find(
-      (col) => encabezadosCrudos[Number(col)] === "EMPRESA" && !encabezados[Number(col)]
-    );
-    if (colEmpresa) {
-      encabezados[Number(colEmpresa)] = "empresaColumna";
-    }
-  }
-
-  if (!Object.values(encabezados).includes("concepto")) {
-    return {
-      ok: false,
-      error:
-        "No encontré la columna Concepto. Revisá que el archivo tenga los encabezados esperados (Fecha, Concepto, Importe, Clasificacion, Unidad de Neg, etc).",
-    };
-  }
-
-  const filas: {
-    numeroFila: number;
-    fecha: Date;
-    nroReferencia: string | null;
-    causal: string | null;
-    concepto: string;
-    importe: number;
-    saldo: number | null;
-    bancoYCuenta: string;
-    clasificacion: string;
-    clasificacion2: string | null;
-    unidadNegocio: string;
-    detalle: string | null;
-    detalle2: string | null;
-    sugeridaPorSistema: boolean;
-    chequeIvaAmbiguo: boolean;
-    unidadSugeridaPorSistema: boolean;
-  }[] = [];
-
-  hoja.eachRow((fila, numeroFila) => {
-    if (numeroFila === FILA_HEADERS) return;
-
-    const valores: Record<string, unknown> = {};
-    fila.eachCell((celda, colNumero) => {
-      const campo = encabezados[colNumero];
-      if (campo) valores[campo] = celda.value;
+    // Validaciones en el servidor (el cliente no decide nada).
+    const cuentasDeLaEmpresa = await prisma.cuentaBancaria.findMany({
+      where: { empresaId: empresa.id },
+      select: { nombre: true, banco: true, terminacion: true, activa: true },
     });
+    if (!cuentaElegida) {
+      const sugerida = sugerirCuenta(cuentasDeLaEmpresa, lectura.banco, lectura.cuentaEnArchivo);
+      return {
+        ok: false,
+        error: sugerida
+          ? `Es un extracto de ${NOMBRE_BANCO[lectura.banco]}. Elegí la cuenta del extracto: por el número del archivo parece ser ${sugerida.nombre}.`
+          : `Es un extracto de ${NOMBRE_BANCO[lectura.banco]}. Elegí la cuenta del extracto en el selector (si no está en la lista, cargala en Administración → Cuentas bancarias).`,
+        cuentaSugerida: sugerida?.nombre,
+      };
+    }
+    const cuenta = cuentaElegida
+      ? cuentasDeLaEmpresa.find((c) => c.activa && normalizarCuenta(c.nombre) === normalizarCuenta(cuentaElegida))
+      : undefined;
+    if (!cuenta) {
+      return { ok: false, error: `La cuenta "${cuentaElegida}" no está activa en esta empresa.` };
+    }
+    const control = controlarCuentaDelArchivo(cuenta, lectura.banco, lectura.cuentaEnArchivo);
+    if (!control.ok) return { ok: false, error: control.error };
 
-    if (!valores.concepto && !valores.importe) return;
+    avisos = [...control.avisos, ...lectura.avisos];
+    // CUIT distinto del de la empresa: aviso, no bloqueo (hay cuentas compartidas legítimas).
+    const cuitEmpresa = empresa.cuit?.replace(/\D/g, "") ?? null;
+    if (lectura.cuitEnArchivo && cuitEmpresa && lectura.cuitEnArchivo !== cuitEmpresa) {
+      avisos.push(
+        `El CUIT del archivo (${lectura.cuitEnArchivo}) no es el de ${empresa.nombre} (${cuitEmpresa}): revisá que sea la empresa correcta.`
+      );
+    }
 
-    const { valor: importeExtraido } = extraerImporte(valores.importe);
-    if (importeExtraido === null) return;
-
-    const { valor: saldoExtraido } = extraerSaldo(valores.saldo);
-
-    const fechaValor = valores.fecha;
-    const fecha =
-      fechaValor instanceof Date
-        ? fechaValor
-        : new Date(String(fechaValor ?? new Date().toISOString()));
-
-    const concepto = String(valores.concepto ?? "(sin concepto)");
-
-    // Separado en variables (en vez de un solo ternario anidado) para poder
-    // distinguir de dónde salió la clasificación: sugeridaPorSistema solo
-    // queda en true cuando la propuso el motor de leyenda acá mismo — un
-    // valor explícito del archivo o el fallback "SIN CLASIFICAR" no son una
-    // sugerencia que alguien tenga que confirmar, son el dato real de Kike o
-    // un vacío. Los cruces de más abajo (aplicarCruceLiquidacionFinal /
-    // aplicarCruceChequeIva) vuelven a poner esto en true si terminan
-    // pisando el valor de acá con el suyo propio.
-    const clasificacionExplicita = valores.clasificacion
-      ? normalizarClasificacion(String(valores.clasificacion))
-      : null;
-    const clasificacionAutomatica = clasificacionExplicita
-      ? null
-      : proponerClasificacionAutomatica(concepto);
-
-    // Orden (decisión 2026-10-07):
-    //   1. "UNIDAD DE NEG" con una unidad VÁLIDA de la lista → se respeta siempre
-    //      (guardada con el nombre canónico: "SPP " → "SPP").
-    //   2. mapa por cuenta bancaria (UNIDAD_POR_CUENTA) → sugerida.
-    //   3. mapa por razón social (UNIDAD_POR_RAZON_SOCIAL) → sugerida. La razón
-    //      social sale de la columna "EMPRESA" o, si "UNIDAD DE NEG" trae algo que
-    //      no es una unidad de la lista (ej. "QUINTEROS" — error de etiqueta
-    //      confirmado por Kike), de esa misma celda.
-    //   4. "SIN ASIGNAR" (incluidas las razones sociales MIXTAS: LI, TUCSON,
-    //      CREAR, CIELOS, LI RATIO — revisión manual).
-    // "SIN ASIGNAR" literal en cualquiera de las dos columnas cuenta como vacío.
-    const bancoYCuenta = valores.bancoYCuenta ? String(valores.bancoYCuenta) : "(sin banco)";
-    const celdaUnidad = leerUnidadDeCelda(valores.unidadNegocio);
-    const unidadExplicita = celdaUnidad ? unidadDeLaLista(celdaUnidad) : null;
-    const unidadPorCuenta = unidadExplicita ? null : proponerUnidadPorCuenta(bancoYCuenta);
-    const razonSocial =
-      celdaUnidad && !unidadExplicita ? celdaUnidad : leerUnidadDeCelda(valores.empresaColumna);
-    const unidadPorRazonSocial =
-      unidadExplicita || unidadPorCuenta || !razonSocial ? null : proponerUnidadPorRazonSocial(razonSocial);
-
-    filas.push({
-      numeroFila,
-      fecha,
-      nroReferencia: valores.nroReferencia ? String(valores.nroReferencia) : null,
-      causal: valores.causal ? String(valores.causal) : null,
-      concepto,
-      importe: importeExtraido,
-      saldo: saldoExtraido,
-      bancoYCuenta,
-      clasificacion: clasificacionExplicita ?? clasificacionAutomatica ?? "SIN CLASIFICAR",
-      clasificacion2: valores.clasificacion2 ? String(valores.clasificacion2) : null,
-      unidadNegocio: unidadExplicita ?? unidadPorCuenta ?? unidadPorRazonSocial ?? "SIN ASIGNAR",
-      detalle: valores.detalle ? String(valores.detalle) : null,
-      detalle2: valores.detalle2 ? String(valores.detalle2) : null,
-      sugeridaPorSistema: clasificacionAutomatica !== null,
+    // La unidad sale del mapa por cuenta; no se clasifica por leyenda (va en otra etapa).
+    const unidadPorCuenta = proponerUnidadPorCuenta(cuenta.nombre);
+    filas = lectura.filas.map((f) => ({
+      numeroFila: f.numeroFila,
+      fecha: f.fecha,
+      nroReferencia: f.referencia,
+      causal: f.causal,
+      concepto: f.concepto,
+      importe: pesos(f.importeCentavos),
+      saldo: f.saldoCentavos === null ? null : pesos(f.saldoCentavos),
+      importeCentavos: f.importeCentavos,
+      saldoCentavos: f.saldoCentavos,
+      bancoYCuenta: cuenta.nombre,
+      clasificacion: "SIN CLASIFICAR",
+      clasificacion2: null,
+      unidadNegocio: unidadPorCuenta ?? "SIN ASIGNAR",
+      detalle: f.detalle,
+      detalle2: null,
+      sugeridaPorSistema: false,
       chequeIvaAmbiguo: false,
-      unidadSugeridaPorSistema: unidadPorCuenta !== null || unidadPorRazonSocial !== null,
-    });
-  });
+      unidadSugeridaPorSistema: unidadPorCuenta !== null,
+    }));
 
-  if (filas.length === 0) {
-    return { ok: false, error: "No encontré ninguna fila con datos para importar." };
+    // Las filas ya vienen cronológicas y con el saldo posterior; se numeran en ese orden.
+    const analisis = analizarContinuidad(filas.map((f, i) => ({ ...f, numeroFila: i })));
+    continuidadSaldo = verificarContinuidadSaldo(filas.map((f, i) => ({ ...f, numeroFila: i })));
+    avisos.push(...avisosDeContinuidad(analisis));
+    if (unidadPorCuenta === null) {
+      avisos.push(`${cuenta.nombre} no tiene unidad sugerida: los movimientos entran como SIN ASIGNAR.`);
+    }
+    cuentaCruda = { nombre: cuenta.nombre };
+    resumenCrudo = { banco: NOMBRE_BANCO[lectura.banco], cuenta: cuenta.nombre };
   }
-
-  // Sobre TODAS las filas del archivo (también las que ya estaban cargadas): la
-  // continuidad es una propiedad del extracto en sí, y numeroFila (el orden real
-  // del Excel) solo existe acá — no se guarda en la base.
-  const continuidadSaldo = verificarContinuidadSaldo(filas);
 
   // Importe y saldo en centavos, redondeados igual que Postgres: es lo que entra
   // en la clave y, como texto decimal exacto, lo que se guarda (así lo guardado y
   // la clave nunca difieren por un centavo de float).
   const filasConClave = filas.map((f) => {
-    const importeCentavos = centavosDeNumero(f.importe);
-    const saldoCentavos = f.saldo === null ? null : centavosDeNumero(f.saldo);
+    const importeCentavos = f.importeCentavos ?? centavosDeNumero(f.importe);
+    const saldoCentavos =
+      f.saldoCentavos !== undefined ? f.saldoCentavos : f.saldo === null ? null : centavosDeNumero(f.saldo);
     return {
       fila: f,
       importeCentavos,
@@ -1223,6 +1034,72 @@ export async function subirExtracto(
       const yaCargadas = await obtenerClavesDelPresupuesto(tx, presupuesto.id);
       const { nuevas, cantidadYaCargadas } = separarNuevas(filasConClave, (f) => f.clave, yaCargadas);
 
+      // Casi-duplicados: solo entre las NUEVAS (las coincidencias exactas ya
+      // quedaron reconocidas arriba y no se cargan). Se cargan igual.
+      const casiDuplicados: PosibleDuplicado[] = nuevas
+        .filter((n) =>
+          fechaImporteCuentaEmpresa.has(
+            claveFechaImporteCuenta(n.fila.fecha, n.importeCentavos, n.fila.bancoYCuenta)
+          )
+        )
+        .map((n) => ({
+          fila: n.fila.numeroFila,
+          fecha: n.fila.fecha.toISOString().slice(0, 10),
+          importe: n.fila.importe,
+          bancoYCuenta: n.fila.bancoYCuenta,
+          concepto: n.fila.concepto,
+        }));
+
+      if (cuentaCruda && nuevas.length > 0) {
+        // UNA cuenta y período por un solo camino (madre o crudo): si la cuenta ya tiene
+        // movimientos en este período, ninguna fila de este archivo coincide exactamente
+        // con ellos pero sí hay filas con la misma fecha e importe, es casi seguro que
+        // esos movimientos entraron por el OTRO camino (la clave de reconocimiento no
+        // coincide fila a fila) y cargar acá los duplicaría. No hay una columna "origen"
+        // en la base: se infiere así.
+        const delPeriodo = await obtenerFechaImporteDeLaCuentaEnElPeriodo(
+          tx,
+          presupuesto.id,
+          normalizarCuenta(cuentaCruda.nombre)
+        );
+        const parecidas = nuevas.filter((n) =>
+          delPeriodo.has(claveFechaImporteCuenta(n.fila.fecha, n.importeCentavos, n.fila.bancoYCuenta))
+        ).length;
+        if (delPeriodo.size > 0 && cantidadYaCargadas === 0 && parecidas > 0) {
+          return {
+            ok: false as const,
+            error: `La cuenta ${cuentaCruda.nombre} ya tiene movimientos cargados en este período por otro camino (archivo madre o extracto crudo), y ${parecidas} de las filas de este archivo tienen la misma fecha e importe que algunos de ellos. Una cuenta se carga por un solo camino por período para no duplicar. No se cargó nada.`,
+          };
+        }
+      }
+
+      // Extracto crudo: primero se muestra qué se va a cargar y se pide confirmar.
+      if (resumenCrudo && !confirmarVistaPrevia && nuevas.length > 0) {
+        const todas = filasConClave.map((f) => f.importeCentavos);
+        const fechas = filas.map((f) => f.fecha.getTime());
+        const creditos = todas.filter((c) => c > 0).reduce((a, c) => a + c, 0);
+        const debitos = todas.filter((c) => c < 0).reduce((a, c) => a + c, 0);
+        return {
+          ok: false as const,
+          requiereVistaPrevia: true as const,
+          vista: {
+            banco: resumenCrudo.banco,
+            cuenta: resumenCrudo.cuenta,
+            filas: filas.length,
+            desde: new Date(Math.min(...fechas)).toISOString().slice(0, 10),
+            hasta: new Date(Math.max(...fechas)).toISOString().slice(0, 10),
+            creditos: pesos(creditos),
+            debitos: pesos(debitos),
+            neto: pesos(creditos + debitos),
+            nuevas: nuevas.length,
+            yaCargadas: cantidadYaCargadas,
+            posiblesDuplicados: casiDuplicados.length,
+            avisos,
+            continuidadSaldo,
+          },
+        };
+      }
+
       if (!confirmarCuentasCompartidas && nuevas.length > 0) {
         const cuentas = await buscarCuentasCompartidas(
           tx,
@@ -1240,30 +1117,15 @@ export async function subirExtracto(
         }
       }
 
-      // Casi-duplicados: solo entre las NUEVAS (las coincidencias exactas ya
-      // quedaron reconocidas arriba y no se cargan). Se cargan igual.
-      const casiDuplicados: PosibleDuplicado[] = nuevas
-        .filter((n) =>
-          fechaImporteCuentaEmpresa.has(
-            claveFechaImporteCuenta(n.fila.fecha, n.importeCentavos, n.fila.bancoYCuenta)
-          )
-        )
-        .map((n) => ({
-          fila: n.fila.numeroFila,
-          fecha: n.fila.fecha.toISOString().slice(0, 10),
-          importe: n.fila.importe,
-          bancoYCuenta: n.fila.bancoYCuenta,
-          concepto: n.fila.concepto,
-        }));
-
       const filasNuevas = nuevas.map((n) => n.fila);
       // Ambas mutan fila.clasificacion in-place cuando corresponde — tienen que
       // correr antes del createMany de abajo, y SOLO sobre las filas nuevas (las
       // ya cargadas no se tocan). Independientes entre sí (una mira Sueldos/
       // Liquidación final, la otra CHEQUE P/CAMARA) — no compiten por la misma fila.
+      // El extracto crudo no se clasifica en esta etapa: no pasa por estos cruces.
       const liquidacionesAmbiguas =
-        filasNuevas.length > 0 ? await aplicarCruceLiquidacionFinal(filasNuevas) : [];
-      if (filasNuevas.length > 0) await aplicarCruceChequeIva(filasNuevas);
+        filasNuevas.length > 0 && !cuentaCruda ? await aplicarCruceLiquidacionFinal(filasNuevas) : [];
+      if (filasNuevas.length > 0 && !cuentaCruda) await aplicarCruceChequeIva(filasNuevas);
 
       if (nuevas.length > 0) {
         await tx.movimientoBancario.createMany({
@@ -1296,7 +1158,8 @@ export async function subirExtracto(
         cantidadPosiblesDuplicados: casiDuplicados.length,
         continuidadSaldo,
         liquidacionesAmbiguas,
-        hoja: hojaElegida ? hoja.name : undefined,
+        avisos,
+        hoja: hojaElegida && leido.tipo === "madre" ? leido.hoja : undefined,
       };
     },
     { maxWait: 10_000, timeout: 120_000 }

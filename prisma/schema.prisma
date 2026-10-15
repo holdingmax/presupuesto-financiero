@@ -46,6 +46,7 @@ model Empresa {
   presupuestos PresupuestoMensual[]
   usuarios     UsuarioEmpresa[]
   valoresManualesReporte ValorManualReporte[]
+  cuentasBancarias       CuentaBancaria[]
 
   @@index([cuit])
 }
@@ -366,4 +367,24 @@ model ValorManualReporte {
   cargadoPor Usuario @relation(fields: [cargadoPorId], references: [id])
 
   @@unique([empresaId, periodo, filaClave, columna])
+}
+
+// Cuentas bancarias de cada empresa, para el selector de "Subir extracto" (plan:
+// docs/lector_bancos_plan.md §4). Se cargan a mano desde /admin/cuentas-bancarias;
+// se desactivan (activa=false), no se borran. `nombre` es el canónico y coincide con
+// MovimientoBancario.bancoYCuenta y con las claves de UNIDAD_POR_CUENTA ("MACRO 599").
+// `terminacion` = últimos dígitos del número de cuenta, para validar el del archivo.
+model CuentaBancaria {
+  id          String   @id @default(uuid())
+  empresaId   String
+  nombre      String   // canónico, el mismo que bancoYCuenta: "MACRO 599"
+  banco       String   // MACRO | GALICIA | FRANCES | BNA | SANTANDER | BSE
+  terminacion String   // dígitos finales con los que se valida el número del archivo: "599"
+  activa      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  empresa Empresa @relation(fields: [empresaId], references: [id])
+
+  @@unique([empresaId, nombre])
 }

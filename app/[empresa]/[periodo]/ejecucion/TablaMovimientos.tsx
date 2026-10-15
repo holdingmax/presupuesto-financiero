@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { formatearImporte } from "./formato";
+import { formatearImporteConCentavos } from "./formato";
 import { eliminarDesgloseMovimiento } from "./actions";
 import { opcionesUnidad } from "@/lib/unidadesNegocio";
 import { aCentavos, formatearCentavos, formatearPorcentaje, porcentajeDeCentavos } from "@/lib/prorrateo";
@@ -256,7 +256,7 @@ export default function TablaMovimientos({
                 m.importe < 0 ? "text-negative" : "text-positive"
               }`}
             >
-              ${formatearImporte(m.importe)}
+              ${formatearImporteConCentavos(m.importe)}
             </td>
             <td className="py-2 pr-3">
               {soloLectura ? (

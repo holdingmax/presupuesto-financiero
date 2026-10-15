@@ -105,6 +105,22 @@ const UNIDAD_POR_CUENTA: Record<string, string> = {
   "FRANCES 825": "SPP",
   "MACRO 599": "SPP",
 
+  // HWC: en el madre de Kike figuran con EMPRESA = HWC (2026-10-15). Pendiente K-2: HWC vs HANDYWAY.
+  "BNA 241": "HWC",
+  "SANT 099": "HWC",
+  // Cuentas de los madres HWC y Fredy (31.07); Kike confirmó que no mezclan unidades (2026-10-15).
+  "FRANCES 525": "HWC",
+  "MACRO 833": "HWC",
+  "MACRO 918": "HWC",
+  "GALICIA 249": "FREDY",
+  "MACRO 160": "FREDY",
+  "MACRO 154": "FREDY",
+  "MACRO 432": "FREDY",
+  "MACRO 789": "FREDY",
+  "MACRO 669": "FREDY",
+  "MACRO 672": "FREDY",
+  "MACRO 870": "FREDY",
+
   "GALICIA 731": "MANTENOR",
   "MACRO 623": "MANTENOR",
   "MACRO 794": "MANTENOR",

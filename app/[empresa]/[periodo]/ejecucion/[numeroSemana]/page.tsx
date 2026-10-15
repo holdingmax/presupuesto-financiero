@@ -82,6 +82,7 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
         unidadesSugeridas={datos.unidadesSugeridas}
         sinUnidadAsignada={datos.sinUnidadAsignada}
         sugerenciasClasificacion={datos.sugerenciasClasificacion}
+        cuentasBancarias={datos.cuentasBancarias}
       />
     );
   }

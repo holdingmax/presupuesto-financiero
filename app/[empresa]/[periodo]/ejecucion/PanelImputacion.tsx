@@ -17,6 +17,7 @@ import {
   type ResultadoLiquidacionAmbigua,
   type PosibleDuplicado,
   type CuentaCompartida,
+  type VistaPreviaExtracto,
 } from "./actions";
 import TablaMovimientos from "./TablaMovimientos";
 import Paginacion from "./Paginacion";
@@ -24,7 +25,7 @@ import PanelChequeos from "./PanelChequeos";
 import PanelSugerenciasPendientes from "./PanelSugerenciasPendientes";
 import PanelUnidadesSugeridas, { claveGrupo } from "./PanelUnidadesSugeridas";
 import AlertaContinuidadSaldo from "./AlertaContinuidadSaldo";
-import { formatearImporte } from "./formato";
+import { formatearImporte, formatearImporteConCentavos } from "./formato";
 
 // Sin librería de íconos en el proyecto — SVG a mano, mismo criterio que
 // IconoOjo/IconoMenu.
@@ -72,6 +73,8 @@ type Props = {
   // Sugerencias de clasificación de TODA la semana (no de la página), armadas
   // en el server — ver agruparSugerenciasClasificacion en actions.ts.
   sugerenciasClasificacion: GrupoSugerenciaClasificacion[];
+  // Cuentas activas de la empresa, para el selector del extracto crudo.
+  cuentasBancarias: { nombre: string; banco: string }[];
 };
 
 export default function PanelImputacion({
@@ -89,6 +92,7 @@ export default function PanelImputacion({
   unidadesSugeridas,
   sinUnidadAsignada,
   sugerenciasClasificacion,
+  cuentasBancarias,
 }: Props) {
   const router = useRouter();
   const { empresa: empresaSlug, periodo } = useParams<{
@@ -126,6 +130,15 @@ export default function PanelImputacion({
     archivo: File;
     hoja?: string;
   } | null>(null);
+  // "" = archivo madre (trae varias cuentas); si no, el nombre canónico de la cuenta del extracto crudo.
+  const [cuenta, setCuenta] = useState("");
+  // Resumen de un extracto crudo antes de cargarlo: mientras está visible no se cargó nada.
+  const [vistaPrevia, setVistaPrevia] = useState<{
+    vista: VistaPreviaExtracto;
+    archivo: File;
+    hoja?: string;
+  } | null>(null);
+  const [avisosSubida, setAvisosSubida] = useState<string[]>([]);
   const [continuidadSaldo, setContinuidadSaldo] = useState<ResultadoContinuidadSaldo[]>([]);
   const [liquidacionesAmbiguas, setLiquidacionesAmbiguas] = useState<ResultadoLiquidacionAmbigua[]>(
     []
@@ -148,7 +161,12 @@ export default function PanelImputacion({
   // hoja elegida (archivo con varias hojas) o con la confirmación de cuentas
   // compartidas — en los dos se reenvía el mismo File ya elegido del disco, sin que
   // el usuario tenga que volver a seleccionarlo.
-  async function enviarArchivo(archivo: File, hoja?: string, confirmarCuentas = false) {
+  async function enviarArchivo(
+    archivo: File,
+    hoja?: string,
+    confirmarCuentas = false,
+    confirmarPrevia = false
+  ) {
     setSubiendo(true);
     setErrorSubida("");
     setMensajeExito("");
@@ -159,17 +177,23 @@ export default function PanelImputacion({
     setHojasDisponibles([]);
     setArchivoAmbiguo(null);
     setCuentasCompartidas(null);
+    setVistaPrevia(null);
+    setAvisosSubida([]);
 
     const formData = new FormData();
     formData.append("archivo", archivo);
+    formData.append("cuenta", cuenta);
 
     const resultado = await subirExtracto(
       empresaSlug,
       periodo,
       numeroSemana,
       formData,
-      hoja,
-      confirmarCuentas
+      {
+        hoja,
+        confirmarCuentasCompartidas: confirmarCuentas,
+        confirmarVistaPrevia: confirmarPrevia,
+      }
     );
 
     setSubiendo(false);
@@ -178,6 +202,10 @@ export default function PanelImputacion({
       if ("requiereSeleccionHoja" in resultado) {
         setHojasDisponibles(resultado.hojas);
         setArchivoAmbiguo(archivo);
+        return;
+      }
+      if ("requiereVistaPrevia" in resultado) {
+        setVistaPrevia({ vista: resultado.vista, archivo, hoja });
         return;
       }
       if ("requiereConfirmacionCuentas" in resultado) {
@@ -189,6 +217,7 @@ export default function PanelImputacion({
         });
         return;
       }
+      if (resultado.cuentaSugerida) setCuenta(resultado.cuentaSugerida);
       setErrorSubida(resultado.error);
       return;
     }
@@ -204,6 +233,7 @@ export default function PanelImputacion({
             ya === 1 ? "1 ya estaba cargado" : `${ya} ya estaban cargados`
           } (no se duplicaron).`
     );
+    setAvisosSubida(resultado.avisos);
     setPosiblesDuplicados(resultado.posiblesDuplicados);
     setCantidadPosiblesDuplicados(resultado.cantidadPosiblesDuplicados);
     setContinuidadSaldo(resultado.continuidadSaldo);
@@ -418,14 +448,33 @@ export default function PanelImputacion({
             )}
           </div>
           <p className="text-xs text-ink-muted mb-4">
-            Archivo .xlsx con las columnas Fecha, Concepto, Importe, Clasificacion, Unidad de
-            Neg, etc.
+            Archivo madre (.xlsx con las columnas Fecha, Concepto, Importe, Clasificacion, Unidad de
+            Neg, etc.) o extracto de un banco tal cual se descarga (Macro, Galicia, BBVA Francés,
+            Nación, Santander, Santiago del Estero: .xls, .xlsx o .csv).
           </p>
+          <div className="mb-3 flex items-center gap-3">
+            <label htmlFor="cuenta-extracto" className="text-xs text-ink-secondary whitespace-nowrap">
+              Cuenta del extracto
+            </label>
+            <select
+              id="cuenta-extracto"
+              value={cuenta}
+              onChange={(e) => setCuenta(e.target.value)}
+              className="h-9 px-2 rounded-md border border-line bg-paper text-sm text-ink focus:outline-none focus:border-marino"
+            >
+              <option value="">Archivo madre (trae varias cuentas)</option>
+              {cuentasBancarias.map((c) => (
+                <option key={c.nombre} value={c.nombre}>
+                  {c.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="flex items-center gap-3">
             <input
               ref={fileInputRef}
               type="file"
-              accept=".xlsx"
+              accept=".xlsx,.xls,.csv"
               className="text-sm text-ink-secondary file:mr-3 file:h-9 file:px-3 file:rounded-md file:border file:border-line file:bg-paper file:text-sm file:text-ink-secondary hover:file:border-line-strong"
             />
             <button
@@ -467,6 +516,81 @@ export default function PanelImputacion({
               {mensajeExito}
             </p>
           )}
+          {vistaPrevia && (
+            <div className="mt-3 text-sm bg-marino-tint text-marino rounded-md px-3 py-3">
+              <p className="font-medium">
+                Todavía no se cargó nada: revisá el resumen y compará con la pantalla del banco.
+              </p>
+              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-xs tabular">
+                <dt>Banco / cuenta</dt>
+                <dd>
+                  {vistaPrevia.vista.banco} · {vistaPrevia.vista.cuenta}
+                </dd>
+                <dt>Movimientos</dt>
+                <dd>
+                  {vistaPrevia.vista.filas} ({vistaPrevia.vista.nuevas} nuevos, {vistaPrevia.vista.yaCargadas} ya
+                  cargados)
+                </dd>
+                <dt>Fechas</dt>
+                <dd>
+                  {vistaPrevia.vista.desde} a {vistaPrevia.vista.hasta}
+                </dd>
+                <dt>Total créditos</dt>
+                <dd>${formatearImporteConCentavos(vistaPrevia.vista.creditos)}</dd>
+                <dt>Total débitos</dt>
+                <dd>${formatearImporteConCentavos(vistaPrevia.vista.debitos)}</dd>
+                <dt>Neto</dt>
+                <dd>${formatearImporteConCentavos(vistaPrevia.vista.neto)}</dd>
+              </dl>
+              {vistaPrevia.vista.avisos.length > 0 && (
+                <ul className="mt-2 list-disc pl-5 text-xs">
+                  {vistaPrevia.vista.avisos.map((a) => (
+                    <li key={a}>{a}</li>
+                  ))}
+                </ul>
+              )}
+              {vistaPrevia.vista.posiblesDuplicados > 0 && (
+                <p className="mt-2 text-xs text-terracota">
+                  {vistaPrevia.vista.posiblesDuplicados} movimientos nuevos se parecen a otros ya cargados (misma
+                  cuenta, fecha e importe).
+                </p>
+              )}
+              {vistaPrevia.vista.continuidadSaldo.length > 0 && (
+                <p className="mt-2 text-xs text-terracota">
+                  Hay saltos en el saldo del archivo ({vistaPrevia.vista.continuidadSaldo[0].cantidad}). Se
+                  muestran al cargar.
+                </p>
+              )}
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  disabled={subiendo}
+                  onClick={() => enviarArchivo(vistaPrevia.archivo, vistaPrevia.hoja, false, true)}
+                  className="h-8 px-3 rounded-md bg-marino text-white text-xs font-medium hover:bg-marino-dark active:scale-[0.99] transition disabled:opacity-50"
+                >
+                  Confirmar y cargar ({vistaPrevia.vista.nuevas} movimientos)
+                </button>
+                <button
+                  type="button"
+                  disabled={subiendo}
+                  onClick={() => {
+                    setVistaPrevia(null);
+                    if (fileInputRef.current) fileInputRef.current.value = "";
+                  }}
+                  className="h-8 px-3 rounded-md border border-marino text-marino text-xs font-medium hover:bg-paper transition disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+          {avisosSubida.length > 0 && (
+            <ul className="mt-3 list-disc pl-8 text-xs text-ink-secondary">
+              {avisosSubida.map((a) => (
+                <li key={a}>{a}</li>
+              ))}
+            </ul>
+          )}
           {cuentasCompartidas && (
             <div className="mt-3 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
               <p className="font-medium">
@@ -494,7 +618,7 @@ export default function PanelImputacion({
                   type="button"
                   disabled={subiendo}
                   onClick={() =>
-                    enviarArchivo(cuentasCompartidas.archivo, cuentasCompartidas.hoja, true)
+                    enviarArchivo(cuentasCompartidas.archivo, cuentasCompartidas.hoja, true, true)
                   }
                   className="h-8 px-3 rounded-md bg-terracota text-white text-xs font-medium hover:opacity-90 active:scale-[0.99] transition disabled:opacity-50"
                 >

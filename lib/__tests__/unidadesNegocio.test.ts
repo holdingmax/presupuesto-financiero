@@ -52,3 +52,17 @@ test("toda unidad de las razones sociales y las cuentas está en la lista cerrad
   }
   assert.equal(new Set(UNIDADES_NEGOCIO).size, UNIDADES_NEGOCIO.length);
 });
+
+test("cuenta → unidad: BNA 241 y SANT 099 son de HWC (madre de Kike, EMPRESA = HWC)", () => {
+  assert.equal(proponerUnidadPorCuenta("BNA 241"), "HWC");
+  assert.equal(proponerUnidadPorCuenta("SANT 099"), "HWC");
+  assert.equal(proponerUnidadPorCuenta(" sant  099 "), "HWC");
+  assert.equal(proponerUnidadPorCuenta("SANTANDER 099"), null);
+});
+
+test("cuenta → unidad: las 11 cuentas de los madres HWC y Fredy", () => {
+  for (const c of ["FRANCES 525", "MACRO 833", "MACRO 918"]) assert.equal(proponerUnidadPorCuenta(c), "HWC", c);
+  for (const c of ["GALICIA 249", "MACRO 160", "MACRO 154", "MACRO 432", "MACRO 789", "MACRO 669", "MACRO 672", "MACRO 870"]) {
+    assert.equal(proponerUnidadPorCuenta(c), "FREDY", c);
+  }
+});
