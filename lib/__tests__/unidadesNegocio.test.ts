@@ -60,6 +60,25 @@ test("cuenta → unidad: BNA 241 y SANT 099 son de HWC (madre de Kike, EMPRESA =
   assert.equal(proponerUnidadPorCuenta("SANTANDER 099"), null);
 });
 
+test("cuenta → unidad: lista vigente de Flavia (2026-10-16)", () => {
+  const esperado: Record<string, string> = {
+    "MACRO 575": "SPP",
+    "MACRO 247": "SPP",
+    "MACRO 546": "BRILLANTE",
+    "MACRO 450": "BRILLANTE",
+    "MACRO 571": "MANTENOR",
+    "MACRO 831": "FREDY",
+    "MACRO 715": "RADIO",
+    "MACRO 906": "RADIO",
+  };
+  for (const [c, u] of Object.entries(esperado)) assert.equal(proponerUnidadPorCuenta(c), u, c);
+  // FRANCES 907 va con la misma unidad que FRANCES 891 (Web Master).
+  assert.equal(proponerUnidadPorCuenta("FRANCES 907"), proponerUnidadPorCuenta("FRANCES 891"));
+  assert.equal(proponerUnidadPorCuenta("FRANCES 907"), "LOGISTICA");
+  // MACRO 8037 ya no se usa pero se conserva por los movimientos viejos.
+  assert.equal(proponerUnidadPorCuenta("MACRO 8037"), "BRILLANTE");
+});
+
 test("cuenta → unidad: las 11 cuentas de los madres HWC y Fredy", () => {
   for (const c of ["FRANCES 525", "MACRO 833", "MACRO 918"]) assert.equal(proponerUnidadPorCuenta(c), "HWC", c);
   for (const c of ["GALICIA 249", "MACRO 160", "MACRO 154", "MACRO 432", "MACRO 789", "MACRO 669", "MACRO 672", "MACRO 870"]) {

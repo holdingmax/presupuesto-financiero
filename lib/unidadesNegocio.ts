@@ -76,9 +76,11 @@ const UNIDAD_POR_CUENTA: Record<string, string> = {
   "BNA 497": "BRILLANTE",
   "BSE 042": "BRILLANTE",
   "MACRO 182": "BRILLANTE",
-  "MACRO 247": "BRILLANTE",
   "FRANCES 603": "BRILLANTE",
   "GALICIA 336": "BRILLANTE",
+  // Lista vigente de Flavia (2026-10-16).
+  "MACRO 546": "BRILLANTE",
+  "MACRO 450": "BRILLANTE",
 
   "MACRO 325": "RADIO",
   "MACRO 924": "RADIO",
@@ -86,6 +88,8 @@ const UNIDAD_POR_CUENTA: Record<string, string> = {
   "MACRO 689": "RADIO",
   "MACRO 931": "RADIO",
   "MACRO 216": "RADIO",
+  "MACRO 715": "RADIO",
+  "MACRO 906": "RADIO",
 
   "MACRO 565": "HAVANNA",
   "GALICIA 548": "HAVANNA",
@@ -93,6 +97,7 @@ const UNIDAD_POR_CUENTA: Record<string, string> = {
   "MACRO 597": "HAVANNA",
 
   "FRANCES 891": "LOGISTICA",
+  "FRANCES 907": "LOGISTICA",
   "MACRO 777": "LOGISTICA",
   // Excepción de la razón social LI (→ BRILLANTE): esta cuenta es de SPP
   // (Conexión), tabla oficial de Kike 2026-10-13. La cuenta gana sobre la razón
@@ -104,6 +109,9 @@ const UNIDAD_POR_CUENTA: Record<string, string> = {
   "GALICIA 285": "SPP",
   "FRANCES 825": "SPP",
   "MACRO 599": "SPP",
+  "MACRO 575": "SPP",
+  // Flavia la ubica en Conexión (LI); antes figuraba como BRILLANTE.
+  "MACRO 247": "SPP",
 
   // HWC: en el madre de Kike figuran con EMPRESA = HWC (2026-10-15). Pendiente K-2: HWC vs HANDYWAY.
   "BNA 241": "HWC",
@@ -120,10 +128,12 @@ const UNIDAD_POR_CUENTA: Record<string, string> = {
   "MACRO 669": "FREDY",
   "MACRO 672": "FREDY",
   "MACRO 870": "FREDY",
+  "MACRO 831": "FREDY",
 
   "GALICIA 731": "MANTENOR",
   "MACRO 623": "MANTENOR",
   "MACRO 794": "MANTENOR",
+  "MACRO 571": "MANTENOR",
 };
 
 // Único punto de uso: subirExtracto (ejecucion/actions.ts), solo cuando el archivo
