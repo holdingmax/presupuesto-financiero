@@ -1,8 +1,8 @@
-import PanelImputacion from "../PanelImputacion";
-import TablaMovimientos from "../TablaMovimientos";
-import Paginacion from "../Paginacion";
-import { formatearImporte } from "../formato";
-import { obtenerDatosSemana, calcularChequeosSumaCero } from "../actions";
+import Link from "next/link";
+import TablaMovimientos from "@/app/ejecucion/TablaMovimientos";
+import Paginacion from "@/app/ejecucion/Paginacion";
+import { formatearImporte } from "@/app/ejecucion/formato";
+import { obtenerDatosSemanaDeEmpresa } from "../datos";
 import { AccesoDenegadoError } from "@/lib/auth";
 import { textoTrazabilidad } from "@/lib/fecha";
 
@@ -16,11 +16,9 @@ function parsearPagina(paginaParam: string | undefined) {
   return Number.isInteger(pagina) && pagina >= 1 ? pagina : 1;
 }
 
-// Solo lectura en la consulta: nunca crea una semana (eso lo hace únicamente
-// el índice en ../page.tsx). Renderiza editable solo si la semana está ABIERTA
-// Y el usuario puede operar Ejecución de esta empresa — cualquier otra
-// combinación (cerrada, o abierta pero sin permiso de operar) cae en el mismo
-// bloque de solo lectura.
+// Pestaña "Ejecución financiera" de la empresa: SOLO LECTURA y filtrada a lo que es de esta
+// empresa (docs/ejecucion_global_plan.md §3.4). Subir, editar y cerrar se hace en el módulo global
+// (/ejecucion), al que lleva el enlace de arriba para quien opera o es ADMIN/FINANZAS.
 export default async function EjecucionSemanaPage({ params, searchParams }: Props) {
   const { empresa, periodo, numeroSemana: numeroSemanaParam } = await params;
   const { pagina: paginaParam, filtro } = await searchParams;
@@ -39,7 +37,7 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
 
   let datos;
   try {
-    datos = await obtenerDatosSemana(
+    datos = await obtenerDatosSemanaDeEmpresa(
       empresa,
       periodo,
       numeroSemana,
@@ -57,33 +55,8 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
   if (!datos) {
     return (
       <div className="mx-auto w-full max-w-5xl px-6 py-10">
-        <p className="text-sm text-ink-muted">
-          No encontré la semana {numeroSemana}.
-        </p>
+        <p className="text-sm text-ink-muted">No encontré la semana {numeroSemana}.</p>
       </div>
-    );
-  }
-
-  if (datos.estado === "ABIERTA" && datos.puedeOperar) {
-    const chequeos = await calcularChequeosSumaCero(empresa, periodo, numeroSemana);
-    return (
-      <PanelImputacion
-        empresaNombre={datos.empresaNombre}
-        numeroSemana={datos.numeroSemana}
-        estado={datos.estado}
-        movimientosIniciales={datos.movimientos}
-        clasificacionesDisponibles={datos.clasificacionesDisponibles}
-        totalMovimientos={datos.totalMovimientos}
-        totalImporte={datos.totalImporte}
-        pagina={datos.pagina}
-        totalPaginas={datos.totalPaginas}
-        soloSinClasificar={datos.soloSinClasificar}
-        chequeos={chequeos}
-        unidadesSugeridas={datos.unidadesSugeridas}
-        sinUnidadAsignada={datos.sinUnidadAsignada}
-        sugerenciasClasificacion={datos.sugerenciasClasificacion}
-        cuentasBancarias={datos.cuentasBancarias}
-      />
     );
   }
 
@@ -98,6 +71,18 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
           <h1 className="text-4xl font-serif font-semibold tracking-tight">
             {datos.estado === "CERRADA" ? "Historial de ejecución" : "Ejecución (solo lectura)"}
           </h1>
+          <p className="mt-2 text-xs text-ink-muted max-w-xl">
+            Solo se muestran los movimientos de las unidades de {datos.empresaNombre}, vengan de la
+            cuenta bancaria que vengan. Los extractos se cargan y se cierran en Ejecución global.
+          </p>
+          {datos.puedeIrAlModuloGlobal && (
+            <Link
+              href={`/ejecucion/${periodo}/${datos.numeroSemana}`}
+              className="mt-2 inline-block text-sm text-marino underline underline-offset-2 hover:text-marino-dark"
+            >
+              Operar en Ejecución global →
+            </Link>
+          )}
         </div>
         <div className="text-right">
           <span
@@ -116,6 +101,31 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
           )}
         </div>
       </div>
+
+      {datos.semanas.length > 1 && (
+        <nav className="mb-6 flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-xs uppercase tracking-wide text-ink-faint">Semanas del período</span>
+          {datos.semanas.map((s) => (
+            <Link
+              key={s.numeroSemana}
+              href={`/${empresa}/${periodo}/ejecucion/${s.numeroSemana}`}
+              className={`rounded-md px-2.5 py-1 transition ${
+                s.numeroSemana === datos.numeroSemana
+                  ? "bg-marino text-white"
+                  : "text-ink-secondary hover:bg-paper-cool"
+              }`}
+            >
+              Semana {s.numeroSemana} · {s.estado === "CERRADA" ? "cerrada" : "abierta"}
+            </Link>
+          ))}
+        </nav>
+      )}
+
+      {datos.sinUnidades && (
+        <p className="mb-4 text-sm text-ink-muted">
+          Esta empresa no tiene unidades de negocio asignadas, así que no hay movimientos para mostrar.
+        </p>
+      )}
 
       <div>
         <div className="flex items-start justify-between mb-2">
@@ -142,7 +152,7 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
 
         {datos.totalMovimientos === 0 ? (
           <p className="text-sm text-ink-muted py-6 border-t border-line-strong">
-            Esta semana no tiene movimientos cargados.
+            Esta semana no tiene movimientos de {datos.empresaNombre}.
           </p>
         ) : (
           <>
@@ -154,9 +164,7 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
               />
             </div>
             <Paginacion
-              empresaSlug={empresa}
-              periodo={periodo}
-              numeroSemana={datos.numeroSemana}
+              base={`/${empresa}/${periodo}/ejecucion/${datos.numeroSemana}`}
               pagina={datos.pagina}
               totalPaginas={datos.totalPaginas}
               filtro={filtro}

@@ -69,14 +69,25 @@ export async function crearCuentaBancaria(empresaId: string | null, datos: Datos
 
 // Cambiar el nombre NO reescribe MovimientoBancario.bancoYCuenta de lo ya cargado (son
 // textos guardados): la pantalla lo avisa antes de confirmar.
-export async function editarCuentaBancaria(id: string, datos: DatosCuenta): Promise<ResultadoCuenta> {
+// empresaId = titular (null = sin titular); se guarda junto con el resto.
+export async function editarCuentaBancaria(
+  id: string,
+  datos: DatosCuenta,
+  empresaId: string | null
+): Promise<ResultadoCuenta> {
   await requireAdminOFinanzas();
 
   const res = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('cuentas-bancarias'))`;
 
-    const actual = await tx.cuentaBancaria.findUnique({ where: { id }, select: { id: true } });
+    const actual = await tx.cuentaBancaria.findUnique({ where: { id }, select: { id: true, empresaId: true } });
     if (!actual) return { ok: false as const, error: "No encontré esa cuenta." };
+    // Solo se valida que la titular exista y esté activa si CAMBIA (una titular que se dio de baja
+    // después no impide editar el resto).
+    if (empresaId !== null && empresaId !== actual.empresaId) {
+      const empresa = await tx.empresa.findUnique({ where: { id: empresaId }, select: { activo: true } });
+      if (!empresa || !empresa.activo) return { ok: false as const, error: "No encontré esa empresa o está inactiva." };
+    }
 
     const existentes = await tx.cuentaBancaria.findMany({
       select: { id: true, nombre: true, activa: true },
@@ -86,7 +97,7 @@ export async function editarCuentaBancaria(id: string, datos: DatosCuenta): Prom
 
     const cuenta = await tx.cuentaBancaria.update({
       where: { id },
-      data: { nombre: r.cuenta.nombre, banco: r.cuenta.banco, terminacion: r.cuenta.terminacion },
+      data: { empresaId, nombre: r.cuenta.nombre, banco: r.cuenta.banco, terminacion: r.cuenta.terminacion },
       select: SELECCION,
     });
     return { ok: true as const, cuenta, avisos: [] as string[] };

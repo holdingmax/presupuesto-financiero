@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { formatearImporte } from "../ejecucion/formato";
+import { formatearImporte } from "@/app/ejecucion/formato";
 
 type Props = {
   empresaSlug: string;

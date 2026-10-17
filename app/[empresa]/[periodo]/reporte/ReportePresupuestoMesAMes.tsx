@@ -1,5 +1,5 @@
 import { nombreParaMostrar } from "@/lib/clasificaciones";
-import { formatearImporte } from "../ejecucion/formato";
+import { formatearImporte } from "@/app/ejecucion/formato";
 import BloqueNoAsignado from "./BloqueNoAsignado";
 
 const MESES = [

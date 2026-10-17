@@ -197,7 +197,7 @@ export default function TablaMovimientos({
   onToggleIgnorado,
 }: Props) {
   const router = useRouter();
-  const { empresa: empresaSlug, periodo } = useParams<{ empresa: string; periodo: string }>();
+  const { periodo } = useParams<{ periodo: string }>();
   const [desgloseAbiertoId, setDesgloseAbiertoId] = useState<string | null>(null);
   const totalColumnas = soloLectura ? 6 : 7;
 
@@ -214,7 +214,7 @@ export default function TablaMovimientos({
       return;
     }
     if (!confirm("¿Quitar el prorrateo de este movimiento? Se borra el reparto guardado.")) return;
-    await eliminarDesgloseMovimiento(empresaSlug, periodo, numeroSemana, m.id);
+    await eliminarDesgloseMovimiento(periodo, numeroSemana, m.id);
     setDesgloseAbiertoId(null);
     router.refresh();
   }

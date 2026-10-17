@@ -1,19 +1,23 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { obtenerNumeroSemanaAbierta } from "./actions";
+import { obtenerNumeroSemanaParaVer, puedeIrAlModuloGlobal } from "./datos";
 import { AccesoDenegadoError } from "@/lib/auth";
 
 type Props = {
   params: Promise<{ empresa: string; periodo: string }>;
 };
 
-// Único lugar que resuelve-o-crea la semana abierta; redirige a la URL numerada
-// para que /ejecucion/[numeroSemana] sea siempre de solo lectura en la consulta.
+// Solo lectura: nunca crea una semana (eso lo hace el módulo global, /ejecucion/[periodo], para
+// quien opera). Redirige a la última semana del período para que /ejecucion/[numeroSemana] sea
+// siempre una consulta.
 export default async function EjecucionIndexPage({ params }: Props) {
   const { empresa, periodo } = await params;
 
   let numeroSemana;
+  let irAlGlobal;
   try {
-    numeroSemana = await obtenerNumeroSemanaAbierta(empresa, periodo);
+    numeroSemana = await obtenerNumeroSemanaParaVer(empresa, periodo);
+    irAlGlobal = await puedeIrAlModuloGlobal(empresa, periodo);
   } catch (error) {
     // Ver el comentario equivalente en presupuesto/page.tsx: el layout ya
     // muestra el panel de "sin acceso", esto solo evita que se vea como un
@@ -22,15 +26,18 @@ export default async function EjecucionIndexPage({ params }: Props) {
     throw error;
   }
 
-  // Quien no puede operar no dispara la creación de una semana nueva (ver
-  // obtenerNumeroSemanaAbierta) — si el presupuesto todavía no tiene ninguna, no hay
-  // adónde redirigir.
   if (numeroSemana === null) {
     return (
       <div className="mx-auto w-full max-w-5xl px-6 py-10">
-        <p className="text-sm text-ink-muted">
-          Todavía no hay ninguna semana cargada para esta empresa.
-        </p>
+        <p className="text-sm text-ink-muted">Todavía no hay ninguna semana cargada para este período.</p>
+        {irAlGlobal && (
+          <Link
+            href={`/ejecucion/${periodo}`}
+            className="mt-3 inline-block text-sm text-marino underline underline-offset-2 hover:text-marino-dark"
+          >
+            Operar en Ejecución global
+          </Link>
+        )}
       </div>
     );
   }

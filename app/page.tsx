@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUsuarioAlDia, esAdminOFinanzas } from "@/lib/auth";
+import { requireUsuarioAlDia, esAdminOFinanzas, veTodoEjecucion } from "@/lib/auth";
 import { logout } from "@/app/login/actions";
 import { prisma } from "@/lib/prisma";
 import { listarEmpresas, slugify } from "@/lib/slug";
@@ -33,6 +33,12 @@ export default async function MisEmpresasPage() {
           {usuario.rol === "ADMIN" && (
             <Link href="/admin/usuarios" className="underline underline-offset-2 hover:text-ink">
               Gestión de usuarios
+            </Link>
+          )}
+          {/* Ejecución global (plan §3.4): ADMIN, FINANZAS y quien tiene permiso de operar. */}
+          {veTodoEjecucion(usuario) && (
+            <Link href={`/ejecucion/${PERIODO}`} className="underline underline-offset-2 hover:text-ink">
+              Ejecución global
             </Link>
           )}
           {/* FINANZAS ve la administración financiera, no la de usuarios (decisión 2026-10-07). */}

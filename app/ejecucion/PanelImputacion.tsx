@@ -17,9 +17,11 @@ import {
   type ResultadoLiquidacionAmbigua,
   type PosibleDuplicado,
   type VistaPreviaExtracto,
+  type FilaSinUnidad,
 } from "./actions";
 import TablaMovimientos from "./TablaMovimientos";
 import Paginacion from "./Paginacion";
+import { nombreDePeriodo } from "@/lib/ejecucionSemanas";
 import PanelChequeos from "./PanelChequeos";
 import PanelSugerenciasPendientes from "./PanelSugerenciasPendientes";
 import PanelUnidadesSugeridas, { claveGrupo } from "./PanelUnidadesSugeridas";
@@ -54,7 +56,8 @@ type Movimiento = {
 };
 
 type Props = {
-  empresaNombre: string;
+  // Solo FINANZAS y ADMIN ven el botón de cierre (D-4).
+  puedeCerrar: boolean;
   numeroSemana: number;
   estado: string;
   movimientosIniciales: Movimiento[];
@@ -77,7 +80,7 @@ type Props = {
 };
 
 export default function PanelImputacion({
-  empresaNombre,
+  puedeCerrar,
   numeroSemana,
   estado,
   movimientosIniciales,
@@ -94,10 +97,7 @@ export default function PanelImputacion({
   cuentasBancarias,
 }: Props) {
   const router = useRouter();
-  const { empresa: empresaSlug, periodo } = useParams<{
-    empresa: string;
-    periodo: string;
-  }>();
+  const { periodo } = useParams<{ periodo: string }>();
   const [movimientos, setMovimientos] = useState(movimientosIniciales);
   // Jerarquía visual: con movimientos ya cargados, la tarjeta grande de subida
   // estorba más de lo que ayuda — colapsa a un botón compacto junto al Total.
@@ -173,7 +173,6 @@ export default function PanelImputacion({
     formData.append("cuenta", cuenta);
 
     const resultado = await subirExtracto(
-      empresaSlug,
       periodo,
       numeroSemana,
       formData,
@@ -211,6 +210,13 @@ export default function PanelImputacion({
             ya === 1 ? "1 ya estaba cargado" : `${ya} ya estaban cargados`
           } (no se duplicaron).`
     );
+    // Un archivo con días de dos meses reparte sus filas: se dice dónde quedó cada una.
+    if (resultado.repartoPorPeriodo.length > 1) {
+      const reparto = resultado.repartoPorPeriodo
+        .map((r) => `${nombreDePeriodo(r.periodo)} (semana ${r.numeroSemana}): ${r.filas}`)
+        .join("; ");
+      setMensajeExito((m) => `${m} Repartidos por mes: ${reparto}.`);
+    }
     setAvisosSubida(resultado.avisos);
     setPosiblesDuplicados(resultado.posiblesDuplicados);
     setCantidadPosiblesDuplicados(resultado.cantidadPosiblesDuplicados);
@@ -261,7 +267,7 @@ export default function PanelImputacion({
   // sugeridaPorSistema. El panel viene del server, así que se espera la
   // respuesta y se refresca.
   async function confirmarGrupoSugerido(clasificacion: string) {
-    await confirmarClasificacionesEnLote(empresaSlug, periodo, numeroSemana, clasificacion);
+    await confirmarClasificacionesEnLote(periodo, numeroSemana, clasificacion);
     router.refresh();
   }
 
@@ -270,7 +276,7 @@ export default function PanelImputacion({
   // server sobre toda la semana.
   async function confirmarFilaSugerida(id: string, valor: string) {
     actualizarCampoLocal(id, "clasificacion", valor);
-    await actualizarMovimiento(empresaSlug, periodo, numeroSemana, id, { clasificacion: valor });
+    await actualizarMovimiento(periodo, numeroSemana, id, { clasificacion: valor });
     router.refresh();
   }
 
@@ -281,7 +287,6 @@ export default function PanelImputacion({
   async function confirmarCuentaSugerida(grupo: GrupoUnidadSugerida) {
     setConfirmandoUnidad(claveGrupo(grupo));
     const resultado = await confirmarUnidadesEnLote(
-      empresaSlug,
       periodo,
       numeroSemana,
       grupo.cuentasCrudas,
@@ -304,7 +309,7 @@ export default function PanelImputacion({
 
   function guardarCampo(id: string, campo: "clasificacion" | "unidadNegocio", valor: string) {
     startTransition(() => {
-      actualizarMovimiento(empresaSlug, periodo, numeroSemana, id, { [campo]: valor });
+      actualizarMovimiento(periodo, numeroSemana, id, { [campo]: valor });
     });
   }
 
@@ -321,7 +326,7 @@ export default function PanelImputacion({
       return;
     }
     setMovimientos((prev) => prev.filter((m) => m.id !== id));
-    await eliminarMovimiento(empresaSlug, periodo, numeroSemana, id);
+    await eliminarMovimiento(periodo, numeroSemana, id);
     router.refresh();
   }
 
@@ -333,32 +338,39 @@ export default function PanelImputacion({
     setMovimientos((prev) =>
       prev.map((m) => (m.id === id ? { ...m, ignorado: valorNuevo } : m))
     );
-    await actualizarMovimiento(empresaSlug, periodo, numeroSemana, id, { ignorado: valorNuevo });
+    await actualizarMovimiento(periodo, numeroSemana, id, { ignorado: valorNuevo });
     router.refresh();
   }
 
+  const [bloqueoCierre, setBloqueoCierre] = useState<{ mensaje: string; movimientos: FilaSinUnidad[]; total: number } | null>(null);
   const cantidadSinUnidad = sinUnidadAsignada.reduce((suma, s) => suma + s.movimientos, 0);
 
   async function handleCerrarSemana() {
-    const avisoSinUnidad =
-      cantidadSinUnidad > 0
-        ? `\n\nAtención: ${cantidadSinUnidad === 1 ? "1 movimiento no tiene" : `${cantidadSinUnidad} movimientos no tienen`} una unidad de negocio asignada a una empresa — no van a entrar en el Reporte de ninguna empresa y después del cierre ya no se pueden corregir.`
-        : "";
+    setBloqueoCierre(null);
     if (
       !confirm(
-        `¿Confirmás el cierre semanal de la semana ${numeroSemana}? Después de cerrarla no se puede editar para atrás — cualquier corrección va a la semana siguiente.${avisoSinUnidad}`
+        `¿Confirmás el cierre semanal de la semana ${numeroSemana}? Después de cerrarla no se puede editar para atrás — cualquier corrección va a la semana siguiente.`
       )
     ) {
       return;
     }
-    let resultado = await cerrarSemana(empresaSlug, periodo, numeroSemana);
+    let resultado = await cerrarSemana(periodo, numeroSemana);
     // Avisos que no bloquean (SIN CLASIFICAR, sugerencias sin confirmar): el servidor pide
     // confirmar con la cantidad.
     if (!resultado.ok && resultado.requiereConfirmacion) {
       if (!confirm(resultado.error)) return;
-      resultado = await cerrarSemana(empresaSlug, periodo, numeroSemana, { confirmarAvisos: true });
+      resultado = await cerrarSemana(periodo, numeroSemana, { confirmarAvisos: true });
     }
     if (!resultado.ok) {
+      // Bloqueo por movimientos sin unidad de empresa: se muestra la lista abajo.
+      if (resultado.bloqueos && resultado.bloqueos.length > 0) {
+        setBloqueoCierre({
+          mensaje: resultado.error,
+          movimientos: resultado.movimientosSinUnidad ?? [],
+          total: resultado.bloqueos.reduce((a, b) => a + b.movimientos, 0),
+        });
+        return;
+      }
       alert(resultado.error);
       return;
     }
@@ -371,14 +383,14 @@ export default function PanelImputacion({
         <div>
           <p className="flex items-center gap-2 text-xs tracking-[0.15em] text-ink-secondary uppercase mb-1">
             <span className="w-2 h-2 bg-plata" />
-            {empresaNombre} · Semana {numeroSemana}
+            Ejecución global · {periodo} · Semana {numeroSemana}
           </p>
           <h1 className="text-4xl font-serif font-semibold tracking-tight">
             Panel de imputación
           </h1>
           {semanaAnterior >= 1 && (
             <Link
-              href={`/${empresaSlug}/${periodo}/ejecucion/${semanaAnterior}`}
+              href={`/ejecucion/${periodo}/${semanaAnterior}`}
               className="mt-2 inline-block text-sm text-marino hover:text-marino-dark underline underline-offset-2"
             >
               ← Ver semana {semanaAnterior}
@@ -518,6 +530,13 @@ export default function PanelImputacion({
                 <dt>Fechas</dt>
                 <dd>
                   {vistaPrevia.vista.desde} a {vistaPrevia.vista.hasta}
+                </dd>
+                <dt>Reparto por mes</dt>
+                <dd>
+                  {vistaPrevia.vista.repartoPorPeriodo
+                    .map((r) => `${nombreDePeriodo(r.periodo)}: ${r.filas === 1 ? "1 fila" : `${r.filas} filas`}`)
+                    .join("; ")}
+                  {" "}(movimientos nuevos; cada fila va a la semana abierta de su mes)
                 </dd>
                 <dt>Total créditos</dt>
                 <dd>${formatearImporteConCentavos(vistaPrevia.vista.creditos)}</dd>
@@ -707,9 +726,7 @@ export default function PanelImputacion({
               />
             </div>
             <Paginacion
-              empresaSlug={empresaSlug}
-              periodo={periodo}
-              numeroSemana={numeroSemana}
+              base={`/ejecucion/${periodo}/${numeroSemana}`}
               pagina={pagina}
               totalPaginas={totalPaginas}
               filtro={soloSinClasificar ? "sin_clasificar" : undefined}
@@ -736,19 +753,47 @@ export default function PanelImputacion({
         </div>
       )}
 
+      {bloqueoCierre && (
+        <div className="mt-10 rounded-md border border-terracota bg-terracota-tint px-5 py-4 text-sm text-terracota">
+          <p className="font-medium">{bloqueoCierre.mensaje}</p>
+          {bloqueoCierre.movimientos.length > 0 && (
+            <>
+              <ul className="mt-3 divide-y divide-terracota/20 text-xs">
+                {bloqueoCierre.movimientos.map((m) => (
+                  <li key={`${m.id}|${m.unidad}`} className="py-1.5 flex gap-3">
+                    <span className="tabular w-20 shrink-0">{m.fecha}</span>
+                    <span className="flex-1 truncate">{m.concepto}</span>
+                    <span className="tabular shrink-0">${formatearImporte(m.importe)}</span>
+                    <span className="w-28 shrink-0 truncate text-right font-medium">{m.unidad}</span>
+                  </li>
+                ))}
+              </ul>
+              {bloqueoCierre.movimientos.length < bloqueoCierre.total && (
+                <p className="mt-2 text-xs">
+                  Se muestran {bloqueoCierre.movimientos.length} de {bloqueoCierre.total}.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {!cerrada && (
         <div className="mt-10 flex items-center justify-between border-t border-line-strong pt-6">
           <p className="text-xs text-ink-muted max-w-xs">
             Al cerrar la semana, cualquier corrección posterior se carga en la semana siguiente
             — no se puede editar para atrás.
+            {!puedeCerrar && " El cierre lo hace Finanzas o un administrador."}
           </p>
-          <button
-            onClick={handleCerrarSemana}
-            disabled={totalMovimientos === 0}
-            className="h-14 px-6 rounded-md bg-ink text-paper text-base font-semibold tracking-wide disabled:opacity-30 disabled:cursor-not-allowed hover:bg-ink/90 active:scale-[0.99] transition shadow-sm hover:shadow-md"
-          >
-            Cierre semanal
-          </button>
+          {puedeCerrar && (
+            <button
+              onClick={handleCerrarSemana}
+              disabled={totalMovimientos === 0}
+              className="h-14 px-6 rounded-md bg-ink text-paper text-base font-semibold tracking-wide disabled:opacity-30 disabled:cursor-not-allowed hover:bg-ink/90 active:scale-[0.99] transition shadow-sm hover:shadow-md"
+            >
+              Cierre semanal
+            </button>
+          )}
         </div>
       )}
     </div>

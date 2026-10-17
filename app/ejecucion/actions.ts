@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import { resolverEmpresaPorSlug, quitarDiacriticos } from "@/lib/slug";
+import { quitarDiacriticos } from "@/lib/slug";
 import {
   obtenerOCrearEjecucionAbierta,
   obtenerOCrearAbiertaEnTx,
@@ -19,14 +19,15 @@ import {
   type EstadoSemanaDelPeriodo,
 } from "@/lib/ejecucionSemanas";
 import { evaluarCierre, type SinUnidad } from "@/lib/cierreEjecucion";
-import { contarParaCierreDeSemana } from "@/lib/cierreEjecucionDb";
+import { contarParaCierreDeSemana, listarMovimientosSinUnidad, type FilaSinUnidad } from "@/lib/cierreEjecucionDb";
 import {
-  requireAccesoEmpresa,
   requireOperadorEjecucionGlobal,
+  requireVerEjecucionGlobal,
   requireCierreEjecucion,
   puedeOperarEjecucionGlobal,
-  veTodoEjecucion,
+  puedeCerrarEjecucion,
 } from "@/lib/auth";
+import { FILAS_POR_PAGINA, mapearMovimiento } from "@/lib/ejecucionVista";
 import { calcularClasificacionesDisponibles } from "@/lib/clasificaciones";
 import {
   normalizarCuenta,
@@ -53,35 +54,26 @@ import {
   contarPorClave,
   separarNuevas,
 } from "@/lib/conteoMovimientos";
-import type { Prisma } from "@prisma/client";
-
-const FILAS_POR_PAGINA = 200;
 
 const FORMATO_PERIODO = /^\d{4}-\d{2}$/;
 
 // Ejecución global (docs/ejecucion_global_plan.md §3.4): las semanas son del PERÍODO, de todo el
-// holding, no de una empresa. La empresa de la URL solo sirve para LEER (acceso a la empresa) y
-// para filtrar lo que ve un gerente; operar no depende de ella (requireOperadorEjecucionGlobal).
-// Defensivo, porque las Server Actions se invocan directo desde el cliente y no vuelven a pasar
-// por el layout.
-async function resolverEmpresaParaLeer(empresaSlug: string, periodo: string) {
-  const empresa = await resolverEmpresaPorSlug(empresaSlug);
-  if (!empresa) {
-    throw new Error(`No existe una empresa para "${empresaSlug}".`);
-  }
-  if (!FORMATO_PERIODO.test(periodo)) {
-    throw new Error(`"${periodo}" no es un período válido (AAAA-MM).`);
-  }
-  const usuario = await requireAccesoEmpresa(empresa.id);
-  return { empresa, usuario };
-}
-
+// holding, y este módulo (/ejecucion) no depende de ninguna empresa. Las Server Actions se
+// invocan directo desde el cliente y no pasan por el layout: cada una valida el permiso acá.
+// La vista de solo lectura de cada empresa vive en app/[empresa]/[periodo]/ejecucion/actions.ts.
 // Para las Server Actions que mutan: solo valida el período y el permiso global de operar.
 async function resolverParaOperar(periodo: string) {
   if (!FORMATO_PERIODO.test(periodo)) {
     throw new Error(`"${periodo}" no es un período válido (AAAA-MM).`);
   }
   return requireOperadorEjecucionGlobal();
+}
+
+// Refresca la semana en el módulo global y en la pestaña de solo lectura de cada empresa
+// (la semana se ve desde las dos).
+function revalidarSemana(periodo: string, numeroSemana: number) {
+  revalidatePath(`/ejecucion/${periodo}/${numeroSemana}`);
+  revalidatePath("/[empresa]/[periodo]/ejecucion/[numeroSemana]", "page");
 }
 
 // Antes de mutar un movimiento: pertenece a ESTA semana (abierta) y no a otra. Sin esto, el
@@ -94,67 +86,17 @@ async function movimientoDeLaSemana(movimientoId: string, ejecucionId: string) {
   return m && m.ejecucionId === ejecucionId ? m : null;
 }
 
-function aCentavosSuma(importes: number[]): number {
-  return importes.reduce((acc, n) => acc + aCentavos(n), 0);
-}
-
-function mapearMovimiento(m: {
-  id: string;
-  fecha: Date;
-  concepto: string;
-  importe: unknown;
-  bancoYCuenta: string;
-  clasificacion: string;
-  unidadNegocio: string;
-  detalle: string | null;
-  ignorado: boolean;
-  sugeridaPorSistema: boolean;
-  chequeIvaAmbiguo: boolean;
-  unidadSugeridaPorSistema: boolean;
-  desglose: { id: string; unidadNegocio: string; importe: unknown }[];
-}, soloUnidades?: string[]) {
-  // Gerente (sin permiso de ver todo): de un movimiento prorrateado ve SOLO sus porciones y
-  // el importe de ellas, nunca el total ni las porciones de otras unidades (§6).
-  let importe = Number(m.importe);
-  let desglose = m.desglose;
-  if (soloUnidades && m.desglose.length > 0) {
-    const propias = new Set(soloUnidades);
-    desglose = m.desglose.filter((d) => propias.has(d.unidadNegocio));
-    importe = aCentavosSuma(desglose.map((d) => Number(d.importe))) / 100;
-  }
-  return {
-    id: m.id,
-    fecha: m.fecha.toISOString().slice(0, 10),
-    concepto: m.concepto,
-    importe,
-    bancoYCuenta: m.bancoYCuenta,
-    clasificacion: m.clasificacion,
-    // unidadNegocio: valor único del movimiento en sí, editable inline en la tabla
-    // (onCambiarUnidadNegocio/onGuardarUnidadNegocio) — completamente separado de
-    // m.desglose de abajo (el reparto en varias unidades, ver
-    // guardarDesgloseMovimiento). Ninguno de los dos lee ni escribe al otro.
-    unidadNegocio: m.unidadNegocio,
-    detalle: m.detalle ?? "",
-    ignorado: m.ignorado,
-    sugeridaPorSistema: m.sugeridaPorSistema,
-    chequeIvaAmbiguo: m.chequeIvaAmbiguo,
-    unidadSugeridaPorSistema: m.unidadSugeridaPorSistema,
-    desglose: desglose.map((d) => ({
-      id: d.id,
-      unidadNegocio: d.unidadNegocio,
-      importe: Number(d.importe),
-    })),
-  };
-}
-
 // Resuelve-o-crea la semana ABIERTA DEL PERÍODO (global, con lock por período) y devuelve su
 // número, para que la página índice (sin segmento numérico) redirija ahí. Solo para quien puede
-// OPERAR — alguien con acceso de solo lectura no debe disparar la creación de una semana nueva
-// con el simple hecho de navegar acá. Para ese caso se busca la última semana existente del
-// período sin crear ninguna; null si todavía no hay ninguna (el índice le muestra un mensaje en
-// vez de redirigir a algo inexistente).
-export async function obtenerNumeroSemanaAbierta(empresaSlug: string, periodo: string) {
-  const { usuario } = await resolverEmpresaParaLeer(empresaSlug, periodo);
+// OPERAR — ADMIN y FINANZAS sin permiso de operar no deben disparar la creación de una semana
+// nueva con el simple hecho de navegar acá. Para ese caso se busca la última semana existente
+// del período sin crear ninguna; null si todavía no hay ninguna (el índice le muestra un mensaje
+// en vez de redirigir a algo inexistente).
+export async function obtenerNumeroSemanaAbierta(periodo: string) {
+  if (!FORMATO_PERIODO.test(periodo)) {
+    throw new Error(`"${periodo}" no es un período válido (AAAA-MM).`);
+  }
+  const usuario = await requireVerEjecucionGlobal();
 
   if (puedeOperarEjecucionGlobal(usuario)) {
     const ejecucion = await obtenerOCrearEjecucionAbierta(periodo);
@@ -165,6 +107,17 @@ export async function obtenerNumeroSemanaAbierta(empresaSlug: string, periodo: s
   return ultima?.numeroSemana ?? null;
 }
 
+// Semanas del período con su estado, para navegar entre ellas. Solo lectura.
+export async function listarSemanasDelPeriodo(periodo: string) {
+  await requireVerEjecucionGlobal();
+  const semanas = await prisma.ejecucionSemanal.findMany({
+    where: { periodo },
+    orderBy: { numeroSemana: "asc" },
+    select: { numeroSemana: true, estado: true },
+  });
+  return semanas;
+}
+
 // Solo lectura: nunca crea nada. Devuelve null si esa semana no existe todavía.
 // `pagina` es 1-indexada; se clampea entre 1 y el total de páginas reales, así un
 // ?pagina=9999 nunca muestra un vacío falso en una semana que sí tiene movimientos.
@@ -172,40 +125,30 @@ export async function obtenerNumeroSemanaAbierta(empresaSlug: string, periodo: s
 // traída) — recalcula totalMovimientos/totalPaginas/totalImporte sobre el universo
 // filtrado, así el usuario nunca se pierde una fila "SIN CLASIFICAR" que cayó en
 // otra página. Pedido de Kike: encontrarlas sin tener que buscarlas una por una.
+// Ve ADMIN, FINANZAS y quien opera (todo el holding, todas las unidades); opera quien tenga el
+// permiso. Un gerente no entra acá: ve su empresa en la pestaña de solo lectura.
 export async function obtenerDatosSemana(
-  empresaSlug: string,
   periodo: string,
   numeroSemana: number,
   pagina: number = 1,
   soloSinClasificar: boolean = false
 ) {
-  // calcularClasificacionesDisponibles no depende de empresa/presupuesto/ejecucion (es una
-  // query global) — se dispara ya para que corra en paralelo con toda la cadena de abajo
-  // en vez de sumar un round-trip secuencial más contra la base.
+  if (!FORMATO_PERIODO.test(periodo)) {
+    throw new Error(`"${periodo}" no es un período válido (AAAA-MM).`);
+  }
+  // calcularClasificacionesDisponibles no depende de la semana (es una query global) — se
+  // dispara ya para que corra en paralelo con toda la cadena de abajo en vez de sumar un
+  // round-trip secuencial más contra la base.
   const clasificacionesPromise = calcularClasificacionesDisponibles();
 
-  const { empresa, usuario } = await resolverEmpresaParaLeer(empresaSlug, periodo);
+  const usuario = await requireVerEjecucionGlobal();
   const puedeOperar = puedeOperarEjecucionGlobal(usuario);
+  const puedeCerrar = puedeCerrarEjecucion(usuario);
   const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
 
   if (!ejecucion) {
     return null;
   }
-
-  // Visibilidad (§6): ADMIN, FINANZAS y quien opera ven TODA la semana. Un gerente ve solo los
-  // movimientos de las unidades de SU empresa (los no prorrateados por su unidad, los
-  // prorrateados por la porción propia), vengan de la cuenta que vengan. Se filtra en la
-  // consulta, así que el resto ni siquiera sale de la base hacia el navegador.
-  const verTodo = veTodoEjecucion(usuario);
-  const unidadesVisibles = verTodo ? null : empresa.unidadesNegocio;
-  const filtroVisibilidad: Prisma.MovimientoBancarioWhereInput = unidadesVisibles
-    ? {
-        OR: [
-          { desglose: { none: {} }, unidadNegocio: { in: unidadesVisibles } },
-          { desglose: { some: { unidadNegocio: { in: unidadesVisibles } } } },
-        ],
-      }
-    : {};
 
   // Agregación separada del fetch paginado: el total en pesos y el conteo de filas
   // tienen que representar TODA la semana, no solo la página que se está mostrando.
@@ -221,19 +164,15 @@ export async function obtenerDatosSemana(
   // condición solo cuando el filtro está activo, sin cambiar nada más.
   const filtroClasificacion = soloSinClasificar ? { clasificacion: "SIN CLASIFICAR" } : {};
 
-  const [agregadoTotal, totalImporte, gruposUnidadSugerida, sinUnidadAsignada, sugerenciasClasificacion] = await Promise.all([
+  const [agregadoTotal, agregadoSumaReal, gruposUnidadSugerida, sinUnidadAsignada, sugerenciasClasificacion] = await Promise.all([
     prisma.movimientoBancario.aggregate({
-      where: { ejecucionId: ejecucion.id, ...filtroVisibilidad, ...filtroClasificacion },
+      where: { ejecucionId: ejecucion.id, ...filtroClasificacion },
       _count: true,
     }),
-    unidadesVisibles
-      ? sumarImporteDeUnidades(ejecucion.id, unidadesVisibles, soloSinClasificar)
-      : prisma.movimientoBancario
-          .aggregate({
-            where: { ejecucionId: ejecucion.id, ignorado: false, ...filtroClasificacion },
-            _sum: { importe: true },
-          })
-          .then((a) => Number(a._sum.importe ?? 0)),
+    prisma.movimientoBancario.aggregate({
+      where: { ejecucionId: ejecucion.id, ignorado: false, ...filtroClasificacion },
+      _sum: { importe: true },
+    }),
     // Panel de unidades sugeridas: TODA la semana (sin paginar y sin
     // filtroClasificacion), a diferencia de las filas de la tabla — un archivo
     // de ~16.500 filas reparte las sugerencias en decenas de páginas.
@@ -248,7 +187,7 @@ export async function obtenerDatosSemana(
     // Aviso antes del cierre (decisión 2026-10-07): movimientos de TODA la semana
     // cuya unidad no pertenece a ninguna empresa — no van a entrar en el Reporte
     // de nadie, y una vez cerrada la semana ya no se pueden corregir.
-    puedeOperar
+    puedeOperar || puedeCerrar
       ? obtenerUnidadesConEmpresa().then((unidades) => contarSinUnidadEnSemana(ejecucion.id, unidades))
       : Promise.resolve([]),
     // Panel de clasificaciones sugeridas: TODA la semana, no la página
@@ -266,7 +205,7 @@ export async function obtenerDatosSemana(
   // causó que una edición de Unidad de Negocio terminara pisando una fila distinta al volver
   // a esta página. `id` es único y no cambia nunca, así que el orden queda fijo para siempre.
   const movimientos = await prisma.movimientoBancario.findMany({
-    where: { ejecucionId: ejecucion.id, ...filtroVisibilidad, ...filtroClasificacion },
+    where: { ejecucionId: ejecucion.id, ...filtroClasificacion },
     orderBy: [{ fecha: "asc" }, { id: "asc" }],
     skip: (paginaEfectiva - 1) * FILAS_POR_PAGINA,
     take: FILAS_POR_PAGINA,
@@ -283,7 +222,7 @@ export async function obtenerDatosSemana(
     : [];
 
   return {
-    empresaNombre: empresa.nombre,
+    periodo: ejecucion.periodo,
     numeroSemana: ejecucion.numeroSemana,
     estado: ejecucion.estado,
     // "Cerrada por X el dd/mm" en la vista de una semana cerrada. por = null en
@@ -297,10 +236,11 @@ export async function obtenerDatosSemana(
         }
       : null,
     puedeOperar,
+    puedeCerrar,
     clasificacionesDisponibles: await clasificacionesPromise,
-    movimientos: movimientos.map((m) => mapearMovimiento(m, unidadesVisibles ?? undefined)),
+    movimientos: movimientos.map((m) => mapearMovimiento(m)),
     totalMovimientos,
-    totalImporte,
+    totalImporte: Number(agregadoSumaReal._sum.importe ?? 0),
     pagina: paginaEfectiva,
     totalPaginas,
     soloSinClasificar,
@@ -309,29 +249,6 @@ export async function obtenerDatosSemana(
     sugerenciasClasificacion,
     cuentasBancarias,
   };
-}
-
-// Total en pesos que ve un gerente: de la semana, sin ignorados, los movimientos no prorrateados
-// de sus unidades más sus porciones de prorrateo (nunca el importe total de un prorrateado).
-// Sumado en la base (numeric exacto) y pasado a centavos como texto.
-async function sumarImporteDeUnidades(ejecucionId: string, unidades: string[], soloSinClasificar: boolean) {
-  if (unidades.length === 0) return 0;
-  const [fila] = await prisma.$queryRaw<{ total: string }[]>`
-    SELECT COALESCE(SUM(x.importe), 0)::text AS total FROM (
-      SELECT mb.importe FROM "MovimientoBancario" mb
-      WHERE mb."ejecucionId" = ${ejecucionId} AND NOT mb.ignorado
-        AND (NOT ${soloSinClasificar} OR mb.clasificacion = 'SIN CLASIFICAR')
-        AND mb."unidadNegocio" = ANY(${unidades}::text[])
-        AND NOT EXISTS (SELECT 1 FROM "MovimientoBancarioDesglose" d WHERE d."movimientoId" = mb.id)
-      UNION ALL
-      SELECT d.importe FROM "MovimientoBancario" mb
-      JOIN "MovimientoBancarioDesglose" d ON d."movimientoId" = mb.id
-      WHERE mb."ejecucionId" = ${ejecucionId} AND NOT mb.ignorado
-        AND (NOT ${soloSinClasificar} OR mb.clasificacion = 'SIN CLASIFICAR')
-        AND d."unidadNegocio" = ANY(${unidades}::text[])
-    ) x
-  `;
-  return centavosDeDecimalTexto(fila.total) / 100;
 }
 
 export type FilaSugerenciaClasificacion = {
@@ -465,7 +382,6 @@ const CHEQUEOS_SUMA_CERO: { nombre: string; clasificacion: string }[] = [
 // archivo que se subió. ignorado:false por el mismo motivo que en
 // obtenerDatosSemana: una línea ignorada no debe pesar en ningún cálculo.
 export async function calcularChequeosSumaCero(
-  empresaSlug: string,
   periodo: string,
   numeroSemana: number
 ): Promise<ResultadoChequeo[]> {
@@ -780,7 +696,6 @@ type FilaAImportar = FilaMadre & { importeCentavos?: number; saldoCentavos?: num
 const pesos = (centavos: number) => centavos / 100;
 
 export async function subirExtracto(
-  _empresaSlug: string,
   periodo: string,
   numeroSemana: number,
   formData: FormData,
@@ -1154,7 +1069,7 @@ export async function subirExtracto(
 
   if (resultado.ok && resultado.filasNuevas > 0) {
     // Ejecución global: la semana se ve desde la pestaña de cualquier empresa.
-    revalidatePath("/[empresa]/[periodo]/ejecucion/[numeroSemana]", "page");
+    revalidarSemana(periodo, numeroSemana);
   }
   return resultado;
 }
@@ -1165,7 +1080,6 @@ export async function subirExtracto(
 // valor de la fila no altera ni borra el reparto que pueda existir en
 // guardarDesgloseMovimiento, y viceversa.
 export async function actualizarMovimiento(
-  empresaSlug: string,
   periodo: string,
   numeroSemana: number,
   id: string,
@@ -1219,7 +1133,7 @@ export async function actualizarMovimiento(
       ...(datos.clasificacion !== undefined ? { sugeridaPorSistema: false } : {}),
     },
   });
-  revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+  revalidarSemana(periodo, numeroSemana);
 }
 
 export type ResultadoConfirmarClasificacionesEnLote =
@@ -1234,7 +1148,6 @@ export type ResultadoConfirmarClasificacionesEnLote =
 // por fila). chequeIvaAmbiguo:false en el where: un cheque con match ambiguo
 // nunca se confirma en lote, solo de a uno.
 export async function confirmarClasificacionesEnLote(
-  empresaSlug: string,
   periodo: string,
   numeroSemana: number,
   clasificacion: string
@@ -1255,7 +1168,7 @@ export async function confirmarClasificacionesEnLote(
     return { ok: false, error: "No hay ninguna sugerencia para confirmar." };
   }
 
-  revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+  revalidarSemana(periodo, numeroSemana);
   return { ok: true, cantidad: resultado.count };
 }
 
@@ -1270,7 +1183,6 @@ export async function confirmarClasificacionesEnLote(
 // unidadSugeridaPorSistema:true en el where hace que una fila corregida a mano
 // entre medio (flag ya en false) no cuente en el resultado.
 export async function confirmarUnidadesEnLote(
-  empresaSlug: string,
   periodo: string,
   numeroSemana: number,
   cuentasCrudas: string[],
@@ -1300,12 +1212,11 @@ export async function confirmarUnidadesEnLote(
     data: { unidadSugeridaPorSistema: false },
   });
 
-  revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+  revalidarSemana(periodo, numeroSemana);
   return { ok: true, cantidad: resultado.count };
 }
 
 export async function eliminarMovimiento(
-  empresaSlug: string,
   periodo: string,
   numeroSemana: number,
   id: string
@@ -1327,7 +1238,7 @@ export async function eliminarMovimiento(
     throw new Error("No encontré ese movimiento en esta semana.");
   }
   await prisma.movimientoBancario.delete({ where: { id } });
-  revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+  revalidarSemana(periodo, numeroSemana);
 }
 
 type ResultadoDesgloseMovimiento =
@@ -1351,7 +1262,6 @@ type ResultadoDesgloseMovimiento =
 // separador de miles), así que un texto con punto decimal se guardaría mal en
 // silencio. Acá la suma se compara en centavos con igualdad EXACTA.
 export async function guardarDesgloseMovimiento(
-  empresaSlug: string,
   periodo: string,
   numeroSemana: number,
   movimientoId: string,
@@ -1441,12 +1351,11 @@ export async function guardarDesgloseMovimiento(
     }),
   ]);
 
-  revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+  revalidarSemana(periodo, numeroSemana);
   return { ok: true };
 }
 
 export async function eliminarDesgloseMovimiento(
-  empresaSlug: string,
   periodo: string,
   numeroSemana: number,
   movimientoId: string
@@ -1470,8 +1379,10 @@ export async function eliminarDesgloseMovimiento(
   await prisma.movimientoBancarioDesglose.deleteMany({
     where: { movimientoId, movimiento: { ejecucionId: ejecucion.id } },
   });
-  revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+  revalidarSemana(periodo, numeroSemana);
 }
+
+export type { FilaSinUnidad };
 
 type ResultadoCerrarSemana =
   | { ok: true }
@@ -1484,6 +1395,8 @@ type ResultadoCerrarSemana =
       avisos?: string[];
       // Unidades que no pertenecen a ninguna empresa y bloquean el cierre.
       bloqueos?: SinUnidad[];
+      // Los movimientos que bloquean (hasta 100), para mostrarlos en pantalla.
+      movimientosSinUnidad?: FilaSinUnidad[];
     };
 
 // Cierre definitivo (§3.5): solo FINANZAS y ADMIN (D-4). Antes de cerrar, en el servidor:
@@ -1496,7 +1409,6 @@ type ResultadoCerrarSemana =
 // invocación pisaría fechaCierre con una marca de tiempo más nueva sin que nada más lo
 // justifique (el updateMany con estado ABIERTA lo hace atómico).
 export async function cerrarSemana(
-  empresaSlug: string,
   periodo: string,
   numeroSemana: number,
   opciones: { confirmarAvisos?: boolean } = {}
@@ -1515,7 +1427,13 @@ export async function cerrarSemana(
 
   const evaluacion = evaluarCierre(await contarParaCierreDeSemana(ejecucion.id));
   if (!evaluacion.puedeCerrar) {
-    return { ok: false, error: evaluacion.mensajeBloqueo, bloqueos: evaluacion.bloqueos, avisos: evaluacion.avisos };
+    return {
+      ok: false,
+      error: evaluacion.mensajeBloqueo,
+      bloqueos: evaluacion.bloqueos,
+      avisos: evaluacion.avisos,
+      movimientosSinUnidad: await listarMovimientosSinUnidad(ejecucion.id, await obtenerUnidadesConEmpresa()),
+    };
   }
   if (evaluacion.avisos.length > 0 && !opciones.confirmarAvisos) {
     return {
@@ -1534,6 +1452,6 @@ export async function cerrarSemana(
   if (cerrada.count === 0) {
     return { ok: false, error: "Esta semana ya estaba cerrada." };
   }
-  revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+  revalidarSemana(periodo, numeroSemana);
   return { ok: true };
 }

@@ -1,6 +1,6 @@
 import { pendientesDe, type Celda, type FilaLinea, type FilaReporte, type Reporte } from "@/lib/reporte/motor";
 import { PENDIENTES } from "@/lib/reporte/pendientes";
-import { formatearImporte } from "../ejecucion/formato";
+import { formatearImporte } from "@/app/ejecucion/formato";
 import Link from "next/link";
 import BloqueNoAsignado from "./BloqueNoAsignado";
 

@@ -1,9 +1,8 @@
 import Link from "next/link";
 
 type Props = {
-  empresaSlug: string;
-  periodo: string;
-  numeroSemana: number;
+  // Ruta de la semana, sin querystring (ej. /ejecucion/2026-09/2).
+  base: string;
   pagina: number;
   totalPaginas: number;
   // Filtro activo (ver soloSinClasificar en actions.ts) — se preserva al cambiar
@@ -15,16 +14,13 @@ type Props = {
 // Son <Link> planos (sin "use client"): funcionan igual dentro de un Server
 // Component (rama de solo lectura) o de un Client Component (PanelImputacion).
 export default function Paginacion({
-  empresaSlug,
-  periodo,
-  numeroSemana,
+  base,
   pagina,
   totalPaginas,
   filtro,
 }: Props) {
   if (totalPaginas <= 1) return null;
 
-  const base = `/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`;
   const sufijoFiltro = filtro ? `&filtro=${filtro}` : "";
   const hayAnterior = pagina > 1;
   const haySiguiente = pagina < totalPaginas;

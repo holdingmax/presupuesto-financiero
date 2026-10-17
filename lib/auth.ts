@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "@/lib/prisma";
 import type { Usuario } from "@prisma/client";
-import { puedeOperarEjecucionGlobal, puedeCerrarEjecucion } from "@/lib/permisosEjecucion";
+import { puedeOperarEjecucionGlobal, puedeCerrarEjecucion, veTodoEjecucion } from "@/lib/permisosEjecucion";
 
 export { hashPassword, verifyPassword } from "@/lib/password";
 
@@ -141,6 +141,16 @@ export const requireOperadorEjecucionGlobal = cache(async (): Promise<Usuario> =
   const usuario = await requireUsuario();
   if (!puedeOperarEjecucionGlobal(usuario)) {
     throw new AccesoDenegadoError("No tenés permiso para operar Ejecución.");
+  }
+  return usuario;
+});
+
+// Ver el módulo global /ejecucion (todas las unidades, todas las cuentas): ADMIN, FINANZAS y quien
+// opera. Un gerente ve solo su empresa, en la pestaña de solo lectura.
+export const requireVerEjecucionGlobal = cache(async (): Promise<Usuario> => {
+  const usuario = await requireUsuario();
+  if (!veTodoEjecucion(usuario)) {
+    throw new AccesoDenegadoError("No tenés acceso a Ejecución global.");
   }
   return usuario;
 });

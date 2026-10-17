@@ -47,10 +47,7 @@ export default function PanelDesgloseMovimiento({
   onCerrar,
 }: Props) {
   const router = useRouter();
-  const { empresa: empresaSlug, periodo: periodoUrl } = useParams<{
-    empresa: string;
-    periodo: string;
-  }>();
+  const { periodo: periodoUrl } = useParams<{ periodo: string }>();
 
   const total = aCentavos(importeMovimiento);
   const unidadesDisponibles = opcionesUnidad(desgloseInicial.map((d) => d.unidadNegocio));
@@ -182,7 +179,6 @@ export default function PanelDesgloseMovimiento({
     setErrores({});
 
     const resultado = await guardarDesgloseMovimiento(
-      empresaSlug,
       periodoUrl,
       numeroSemana,
       movimientoId,
@@ -202,7 +198,7 @@ export default function PanelDesgloseMovimiento({
 
   async function quitarProrrateo() {
     setQuitando(true);
-    await eliminarDesgloseMovimiento(empresaSlug, periodoUrl, numeroSemana, movimientoId);
+    await eliminarDesgloseMovimiento(periodoUrl, numeroSemana, movimientoId);
     setQuitando(false);
     router.refresh();
     onCerrar();
