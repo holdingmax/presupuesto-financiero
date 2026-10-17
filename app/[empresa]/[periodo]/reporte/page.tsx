@@ -1,12 +1,12 @@
 import type { Usuario } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { resolverEmpresaPorSlug } from "@/lib/slug";
-import { requireAccesoEmpresa, AccesoDenegadoError, esAdminOFinanzas } from "@/lib/auth";
+import { requireAccesoEmpresa, AccesoDenegadoError, esAdminOFinanzas, veBloquesReservadosDelReporte } from "@/lib/auth";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
 import {
   obtenerUnidadesConEmpresa,
   calcularRealPorRubro,
-  calcularNoAsignadoDelExtracto,
+  calcularNoAsignadoDelPeriodo,
   type NoAsignado,
 } from "@/lib/reporte";
 import { armarIndiceRubros, rubroDe } from "@/lib/rubros";
@@ -96,6 +96,7 @@ export default async function ReportePage({ params }: Props) {
         periodo={periodo}
         unidadesEmpresa={unidadesEmpresa}
         verPendientes={esAdminOFinanzas(usuario)}
+        verBloquesReservados={veBloquesReservadosDelReporte(usuario)}
       />
     );
   }
@@ -137,11 +138,13 @@ export default async function ReportePage({ params }: Props) {
   const unidadesConEmpresa = await obtenerUnidadesConEmpresa();
   const [realPorRubro, noAsignado] = await Promise.all([
     calcularRealPorRubro(periodo, unidadesEmpresa, RUBROS_EGRESOS),
-    // Solo de los extractos de ESTA empresa (lo que el gerente ya ve en
-    // Ejecución): importes cuya unidad no pertenece a ninguna empresa (SIN
-    // ASIGNAR, valores viejos fuera de lista). Van en un bloque aparte,
-    // sin sumarse a ningún rubro (decisión 2026-10-07).
-    calcularNoAsignadoDelExtracto(empresaId, periodo, RUBROS_EGRESOS, unidadesConEmpresa),
+    // Importes del período cuya unidad no pertenece a ninguna empresa (SIN ASIGNAR,
+    // valores viejos fuera de lista). Van en un bloque aparte, sin sumarse a ningún
+    // rubro (decisión 2026-10-07). Es de todo el holding: solo ADMIN y FINANZAS lo
+    // reciben; para el resto ni siquiera se consulta.
+    esAdminOFinanzas(usuario)
+      ? calcularNoAsignadoDelPeriodo(periodo, RUBROS_EGRESOS, unidadesConEmpresa)
+      : Promise.resolve({ porUnidad: [] as NoAsignado[], semanas: [] as number[] }),
   ]);
   // Mismo criterio que antes para mostrar: magnitud del neto del rubro, en pesos.
   const realPorClasificacion = new Map<string, number>();
@@ -187,6 +190,7 @@ async function ReportePorPlantilla({
   periodo,
   unidadesEmpresa,
   verPendientes,
+  verBloquesReservados,
 }: {
   plantilla: Plantilla;
   empresaId: string;
@@ -195,6 +199,8 @@ async function ReportePorPlantilla({
   periodo: string;
   unidadesEmpresa: string[];
   verPendientes: boolean;
+  // false = no recibe Disponibilidades ni Cierre (se filtra acá, en el servidor).
+  verBloquesReservados: boolean;
 }) {
   // Un mes más de contexto (no se muestra): el control de arrastre y los espejos del mes
   // anterior lo necesitan para el primer mes visible.
@@ -203,11 +209,14 @@ async function ReportePorPlantilla({
 
   const unidadesConEmpresa = await obtenerUnidadesConEmpresa();
   const [meses, noAsignado] = await Promise.all([
-    cargarDatosMeses(empresaId, unidadesEmpresa, plantilla, periodos),
-    // Mismo bloque de control que la Fase 1, para el mes de la URL.
-    calcularNoAsignadoDelExtracto(empresaId, periodo, clasificaciones, unidadesConEmpresa),
+    cargarDatosMeses(empresaId, unidadesEmpresa, plantilla, periodos, verBloquesReservados),
+    // Mismo bloque de control que la Fase 1, para el mes de la URL (de todo el holding:
+    // solo ADMIN y FINANZAS).
+    verBloquesReservados
+      ? calcularNoAsignadoDelPeriodo(periodo, clasificaciones, unidadesConEmpresa)
+      : Promise.resolve({ porUnidad: [] as NoAsignado[], semanas: [] as number[] }),
   ]);
-  const reporte = armarReporte(plantilla, meses, 1);
+  const reporte = armarReporte(plantilla, meses, 1, { verBloquesReservados });
 
   return (
     <ReportePlantilla

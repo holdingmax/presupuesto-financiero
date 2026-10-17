@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { centavosDeDecimalTexto } from "@/lib/conteoMovimientos";
 import { calcularRealPorClasificacion, contarSemanasCerradasPorPeriodo } from "@/lib/reporte";
-import { clasificacionesDePlantilla, type DatosMes, type Plantilla } from "@/lib/reporte/motor";
+import { clasificacionesDePlantilla, clavesVisibles, type DatosMes, type Plantilla } from "@/lib/reporte/motor";
 import { leerManuales, mesesCerrados } from "@/lib/reporte/valoresManuales";
 
 // Arma los DatosMes de una empresa para los períodos pedidos: solo lee. El presupuesto de
@@ -11,7 +11,9 @@ export async function cargarDatosMeses(
   empresaId: string,
   unidadesEmpresa: string[],
   plantilla: Plantilla,
-  periodos: string[]
+  periodos: string[],
+  // false = quien mira no ve Disponibilidades ni Cierre: no se leen sus valores manuales.
+  verReservado = true
 ): Promise<DatosMes[]> {
   const clasificaciones = clasificacionesDePlantilla(plantilla);
   const presupuestos = await prisma.presupuestoMensual.findMany({
@@ -39,8 +41,8 @@ export async function cargarDatosMeses(
   const [realPorPeriodo, semanasCerradas, manuales, cerrados] = await Promise.all([
     calcularRealPorClasificacion(periodos, unidadesEmpresa, clasificaciones),
     contarSemanasCerradasPorPeriodo(periodos),
-    leerManuales(empresaId, periodos),
-    mesesCerrados(empresaId, periodos),
+    leerManuales(empresaId, periodos, verReservado ? undefined : clavesVisibles(plantilla)),
+    mesesCerrados(periodos),
   ]);
   return periodos.map((p) => ({
     periodo: p,

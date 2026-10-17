@@ -3,13 +3,30 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { resolverEmpresaPorSlug, quitarDiacriticos } from "@/lib/slug";
-import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
 import {
   obtenerOCrearEjecucionAbierta,
+  obtenerOCrearAbiertaEnTx,
+  bloquearPeriodo,
   obtenerEjecucionPorSemana,
   obtenerUltimaEjecucion,
 } from "@/lib/ejecucion";
-import { requireAccesoEmpresa, requireOperadorEjecucion, puedeOperarEjecucion } from "@/lib/auth";
+import {
+  periodoDeFecha,
+  ordenarPeriodos,
+  resolverDestinos,
+  mensajeMesesCerrados,
+  repartoPorPeriodo,
+  type EstadoSemanaDelPeriodo,
+} from "@/lib/ejecucionSemanas";
+import { evaluarCierre, type SinUnidad } from "@/lib/cierreEjecucion";
+import { contarParaCierreDeSemana } from "@/lib/cierreEjecucionDb";
+import {
+  requireAccesoEmpresa,
+  requireOperadorEjecucionGlobal,
+  requireCierreEjecucion,
+  puedeOperarEjecucionGlobal,
+  veTodoEjecucion,
+} from "@/lib/auth";
 import { calcularClasificacionesDisponibles } from "@/lib/clasificaciones";
 import {
   normalizarCuenta,
@@ -35,37 +52,50 @@ import {
   claveMovimiento,
   contarPorClave,
   separarNuevas,
-  esCuentaNumerada,
 } from "@/lib/conteoMovimientos";
 import type { Prisma } from "@prisma/client";
 
 const FILAS_POR_PAGINA = 200;
 
-// Coincidencia exacta de string (post-normalización), no fuzzy — cada clave nueva es un
-// matchea una empresa real y que el usuario logueado tiene acceso a ella. Esta resolución
-// (empresa + autorización) es defensiva para las Server Actions, que se invocan directo
-// desde el cliente y no vuelven a pasar por el layout.
-async function resolverPresupuesto(empresaSlug: string, periodo: string) {
+const FORMATO_PERIODO = /^\d{4}-\d{2}$/;
+
+// Ejecución global (docs/ejecucion_global_plan.md §3.4): las semanas son del PERÍODO, de todo el
+// holding, no de una empresa. La empresa de la URL solo sirve para LEER (acceso a la empresa) y
+// para filtrar lo que ve un gerente; operar no depende de ella (requireOperadorEjecucionGlobal).
+// Defensivo, porque las Server Actions se invocan directo desde el cliente y no vuelven a pasar
+// por el layout.
+async function resolverEmpresaParaLeer(empresaSlug: string, periodo: string) {
   const empresa = await resolverEmpresaPorSlug(empresaSlug);
   if (!empresa) {
     throw new Error(`No existe una empresa para "${empresaSlug}".`);
+  }
+  if (!FORMATO_PERIODO.test(periodo)) {
+    throw new Error(`"${periodo}" no es un período válido (AAAA-MM).`);
   }
   const usuario = await requireAccesoEmpresa(empresa.id);
-  const presupuesto = await obtenerOCrearPresupuesto(empresa.id, periodo);
-  return { empresa, presupuesto, usuario };
+  return { empresa, usuario };
 }
 
-// Como resolverPresupuesto, pero exige poder OPERAR Ejecución (no solo verla) —
-// para las Server Actions que mutan datos. Ver vs. operar es un permiso más
-// granular que el acceso a la empresa (ver comentario en lib/auth.ts).
-async function resolverPresupuestoParaOperar(empresaSlug: string, periodo: string) {
-  const empresa = await resolverEmpresaPorSlug(empresaSlug);
-  if (!empresa) {
-    throw new Error(`No existe una empresa para "${empresaSlug}".`);
+// Para las Server Actions que mutan: solo valida el período y el permiso global de operar.
+async function resolverParaOperar(periodo: string) {
+  if (!FORMATO_PERIODO.test(periodo)) {
+    throw new Error(`"${periodo}" no es un período válido (AAAA-MM).`);
   }
-  const usuario = await requireOperadorEjecucion(empresa.id);
-  const presupuesto = await obtenerOCrearPresupuesto(empresa.id, periodo);
-  return { empresa, presupuesto, usuario };
+  return requireOperadorEjecucionGlobal();
+}
+
+// Antes de mutar un movimiento: pertenece a ESTA semana (abierta) y no a otra. Sin esto, el
+// chequeo de "semana cerrada" miraba solo la semana de la URL y no la del movimiento.
+async function movimientoDeLaSemana(movimientoId: string, ejecucionId: string) {
+  const m = await prisma.movimientoBancario.findUnique({
+    where: { id: movimientoId },
+    select: { id: true, ejecucionId: true, unidadNegocio: true },
+  });
+  return m && m.ejecucionId === ejecucionId ? m : null;
+}
+
+function aCentavosSuma(importes: number[]): number {
+  return importes.reduce((acc, n) => acc + aCentavos(n), 0);
 }
 
 function mapearMovimiento(m: {
@@ -82,12 +112,21 @@ function mapearMovimiento(m: {
   chequeIvaAmbiguo: boolean;
   unidadSugeridaPorSistema: boolean;
   desglose: { id: string; unidadNegocio: string; importe: unknown }[];
-}) {
+}, soloUnidades?: string[]) {
+  // Gerente (sin permiso de ver todo): de un movimiento prorrateado ve SOLO sus porciones y
+  // el importe de ellas, nunca el total ni las porciones de otras unidades (§6).
+  let importe = Number(m.importe);
+  let desglose = m.desglose;
+  if (soloUnidades && m.desglose.length > 0) {
+    const propias = new Set(soloUnidades);
+    desglose = m.desglose.filter((d) => propias.has(d.unidadNegocio));
+    importe = aCentavosSuma(desglose.map((d) => Number(d.importe))) / 100;
+  }
   return {
     id: m.id,
     fecha: m.fecha.toISOString().slice(0, 10),
     concepto: m.concepto,
-    importe: Number(m.importe),
+    importe,
     bancoYCuenta: m.bancoYCuenta,
     clasificacion: m.clasificacion,
     // unidadNegocio: valor único del movimiento en sí, editable inline en la tabla
@@ -100,7 +139,7 @@ function mapearMovimiento(m: {
     sugeridaPorSistema: m.sugeridaPorSistema,
     chequeIvaAmbiguo: m.chequeIvaAmbiguo,
     unidadSugeridaPorSistema: m.unidadSugeridaPorSistema,
-    desglose: m.desglose.map((d) => ({
+    desglose: desglose.map((d) => ({
       id: d.id,
       unidadNegocio: d.unidadNegocio,
       importe: Number(d.importe),
@@ -108,21 +147,21 @@ function mapearMovimiento(m: {
   };
 }
 
-// Único punto que crea una EjecucionSemanal: resuelve-o-crea la semana abierta y
-// devuelve su número, para que la página índice (sin segmento numérico) redirija ahí.
-// Solo para quien puede OPERAR — alguien con acceso de solo lectura no debe disparar
-// la creación de una semana nueva con el simple hecho de navegar acá. Para ese caso
-// se busca la última semana existente sin crear ninguna; null si todavía no hay
-// ninguna (el índice le muestra un mensaje en vez de redirigir a algo inexistente).
+// Resuelve-o-crea la semana ABIERTA DEL PERÍODO (global, con lock por período) y devuelve su
+// número, para que la página índice (sin segmento numérico) redirija ahí. Solo para quien puede
+// OPERAR — alguien con acceso de solo lectura no debe disparar la creación de una semana nueva
+// con el simple hecho de navegar acá. Para ese caso se busca la última semana existente del
+// período sin crear ninguna; null si todavía no hay ninguna (el índice le muestra un mensaje en
+// vez de redirigir a algo inexistente).
 export async function obtenerNumeroSemanaAbierta(empresaSlug: string, periodo: string) {
-  const { empresa, presupuesto, usuario } = await resolverPresupuesto(empresaSlug, periodo);
+  const { usuario } = await resolverEmpresaParaLeer(empresaSlug, periodo);
 
-  if (await puedeOperarEjecucion(usuario, empresa.id)) {
-    const ejecucion = await obtenerOCrearEjecucionAbierta(presupuesto.id);
+  if (puedeOperarEjecucionGlobal(usuario)) {
+    const ejecucion = await obtenerOCrearEjecucionAbierta(periodo);
     return ejecucion.numeroSemana;
   }
 
-  const ultima = await obtenerUltimaEjecucion(presupuesto.id);
+  const ultima = await obtenerUltimaEjecucion(periodo);
   return ultima?.numeroSemana ?? null;
 }
 
@@ -145,13 +184,28 @@ export async function obtenerDatosSemana(
   // en vez de sumar un round-trip secuencial más contra la base.
   const clasificacionesPromise = calcularClasificacionesDisponibles();
 
-  const { empresa, presupuesto, usuario } = await resolverPresupuesto(empresaSlug, periodo);
-  const puedeOperar = await puedeOperarEjecucion(usuario, empresa.id);
-  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  const { empresa, usuario } = await resolverEmpresaParaLeer(empresaSlug, periodo);
+  const puedeOperar = puedeOperarEjecucionGlobal(usuario);
+  const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
 
   if (!ejecucion) {
     return null;
   }
+
+  // Visibilidad (§6): ADMIN, FINANZAS y quien opera ven TODA la semana. Un gerente ve solo los
+  // movimientos de las unidades de SU empresa (los no prorrateados por su unidad, los
+  // prorrateados por la porción propia), vengan de la cuenta que vengan. Se filtra en la
+  // consulta, así que el resto ni siquiera sale de la base hacia el navegador.
+  const verTodo = veTodoEjecucion(usuario);
+  const unidadesVisibles = verTodo ? null : empresa.unidadesNegocio;
+  const filtroVisibilidad: Prisma.MovimientoBancarioWhereInput = unidadesVisibles
+    ? {
+        OR: [
+          { desglose: { none: {} }, unidadNegocio: { in: unidadesVisibles } },
+          { desglose: { some: { unidadNegocio: { in: unidadesVisibles } } } },
+        ],
+      }
+    : {};
 
   // Agregación separada del fetch paginado: el total en pesos y el conteo de filas
   // tienen que representar TODA la semana, no solo la página que se está mostrando.
@@ -167,30 +221,39 @@ export async function obtenerDatosSemana(
   // condición solo cuando el filtro está activo, sin cambiar nada más.
   const filtroClasificacion = soloSinClasificar ? { clasificacion: "SIN CLASIFICAR" } : {};
 
-  const [agregadoTotal, agregadoSumaReal, gruposUnidadSugerida, sinUnidadAsignada, sugerenciasClasificacion] = await Promise.all([
+  const [agregadoTotal, totalImporte, gruposUnidadSugerida, sinUnidadAsignada, sugerenciasClasificacion] = await Promise.all([
     prisma.movimientoBancario.aggregate({
-      where: { ejecucionId: ejecucion.id, ...filtroClasificacion },
+      where: { ejecucionId: ejecucion.id, ...filtroVisibilidad, ...filtroClasificacion },
       _count: true,
     }),
-    prisma.movimientoBancario.aggregate({
-      where: { ejecucionId: ejecucion.id, ignorado: false, ...filtroClasificacion },
-      _sum: { importe: true },
-    }),
+    unidadesVisibles
+      ? sumarImporteDeUnidades(ejecucion.id, unidadesVisibles, soloSinClasificar)
+      : prisma.movimientoBancario
+          .aggregate({
+            where: { ejecucionId: ejecucion.id, ignorado: false, ...filtroClasificacion },
+            _sum: { importe: true },
+          })
+          .then((a) => Number(a._sum.importe ?? 0)),
     // Panel de unidades sugeridas: TODA la semana (sin paginar y sin
     // filtroClasificacion), a diferencia de las filas de la tabla — un archivo
     // de ~16.500 filas reparte las sugerencias en decenas de páginas.
-    prisma.movimientoBancario.groupBy({
-      by: ["bancoYCuenta", "unidadNegocio"],
-      where: { ejecucionId: ejecucion.id, unidadSugeridaPorSistema: true },
-      _count: true,
-    }),
+    // Los tres paneles son solo de quien opera: para el resto ni se consultan.
+    puedeOperar
+      ? prisma.movimientoBancario.groupBy({
+          by: ["bancoYCuenta", "unidadNegocio"],
+          where: { ejecucionId: ejecucion.id, unidadSugeridaPorSistema: true },
+          _count: true,
+        })
+      : Promise.resolve([]),
     // Aviso antes del cierre (decisión 2026-10-07): movimientos de TODA la semana
     // cuya unidad no pertenece a ninguna empresa — no van a entrar en el Reporte
     // de nadie, y una vez cerrada la semana ya no se pueden corregir.
-    obtenerUnidadesConEmpresa().then((unidades) => contarSinUnidadEnSemana(ejecucion.id, unidades)),
+    puedeOperar
+      ? obtenerUnidadesConEmpresa().then((unidades) => contarSinUnidadEnSemana(ejecucion.id, unidades))
+      : Promise.resolve([]),
     // Panel de clasificaciones sugeridas: TODA la semana, no la página
     // (decisión 2026-10-07 — antes se armaba con las filas de la página actual).
-    agruparSugerenciasClasificacion(ejecucion.id),
+    puedeOperar ? agruparSugerenciasClasificacion(ejecucion.id) : Promise.resolve([]),
   ]);
 
   const totalMovimientos = agregadoTotal._count;
@@ -203,17 +266,17 @@ export async function obtenerDatosSemana(
   // causó que una edición de Unidad de Negocio terminara pisando una fila distinta al volver
   // a esta página. `id` es único y no cambia nunca, así que el orden queda fijo para siempre.
   const movimientos = await prisma.movimientoBancario.findMany({
-    where: { ejecucionId: ejecucion.id, ...filtroClasificacion },
+    where: { ejecucionId: ejecucion.id, ...filtroVisibilidad, ...filtroClasificacion },
     orderBy: [{ fecha: "asc" }, { id: "asc" }],
     skip: (paginaEfectiva - 1) * FILAS_POR_PAGINA,
     take: FILAS_POR_PAGINA,
     include: { desglose: { orderBy: { createdAt: "asc" } } },
   });
 
-  // Cuentas activas de la empresa para el selector de "Subir extracto" (solo si puede operar).
+  // Cuentas activas del holding para el selector de "Subir extracto" (solo si puede operar).
   const cuentasBancarias = puedeOperar
     ? await prisma.cuentaBancaria.findMany({
-        where: { empresaId: empresa.id, activa: true },
+        where: { activa: true },
         orderBy: { nombre: "asc" },
         select: { nombre: true, banco: true },
       })
@@ -235,9 +298,9 @@ export async function obtenerDatosSemana(
       : null,
     puedeOperar,
     clasificacionesDisponibles: await clasificacionesPromise,
-    movimientos: movimientos.map(mapearMovimiento),
+    movimientos: movimientos.map((m) => mapearMovimiento(m, unidadesVisibles ?? undefined)),
     totalMovimientos,
-    totalImporte: Number(agregadoSumaReal._sum.importe ?? 0),
+    totalImporte,
     pagina: paginaEfectiva,
     totalPaginas,
     soloSinClasificar,
@@ -246,6 +309,29 @@ export async function obtenerDatosSemana(
     sugerenciasClasificacion,
     cuentasBancarias,
   };
+}
+
+// Total en pesos que ve un gerente: de la semana, sin ignorados, los movimientos no prorrateados
+// de sus unidades más sus porciones de prorrateo (nunca el importe total de un prorrateado).
+// Sumado en la base (numeric exacto) y pasado a centavos como texto.
+async function sumarImporteDeUnidades(ejecucionId: string, unidades: string[], soloSinClasificar: boolean) {
+  if (unidades.length === 0) return 0;
+  const [fila] = await prisma.$queryRaw<{ total: string }[]>`
+    SELECT COALESCE(SUM(x.importe), 0)::text AS total FROM (
+      SELECT mb.importe FROM "MovimientoBancario" mb
+      WHERE mb."ejecucionId" = ${ejecucionId} AND NOT mb.ignorado
+        AND (NOT ${soloSinClasificar} OR mb.clasificacion = 'SIN CLASIFICAR')
+        AND mb."unidadNegocio" = ANY(${unidades}::text[])
+        AND NOT EXISTS (SELECT 1 FROM "MovimientoBancarioDesglose" d WHERE d."movimientoId" = mb.id)
+      UNION ALL
+      SELECT d.importe FROM "MovimientoBancario" mb
+      JOIN "MovimientoBancarioDesglose" d ON d."movimientoId" = mb.id
+      WHERE mb."ejecucionId" = ${ejecucionId} AND NOT mb.ignorado
+        AND (NOT ${soloSinClasificar} OR mb.clasificacion = 'SIN CLASIFICAR')
+        AND d."unidadNegocio" = ANY(${unidades}::text[])
+    ) x
+  `;
+  return centavosDeDecimalTexto(fila.total) / 100;
 }
 
 export type FilaSugerenciaClasificacion = {
@@ -383,8 +469,9 @@ export async function calcularChequeosSumaCero(
   periodo: string,
   numeroSemana: number
 ): Promise<ResultadoChequeo[]> {
-  const { presupuesto } = await resolverPresupuesto(empresaSlug, periodo);
-  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  // Solo lo usa quien opera (la pantalla de imputación).
+  await resolverParaOperar(periodo);
+  const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
   if (!ejecucion) return [];
 
   const resultados: ResultadoChequeo[] = [];
@@ -578,7 +665,7 @@ async function aplicarCruceChequeIva(
 export type { ResultadoContinuidadSaldo } from "@/lib/extractos/continuidad";
 
 // Casi-duplicado: fila NUEVA (no reconocida como ya cargada) cuya cuenta + fecha +
-// importe coinciden con un movimiento ya cargado de la misma empresa, pero que
+// importe coinciden con un movimiento ya cargado de la misma cuenta, pero que
 // difiere en concepto, nro de referencia o saldo — típico de un movimiento que el
 // banco reexportó con otra leyenda. Se carga igual; solo se avisa.
 export type PosibleDuplicado = {
@@ -587,19 +674,6 @@ export type PosibleDuplicado = {
   importe: number;
   bancoYCuenta: string;
   concepto: string;
-};
-
-// Una cuenta numerada de las filas nuevas que ya tiene movimientos cargados en
-// OTRA empresa — señal de que el archivo puede estar subiéndose en la empresa
-// equivocada (ej. el archivo madre de todo el holding). `identicas`: cuántas de
-// las filas nuevas de esta cuenta son idénticas (misma clave) a filas de esa otra
-// empresa — la señal más fuerte.
-export type CuentaCompartida = {
-  cuenta: string;
-  empresa: string;
-  filasEnOtraEmpresa: number;
-  filasNuevasDeLaCuenta: number;
-  identicas: number;
 };
 
 // Tope de casi-duplicados que viaja al cliente (el total viaja aparte): con un
@@ -622,6 +696,9 @@ export type VistaPreviaExtracto = {
   posiblesDuplicados: number;
   avisos: string[];
   continuidadSaldo: ResultadoContinuidadSaldo[];
+  // Filas NUEVAS por mes ("septiembre: N filas; octubre: M filas"): cada fila va a la semana
+  // abierta de su mes.
+  repartoPorPeriodo: { periodo: string; filas: number }[];
 };
 
 type ResultadoImportar =
@@ -640,6 +717,8 @@ type ResultadoImportar =
       // trazado con qué hoja se cargó. En el caso normal (una sola hoja, o "Hoja1")
       // queda undefined a propósito, para no agregar ruido al mensaje de siempre.
       hoja?: string;
+      // Dónde quedó cada mes que trajo filas nuevas: período, cuántas filas y número de semana.
+      repartoPorPeriodo: { periodo: string; filas: number; numeroSemana: number }[];
     }
   // cuentaSugerida: el selector la propone cuando el archivo trae su número de cuenta.
   | { ok: false; error: string; cuentaSugerida?: string }
@@ -650,19 +729,7 @@ type ResultadoImportar =
   | { ok: false; requiereSeleccionHoja: true; hojas: string[] }
   // Extracto crudo: no se cargó NADA todavía, se muestra el resumen y, si el usuario
   // confirma, se reenvía el archivo con confirmarVistaPrevia = true.
-  | { ok: false; requiereVistaPrevia: true; vista: VistaPreviaExtracto }
-  // Alguna cuenta numerada de las filas nuevas ya tiene movimientos en otra
-  // empresa: no se cargó NADA todavía — el panel muestra la lista y, si el usuario
-  // confirma, reenvía el archivo con confirmarCuentasCompartidas = true. Avisa, no
-  // bloquea (decisión 2026-10-07): hay cuentas compartidas legítimas (ej. el
-  // extracto propio de Fredy trae FRANCES 825, MACRO 623 y MACRO 794).
-  | {
-      ok: false;
-      requiereConfirmacionCuentas: true;
-      cuentas: CuentaCompartida[];
-      filasNuevas: number;
-      filasYaCargadas: number;
-    };
+  | { ok: false; requiereVistaPrevia: true; vista: VistaPreviaExtracto };
 
 // fecha + importe — la usa aplicarCruceLiquidacionFinal para emparejar contra
 // PagoReferencia (el reconocimiento de lo ya cargado usa claveMovimiento, más
@@ -691,21 +758,6 @@ function claveDeFilaDb(m: FilaClaveDb) {
   });
 }
 
-// Claves de TODOS los movimientos ya cargados en el presupuesto (empresa +
-// período), de cualquier semana, abierta o cerrada — un solo round-trip (no uno
-// por fila del Excel). Corre dentro de la transacción de subirExtracto, después
-// del lock. importe/saldo como texto: se pasan a centavos sin float.
-async function obtenerClavesDelPresupuesto(tx: Prisma.TransactionClient, presupuestoId: string) {
-  const filas = await tx.$queryRaw<FilaClaveDb[]>`
-    SELECT mb.fecha, mb.importe::text AS importe, mb."bancoYCuenta", mb.concepto,
-           mb."nroReferencia", mb.saldo::text AS saldo
-    FROM "MovimientoBancario" mb
-    JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
-    WHERE es."presupuestoId" = ${presupuestoId}
-  `;
-  return contarPorClave(filas.map(claveDeFilaDb));
-}
-
 function claveFechaImporteCuenta(fecha: Date, importeCentavos: number, bancoYCuenta: string) {
   return JSON.stringify([
     fecha.toISOString().slice(0, 10),
@@ -714,115 +766,9 @@ function claveFechaImporteCuenta(fecha: Date, importeCentavos: number, bancoYCue
   ]);
 }
 
-// Para el aviso de casi-duplicados: cuenta + fecha + importe de todo lo cargado en
-// la EMPRESA (cualquier período — un archivo puede traer días de un período ya
-// cargado en otro). Los 3 saltos del join (Empresa <- PresupuestoMensual <-
-// EjecucionSemanal <- MovimientoBancario) ya tienen índice: @@unique([empresaId,
-// periodo]), @@unique([presupuestoId, numeroSemana]) y @@index([ejecucionId]).
-async function obtenerFechaImporteCuentaDeLaEmpresa(empresaId: string) {
-  const filas = await prisma.$queryRaw<{ fecha: Date; importe: string; bancoYCuenta: string }[]>`
-    SELECT mb.fecha, mb.importe::text AS importe, mb."bancoYCuenta"
-    FROM "MovimientoBancario" mb
-    JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
-    JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
-    WHERE pm."empresaId" = ${empresaId}
-  `;
-  return new Set(
-    filas.map((m) =>
-      claveFechaImporteCuenta(m.fecha, centavosDeDecimalTexto(m.importe), m.bancoYCuenta)
-    )
-  );
-}
-
-// Cuentas numeradas de las filas nuevas que ya tienen movimientos en OTRAS
-// empresas. Primero un resumen agrupado (son pocas combinaciones cuenta×empresa);
-// solo si hay coincidencias se traen las filas de esas cuentas, para contar
-// cuántas son idénticas a las nuevas del archivo.
-async function buscarCuentasCompartidas(
-  tx: Prisma.TransactionClient,
-  empresaId: string,
-  nuevas: { bancoYCuenta: string; clave: string }[]
-): Promise<CuentaCompartida[]> {
-  const nuevasPorCuenta = new Map<string, string[]>();
-  for (const f of nuevas) {
-    if (!esCuentaNumerada(f.bancoYCuenta)) continue;
-    const cuenta = normalizarCuenta(f.bancoYCuenta);
-    const lista = nuevasPorCuenta.get(cuenta);
-    if (lista) lista.push(f.clave);
-    else nuevasPorCuenta.set(cuenta, [f.clave]);
-  }
-  if (nuevasPorCuenta.size === 0) return [];
-
-  const resumen = await tx.$queryRaw<
-    { bancoYCuenta: string; empresaId: string; empresa: string; filas: number }[]
-  >`
-    SELECT mb."bancoYCuenta", e.id AS "empresaId", e.nombre AS empresa, COUNT(*)::int AS filas
-    FROM "MovimientoBancario" mb
-    JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
-    JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
-    JOIN "Empresa" e ON pm."empresaId" = e.id
-    WHERE pm."empresaId" <> ${empresaId}
-    GROUP BY 1, 2, 3
-  `;
-  const coincidencias = resumen.filter((r) => nuevasPorCuenta.has(normalizarCuenta(r.bancoYCuenta)));
-  if (coincidencias.length === 0) return [];
-
-  const crudas = Array.from(new Set(coincidencias.map((r) => r.bancoYCuenta)));
-  const filasOtras = await tx.$queryRaw<(FilaClaveDb & { empresaId: string })[]>`
-    SELECT mb.fecha, mb.importe::text AS importe, mb."bancoYCuenta", mb.concepto,
-           mb."nroReferencia", mb.saldo::text AS saldo, pm."empresaId"
-    FROM "MovimientoBancario" mb
-    JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
-    JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
-    WHERE pm."empresaId" <> ${empresaId} AND mb."bancoYCuenta" = ANY(${crudas})
-  `;
-
-  const porCuentaYEmpresa = new Map<string, CuentaCompartida & { empresaId: string }>();
-  for (const r of coincidencias) {
-    const cuenta = normalizarCuenta(r.bancoYCuenta);
-    const k = `${cuenta}|${r.empresaId}`;
-    const previo = porCuentaYEmpresa.get(k);
-    if (previo) {
-      previo.filasEnOtraEmpresa += r.filas;
-    } else {
-      porCuentaYEmpresa.set(k, {
-        cuenta,
-        empresa: r.empresa,
-        empresaId: r.empresaId,
-        filasEnOtraEmpresa: r.filas,
-        filasNuevasDeLaCuenta: nuevasPorCuenta.get(cuenta)!.length,
-        identicas: 0,
-      });
-    }
-  }
-  // identicas = Σ por clave de min(veces en las filas nuevas, veces en la otra empresa).
-  for (const item of porCuentaYEmpresa.values()) {
-    const enOtra = contarPorClave(
-      filasOtras
-        .filter((m) => m.empresaId === item.empresaId && normalizarCuenta(m.bancoYCuenta) === item.cuenta)
-        .map(claveDeFilaDb)
-    );
-    for (const [clave, n] of contarPorClave(nuevasPorCuenta.get(item.cuenta)!)) {
-      item.identicas += Math.min(n, enOtra.get(clave) ?? 0);
-    }
-  }
-  return Array.from(porCuentaYEmpresa.values())
-    .map((c) => ({
-      cuenta: c.cuenta,
-      empresa: c.empresa,
-      filasEnOtraEmpresa: c.filasEnOtraEmpresa,
-      filasNuevasDeLaCuenta: c.filasNuevasDeLaCuenta,
-      identicas: c.identicas,
-    }))
-    .sort((a, b) => a.cuenta.localeCompare(b.cuenta, "es") || a.empresa.localeCompare(b.empresa, "es"));
-}
-
 type OpcionesSubida = {
   // Hoja elegida tras el selector (archivo con varias hojas).
   hoja?: string;
-  // true solo en el reenvío después de que el usuario vio el aviso de cuentas
-  // compartidas con otra empresa y eligió "Cargar igual".
-  confirmarCuentasCompartidas?: boolean;
   // true solo en el reenvío después de la vista previa de un extracto crudo.
   confirmarVistaPrevia?: boolean;
 };
@@ -833,33 +779,14 @@ type FilaAImportar = FilaMadre & { importeCentavos?: number; saldoCentavos?: num
 
 const pesos = (centavos: number) => centavos / 100;
 
-// Cuenta + fecha + importe de lo ya cargado de UNA cuenta en UN período (presupuesto): para
-// detectar que la misma cuenta se está cargando por dos caminos (madre y crudo).
-async function obtenerFechaImporteDeLaCuentaEnElPeriodo(
-  tx: Prisma.TransactionClient,
-  presupuestoId: string,
-  cuenta: string
-) {
-  const filas = await tx.$queryRaw<{ fecha: Date; importe: string; bancoYCuenta: string }[]>`
-    SELECT mb.fecha, mb.importe::text AS importe, mb."bancoYCuenta"
-    FROM "MovimientoBancario" mb
-    JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
-    WHERE es."presupuestoId" = ${presupuestoId}
-      AND regexp_replace(upper(trim(mb."bancoYCuenta")), '\s+', ' ', 'g') = ${cuenta}
-  `;
-  return new Set(
-    filas.map((m) => claveFechaImporteCuenta(m.fecha, centavosDeDecimalTexto(m.importe), m.bancoYCuenta))
-  );
-}
-
 export async function subirExtracto(
-  empresaSlug: string,
+  _empresaSlug: string,
   periodo: string,
   numeroSemana: number,
   formData: FormData,
   opciones: OpcionesSubida = {}
 ): Promise<ResultadoImportar> {
-  const { hoja: hojaElegida, confirmarCuentasCompartidas = false, confirmarVistaPrevia = false } = opciones;
+  const { hoja: hojaElegida, confirmarVistaPrevia = false } = opciones;
   const archivo = formData.get("archivo");
 
   if (!(archivo instanceof File) || archivo.size === 0) {
@@ -875,19 +802,14 @@ export async function subirExtracto(
   // Cuenta elegida en el selector ("" = archivo madre, que trae sus propias cuentas).
   const cuentaElegida = String(formData.get("cuenta") ?? "").trim();
 
-  const { empresa, presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
-  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  await resolverParaOperar(periodo);
+  const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
   if (!ejecucion) {
     return { ok: false, error: `No encontré la semana ${numeroSemana}.` };
   }
   if (ejecucion.estado === "CERRADA") {
     return { ok: false, error: "La semana ya está cerrada, no se pueden subir más movimientos." };
   }
-
-  // Dispara en paralelo con el parseo del archivo (que sigue abajo) — así no suma un
-  // round-trip secuencial más. Solo alimenta un aviso (casi-duplicados), así que
-  // puede leerse fuera de la transacción de más abajo.
-  const fechaImporteCuentaPromise = obtenerFechaImporteCuentaDeLaEmpresa(empresa.id);
 
   const bytes = new Uint8Array(await archivo.arrayBuffer());
   const leido = await leerArchivoSubido(bytes, hojaElegida);
@@ -924,13 +846,19 @@ export async function subirExtracto(
   } else {
     const { lectura } = leido;
 
-    // Validaciones en el servidor (el cliente no decide nada).
-    const cuentasDeLaEmpresa = await prisma.cuentaBancaria.findMany({
-      where: { empresaId: empresa.id },
-      select: { nombre: true, banco: true, terminacion: true, activa: true },
+    // Validaciones en el servidor (el cliente no decide nada). Ejecución global: se elige entre
+    // TODAS las cuentas del holding; la empresa de la cuenta es solo su titular (opcional).
+    const cuentasDelHolding = await prisma.cuentaBancaria.findMany({
+      select: {
+        nombre: true,
+        banco: true,
+        terminacion: true,
+        activa: true,
+        empresa: { select: { nombre: true, cuit: true } },
+      },
     });
     if (!cuentaElegida) {
-      const sugerida = sugerirCuenta(cuentasDeLaEmpresa, lectura.banco, lectura.cuentaEnArchivo);
+      const sugerida = sugerirCuenta(cuentasDelHolding, lectura.banco, lectura.cuentaEnArchivo);
       return {
         ok: false,
         error: sugerida
@@ -939,21 +867,23 @@ export async function subirExtracto(
         cuentaSugerida: sugerida?.nombre,
       };
     }
-    const cuenta = cuentaElegida
-      ? cuentasDeLaEmpresa.find((c) => c.activa && normalizarCuenta(c.nombre) === normalizarCuenta(cuentaElegida))
-      : undefined;
+    const cuenta = cuentasDelHolding.find(
+      (c) => c.activa && normalizarCuenta(c.nombre) === normalizarCuenta(cuentaElegida)
+    );
     if (!cuenta) {
-      return { ok: false, error: `La cuenta "${cuentaElegida}" no está activa en esta empresa.` };
+      return { ok: false, error: `La cuenta "${cuentaElegida}" no está activa.` };
     }
     const control = controlarCuentaDelArchivo(cuenta, lectura.banco, lectura.cuentaEnArchivo);
     if (!control.ok) return { ok: false, error: control.error };
 
     avisos = [...control.avisos, ...lectura.avisos];
-    // CUIT distinto del de la empresa: aviso, no bloqueo (hay cuentas compartidas legítimas).
-    const cuitEmpresa = empresa.cuit?.replace(/\D/g, "") ?? null;
-    if (lectura.cuitEnArchivo && cuitEmpresa && lectura.cuitEnArchivo !== cuitEmpresa) {
+    // CUIT distinto del de la TITULAR de la cuenta (si tiene): aviso, no bloqueo (hay cuentas
+    // compartidas legítimas).
+    const titular = cuenta.empresa;
+    const cuitTitular = titular?.cuit?.replace(/\D/g, "") ?? null;
+    if (lectura.cuitEnArchivo && titular && cuitTitular && lectura.cuitEnArchivo !== cuitTitular) {
       avisos.push(
-        `El CUIT del archivo (${lectura.cuitEnArchivo}) no es el de ${empresa.nombre} (${cuitEmpresa}): revisá que sea la empresa correcta.`
+        `El CUIT del archivo (${lectura.cuitEnArchivo}) no es el de ${titular.nombre}, titular de ${cuenta.nombre} (${cuitTitular}): revisá que sea la cuenta correcta.`
       );
     }
 
@@ -1013,34 +943,66 @@ export async function subirExtracto(
     };
   });
 
-  const fechaImporteCuentaEmpresa = await fechaImporteCuentaPromise;
+  // Rango de fechas y cuentas del archivo: lo ya cargado se busca POR CUENTA, en todos los
+  // períodos, acotado a este rango (un extracto acumulativo que trae días de un mes ya cargado
+  // no los vuelve a cargar). Math.min/max con el spread de ~16.500 fechas entra en el stack.
+  const fechasDelArchivo = filas.map((f) => f.fecha.getTime());
+  const desde = new Date(Math.min(...fechasDelArchivo));
+  const hasta = new Date(Math.max(...fechasDelArchivo));
+  const cuentasDelArchivo = Array.from(new Set(filas.map((f) => normalizarCuenta(f.bancoYCuenta))));
+  const periodosDelArchivo = ordenarPeriodos(filas.map((f) => periodoDeFecha(f.fecha)));
 
   // Todo lo que decide qué se carga y la carga misma, dentro de UNA transacción con
-  // un lock por presupuesto: dos subidas simultáneas al mismo período (dos
-  // pestañas, dos personas) contarían el mismo M antes de que la otra inserte y
-  // duplicarían. pg_advisory_xact_lock se libera solo al terminar la transacción
-  // (compatible con el pooler de Neon en modo transacción). "SELECT 1 FROM ...":
-  // pg_advisory_xact_lock devuelve void, que Prisma no sabe deserializar.
+  // locks: dos subidas simultáneas (dos pestañas, dos personas) contarían el mismo M antes de
+  // que la otra inserte y duplicarían. Primero el lock de la cuenta (extracto crudo) y después
+  // los de cada período, siempre en el mismo orden (sin deadlock). pg_advisory_xact_lock se
+  // libera solo al terminar la transacción (compatible con el pooler de Neon en modo
+  // transacción). "SELECT 1 FROM ...": pg_advisory_xact_lock devuelve void, que Prisma no sabe
+  // deserializar.
   // timeout 120s: el archivo real de 16.521 filas tardó ~24s por llamada en local
   // (2026-10-07); el margen cubre una base más lenta que la local.
   const resultado = await prisma.$transaction(
     async (tx) => {
-      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${presupuesto.id}))`;
+      if (cuentaCruda) {
+        await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${"ejecucion:cuenta:" + normalizarCuenta(cuentaCruda.nombre)}))`;
+      }
+      for (const p of ordenarPeriodos([ejecucion.periodo, ...periodosDelArchivo])) {
+        await bloquearPeriodo(tx, p);
+      }
+
+      // Con el lock tomado, la semana pudo haberse cerrado mientras se leía el archivo.
+      const vigente = await tx.ejecucionSemanal.findUnique({ where: { id: ejecucion.id }, select: { estado: true } });
+      if (!vigente || vigente.estado === "CERRADA") {
+        return { ok: false as const, error: "La semana ya está cerrada, no se pueden subir más movimientos." };
+      }
 
       // Reconocer lo ya cargado CONTANDO (ver lib/conteoMovimientos.ts): de cada
       // clave se cargan N − M. Lo ya cargado no se toca nunca — conserva
       // clasificación, unidad, prorrateo, ignorado y adjuntos, esté en una semana
-      // cerrada o en la abierta.
-      const yaCargadas = await obtenerClavesDelPresupuesto(tx, presupuesto.id);
+      // cerrada o en la abierta. Un solo round-trip (no uno por fila del Excel);
+      // importe/saldo como texto: se pasan a centavos sin float.
+      const existentes = await tx.$queryRaw<FilaClaveDb[]>`
+        SELECT mb.fecha, mb.importe::text AS importe, mb."bancoYCuenta", mb.concepto,
+               mb."nroReferencia", mb.saldo::text AS saldo
+        FROM "MovimientoBancario" mb
+        WHERE mb.fecha >= ${desde.toISOString().slice(0, 10)}::date
+          AND mb.fecha < (${hasta.toISOString().slice(0, 10)}::date + 1)
+          AND regexp_replace(upper(trim(mb."bancoYCuenta")), '[[:space:]]+', ' ', 'g') = ANY(${cuentasDelArchivo}::text[])
+      `;
+      const yaCargadas = contarPorClave(existentes.map(claveDeFilaDb));
       const { nuevas, cantidadYaCargadas } = separarNuevas(filasConClave, (f) => f.clave, yaCargadas);
+
+      // Cuenta + fecha + importe de lo ya cargado en el rango: alimenta el aviso de
+      // casi-duplicados y el control de "un solo camino".
+      const fechaImporteCuenta = new Set(
+        existentes.map((m) => claveFechaImporteCuenta(m.fecha, centavosDeDecimalTexto(m.importe), m.bancoYCuenta))
+      );
 
       // Casi-duplicados: solo entre las NUEVAS (las coincidencias exactas ya
       // quedaron reconocidas arriba y no se cargan). Se cargan igual.
       const casiDuplicados: PosibleDuplicado[] = nuevas
         .filter((n) =>
-          fechaImporteCuentaEmpresa.has(
-            claveFechaImporteCuenta(n.fila.fecha, n.importeCentavos, n.fila.bancoYCuenta)
-          )
+          fechaImporteCuenta.has(claveFechaImporteCuenta(n.fila.fecha, n.importeCentavos, n.fila.bancoYCuenta))
         )
         .map((n) => ({
           fila: n.fila.numeroFila,
@@ -1051,32 +1013,58 @@ export async function subirExtracto(
         }));
 
       if (cuentaCruda && nuevas.length > 0) {
-        // UNA cuenta y período por un solo camino (madre o crudo): si la cuenta ya tiene
-        // movimientos en este período, ninguna fila de este archivo coincide exactamente
-        // con ellos pero sí hay filas con la misma fecha e importe, es casi seguro que
-        // esos movimientos entraron por el OTRO camino (la clave de reconocimiento no
-        // coincide fila a fila) y cargar acá los duplicaría. No hay una columna "origen"
-        // en la base: se infiere así.
-        const delPeriodo = await obtenerFechaImporteDeLaCuentaEnElPeriodo(
-          tx,
-          presupuesto.id,
-          normalizarCuenta(cuentaCruda.nombre)
+        // UNA cuenta por un solo camino (madre o crudo), en todos los períodos: si la cuenta ya
+        // tiene movimientos en las fechas de este archivo, ninguna fila coincide exactamente
+        // con ellos pero sí hay filas con la misma fecha e importe, es casi seguro que esos
+        // movimientos entraron por el OTRO camino (la clave de reconocimiento no coincide fila
+        // a fila) y cargar acá los duplicaría. No hay una columna "origen" en la base: se
+        // infiere así.
+        const cuentaNormalizada = normalizarCuenta(cuentaCruda.nombre);
+        const delRango = new Set(
+          existentes
+            .filter((m) => normalizarCuenta(m.bancoYCuenta) === cuentaNormalizada)
+            .map((m) => claveFechaImporteCuenta(m.fecha, centavosDeDecimalTexto(m.importe), m.bancoYCuenta))
         );
         const parecidas = nuevas.filter((n) =>
-          delPeriodo.has(claveFechaImporteCuenta(n.fila.fecha, n.importeCentavos, n.fila.bancoYCuenta))
+          delRango.has(claveFechaImporteCuenta(n.fila.fecha, n.importeCentavos, n.fila.bancoYCuenta))
         ).length;
-        if (delPeriodo.size > 0 && cantidadYaCargadas === 0 && parecidas > 0) {
+        if (delRango.size > 0 && cantidadYaCargadas === 0 && parecidas > 0) {
           return {
             ok: false as const,
-            error: `La cuenta ${cuentaCruda.nombre} ya tiene movimientos cargados en este período por otro camino (archivo madre o extracto crudo), y ${parecidas} de las filas de este archivo tienen la misma fecha e importe que algunos de ellos. Una cuenta se carga por un solo camino por período para no duplicar. No se cargó nada.`,
+            error: `La cuenta ${cuentaCruda.nombre} ya tiene movimientos cargados en las fechas de este archivo por otro camino (archivo madre o extracto crudo), y ${parecidas} de las filas de este archivo tienen la misma fecha e importe que algunos de ellos. Una cuenta se carga por un solo camino para no duplicar. No se cargó nada.`,
           };
         }
+      }
+
+      // A qué semana va cada mes (§3.4): las filas del mes de esta semana, a esta; las de otro
+      // mes, a la semana abierta de SU mes (se crea si el mes no tiene ninguna). Un mes con
+      // semanas y todas cerradas frena la subida (los tardíos son la Fase 4). Antes de la
+      // vista previa: no tiene sentido pedir confirmar algo que no se va a cargar.
+      const periodosNuevas = new Set(nuevas.map((n) => periodoDeFecha(n.fila.fecha)));
+      const otrosPeriodos = Array.from(periodosNuevas).filter((p) => p !== ejecucion.periodo);
+      const semanasDeOtros =
+        otrosPeriodos.length === 0
+          ? []
+          : await tx.ejecucionSemanal.findMany({
+              where: { periodo: { in: otrosPeriodos } },
+              select: { periodo: true, estado: true },
+            });
+      const semanasPorPeriodo = new Map<string, EstadoSemanaDelPeriodo[]>();
+      for (const s of semanasDeOtros) {
+        semanasPorPeriodo.set(s.periodo, [...(semanasPorPeriodo.get(s.periodo) ?? []), s.estado]);
+      }
+      const destinos = resolverDestinos(ejecucion.periodo, periodosNuevas, semanasPorPeriodo);
+      const repartoNuevas = repartoPorPeriodo(nuevas.map((n) => n.fila.fecha));
+      const bloqueados = destinos
+        .filter((d) => d.tipo === "bloqueado")
+        .map((d) => ({ periodo: d.periodo, filas: repartoNuevas.find((r) => r.periodo === d.periodo)?.filas ?? 0 }));
+      if (bloqueados.length > 0) {
+        return { ok: false as const, error: mensajeMesesCerrados(bloqueados) };
       }
 
       // Extracto crudo: primero se muestra qué se va a cargar y se pide confirmar.
       if (resumenCrudo && !confirmarVistaPrevia && nuevas.length > 0) {
         const todas = filasConClave.map((f) => f.importeCentavos);
-        const fechas = filas.map((f) => f.fecha.getTime());
         const creditos = todas.filter((c) => c > 0).reduce((a, c) => a + c, 0);
         const debitos = todas.filter((c) => c < 0).reduce((a, c) => a + c, 0);
         return {
@@ -1086,8 +1074,8 @@ export async function subirExtracto(
             banco: resumenCrudo.banco,
             cuenta: resumenCrudo.cuenta,
             filas: filas.length,
-            desde: new Date(Math.min(...fechas)).toISOString().slice(0, 10),
-            hasta: new Date(Math.max(...fechas)).toISOString().slice(0, 10),
+            desde: desde.toISOString().slice(0, 10),
+            hasta: hasta.toISOString().slice(0, 10),
             creditos: pesos(creditos),
             debitos: pesos(debitos),
             neto: pesos(creditos + debitos),
@@ -1096,25 +1084,9 @@ export async function subirExtracto(
             posiblesDuplicados: casiDuplicados.length,
             avisos,
             continuidadSaldo,
+            repartoPorPeriodo: repartoNuevas,
           },
         };
-      }
-
-      if (!confirmarCuentasCompartidas && nuevas.length > 0) {
-        const cuentas = await buscarCuentasCompartidas(
-          tx,
-          empresa.id,
-          nuevas.map((n) => ({ bancoYCuenta: n.fila.bancoYCuenta, clave: n.clave }))
-        );
-        if (cuentas.length > 0) {
-          return {
-            ok: false as const,
-            requiereConfirmacionCuentas: true as const,
-            cuentas,
-            filasNuevas: nuevas.length,
-            filasYaCargadas: cantidadYaCargadas,
-          };
-        }
       }
 
       const filasNuevas = nuevas.map((n) => n.fila);
@@ -1127,10 +1099,20 @@ export async function subirExtracto(
         filasNuevas.length > 0 && !cuentaCruda ? await aplicarCruceLiquidacionFinal(filasNuevas) : [];
       if (filasNuevas.length > 0 && !cuentaCruda) await aplicarCruceChequeIva(filasNuevas);
 
-      if (nuevas.length > 0) {
+      // Semana destino de cada mes (las de otros meses se crean acá si no existen).
+      const semanaDeCadaPeriodo = new Map<string, { id: string; numeroSemana: number }>();
+      for (const d of destinos) {
+        semanaDeCadaPeriodo.set(
+          d.periodo,
+          d.tipo === "actual" ? ejecucion : await obtenerOCrearAbiertaEnTx(tx, d.periodo)
+        );
+      }
+
+      for (const [p, semana] of semanaDeCadaPeriodo) {
+        const delMes = nuevas.filter((n) => periodoDeFecha(n.fila.fecha) === p);
         await tx.movimientoBancario.createMany({
-          data: nuevas.map(({ fila, importeCentavos, saldoCentavos }) => ({
-            ejecucionId: ejecucion.id,
+          data: delMes.map(({ fila, importeCentavos, saldoCentavos }) => ({
+            ejecucionId: semana.id,
             fecha: fila.fecha,
             nroReferencia: fila.nroReferencia,
             causal: fila.causal,
@@ -1160,13 +1142,19 @@ export async function subirExtracto(
         liquidacionesAmbiguas,
         avisos,
         hoja: hojaElegida && leido.tipo === "madre" ? leido.hoja : undefined,
+        // Semana (número) donde quedó cada mes que trajo filas nuevas.
+        repartoPorPeriodo: repartoNuevas.map((r) => ({
+          ...r,
+          numeroSemana: semanaDeCadaPeriodo.get(r.periodo)!.numeroSemana,
+        })),
       };
     },
     { maxWait: 10_000, timeout: 120_000 }
   );
 
   if (resultado.ok && resultado.filasNuevas > 0) {
-    revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
+    // Ejecución global: la semana se ve desde la pestaña de cualquier empresa.
+    revalidatePath("/[empresa]/[periodo]/ejecucion/[numeroSemana]", "page");
   }
   return resultado;
 }
@@ -1183,14 +1171,14 @@ export async function actualizarMovimiento(
   id: string,
   datos: { clasificacion?: string; unidadNegocio?: string; ignorado?: boolean }
 ) {
-  const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
+  await resolverParaOperar(periodo);
   // Hallazgo 2026-09-08: hasta ahora esta acción no chequeaba el estado de la
   // semana — lo único que impedía editar una semana CERRADA era que la
   // página no te deja llegar a este componente (page.tsx renderiza un árbol
   // de solo lectura distinto cuando estado==="CERRADA"). Un llamado directo
   // a esta Server Action bypaseando la UI igual mutaba una semana cerrada.
   // Mismo criterio que guardarDesgloseMovimiento, que sí lo chequeaba.
-  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
   if (!ejecucion) {
     throw new Error(`No encontré la semana ${numeroSemana}.`);
   }
@@ -1205,13 +1193,13 @@ export async function actualizarMovimiento(
   // Lista cerrada (decisión 2026-10-06): solo se acepta una unidad de
   // UNIDADES_NEGOCIO, o el valor que la fila ya tiene (un valor viejo fuera de
   // lista, ej. "CREAR", no se rompe — el <select> lo muestra como opción extra).
+  const actual = await movimientoDeLaSemana(id, ejecucion.id);
+  if (!actual) {
+    throw new Error("No encontré ese movimiento en esta semana.");
+  }
   let unidadCambio = false;
   if (datos.unidadNegocio !== undefined) {
-    const actual = await prisma.movimientoBancario.findUnique({
-      where: { id },
-      select: { unidadNegocio: true },
-    });
-    unidadCambio = actual !== null && actual.unidadNegocio !== datos.unidadNegocio;
+    unidadCambio = actual.unidadNegocio !== datos.unidadNegocio;
     if (unidadCambio && !esUnidadDeLaLista(datos.unidadNegocio)) {
       throw new Error(`"${datos.unidadNegocio}" no es una unidad de negocio de la lista.`);
     }
@@ -1251,8 +1239,8 @@ export async function confirmarClasificacionesEnLote(
   numeroSemana: number,
   clasificacion: string
 ): Promise<ResultadoConfirmarClasificacionesEnLote> {
-  const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
-  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  await resolverParaOperar(periodo);
+  const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
   if (!ejecucion) {
     return { ok: false, error: `No encontré la semana ${numeroSemana}.` };
   }
@@ -1288,8 +1276,8 @@ export async function confirmarUnidadesEnLote(
   cuentasCrudas: string[],
   unidadNegocio: string
 ): Promise<ResultadoConfirmarClasificacionesEnLote> {
-  const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
-  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  await resolverParaOperar(periodo);
+  const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
   if (!ejecucion) {
     return { ok: false, error: `No encontré la semana ${numeroSemana}.` };
   }
@@ -1322,12 +1310,12 @@ export async function eliminarMovimiento(
   numeroSemana: number,
   id: string
 ) {
-  const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
+  await resolverParaOperar(periodo);
   // Mismo hueco que actualizarMovimiento (auditoría 2026-09-08): sin esto, lo
   // único que impedía borrar un movimiento de una semana CERRADA era que la
   // página no te deja llegar a este botón — un llamado directo a la Server
   // Action igual borraba la fila.
-  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
   if (!ejecucion) {
     throw new Error(`No encontré la semana ${numeroSemana}.`);
   }
@@ -1335,6 +1323,9 @@ export async function eliminarMovimiento(
     throw new Error("Esta semana ya está cerrada, no se puede editar.");
   }
 
+  if (!(await movimientoDeLaSemana(id, ejecucion.id))) {
+    throw new Error("No encontré ese movimiento en esta semana.");
+  }
   await prisma.movimientoBancario.delete({ where: { id } });
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
 }
@@ -1366,8 +1357,8 @@ export async function guardarDesgloseMovimiento(
   movimientoId: string,
   sublineas: { unidadNegocio: string; importeCentavos: number }[]
 ): Promise<ResultadoDesgloseMovimiento> {
-  const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
-  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  await resolverParaOperar(periodo);
+  const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
   if (!ejecucion) {
     return { ok: false, errores: { general: `No encontré la semana ${numeroSemana}.` } };
   }
@@ -1460,11 +1451,11 @@ export async function eliminarDesgloseMovimiento(
   numeroSemana: number,
   movimientoId: string
 ) {
-  const { presupuesto } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
+  await resolverParaOperar(periodo);
   // Mismo hueco que actualizarMovimiento/eliminarMovimiento (auditoría
   // 2026-09-08) — guardarDesgloseMovimiento (la contraparte que reemplaza el
   // desglose) ya lo chequeaba; a esta le faltaba.
-  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
   if (!ejecucion) {
     throw new Error(`No encontré la semana ${numeroSemana}.`);
   }
@@ -1482,23 +1473,39 @@ export async function eliminarDesgloseMovimiento(
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
 }
 
-type ResultadoCerrarSemana = { ok: true } | { ok: false; error: string };
+type ResultadoCerrarSemana =
+  | { ok: true }
+  | {
+      ok: false;
+      error: string;
+      // Hay avisos (SIN CLASIFICAR, sugerencias sin confirmar): no bloquean, pero piden
+      // confirmación — se reenvía con confirmarAvisos = true.
+      requiereConfirmacion?: true;
+      avisos?: string[];
+      // Unidades que no pertenecen a ninguna empresa y bloquean el cierre.
+      bloqueos?: SinUnidad[];
+    };
 
-// No se puede cerrar una semana que ya estaba CERRADA — sin este chequeo,
-// una segunda invocación pisaría fechaCierre con una marca de tiempo más
-// nueva sin que nada más lo justifique. Hallazgo del backlog (mismo criterio
-// de defensa en profundidad que actualizarMovimiento/eliminarMovimiento/
-// eliminarDesgloseMovimiento, commit 9e890a1) — hoy no hay ningún camino real
-// en la UI para disparar esto (el botón "Cierre semanal" no se renderiza si
-// la semana ya está cerrada), pero cubre el caso de invocar la Server Action
-// directo.
+// Cierre definitivo (§3.5): solo FINANZAS y ADMIN (D-4). Antes de cerrar, en el servidor:
+//   1. BLOQUEA si hay movimientos no ignorados (o porciones de prorrateo) con una unidad que
+//      no pertenece a ninguna empresa activa;
+//   2. SOLO AVISA (pide confirmación) si quedan SIN CLASIFICAR o sugerencias sin confirmar;
+//   3. guarda quién y cuándo.
+//
+// No se puede cerrar una semana que ya estaba CERRADA — sin este chequeo, una segunda
+// invocación pisaría fechaCierre con una marca de tiempo más nueva sin que nada más lo
+// justifique (el updateMany con estado ABIERTA lo hace atómico).
 export async function cerrarSemana(
   empresaSlug: string,
   periodo: string,
-  numeroSemana: number
+  numeroSemana: number,
+  opciones: { confirmarAvisos?: boolean } = {}
 ): Promise<ResultadoCerrarSemana> {
-  const { presupuesto, usuario } = await resolverPresupuestoParaOperar(empresaSlug, periodo);
-  const ejecucion = await obtenerEjecucionPorSemana(presupuesto.id, numeroSemana);
+  const usuario = await requireCierreEjecucion();
+  if (!FORMATO_PERIODO.test(periodo)) {
+    throw new Error(`"${periodo}" no es un período válido (AAAA-MM).`);
+  }
+  const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
   if (!ejecucion) {
     throw new Error(`No encontré la semana ${numeroSemana}.`);
   }
@@ -1506,11 +1513,27 @@ export async function cerrarSemana(
     return { ok: false, error: "Esta semana ya estaba cerrada." };
   }
 
+  const evaluacion = evaluarCierre(await contarParaCierreDeSemana(ejecucion.id));
+  if (!evaluacion.puedeCerrar) {
+    return { ok: false, error: evaluacion.mensajeBloqueo, bloqueos: evaluacion.bloqueos, avisos: evaluacion.avisos };
+  }
+  if (evaluacion.avisos.length > 0 && !opciones.confirmarAvisos) {
+    return {
+      ok: false,
+      requiereConfirmacion: true,
+      error: `${evaluacion.avisos.join(" ")} ¿Cerrás la semana igual?`,
+      avisos: evaluacion.avisos,
+    };
+  }
+
   // Trazabilidad (decisión 2026-10-07): quién cerró, además de cuándo.
-  await prisma.ejecucionSemanal.update({
-    where: { id: ejecucion.id },
+  const cerrada = await prisma.ejecucionSemanal.updateMany({
+    where: { id: ejecucion.id, estado: "ABIERTA" },
     data: { estado: "CERRADA", fechaCierre: new Date(), cerradoPorId: usuario.id },
   });
+  if (cerrada.count === 0) {
+    return { ok: false, error: "Esta semana ya estaba cerrada." };
+  }
   revalidatePath(`/${empresaSlug}/${periodo}/ejecucion/${numeroSemana}`);
   return { ok: true };
 }

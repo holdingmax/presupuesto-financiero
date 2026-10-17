@@ -8,7 +8,7 @@ import { decimalTextoDeCentavos, centavosDeDecimalTexto } from "@/lib/conteoMovi
 import { camposManuales } from "@/lib/reporte/motor";
 import { plantillaDeEmpresa } from "@/lib/reporte/plantillas";
 import { motivoBloqueo, motivoRechazoCambio, parsearCuenta, periodoActual } from "@/lib/reporte/bloqueo";
-import { semanasDeEmpresa } from "@/lib/reporte/valoresManuales";
+import { semanasDelPeriodo } from "@/lib/reporte/valoresManuales";
 
 export type EntradaCarga = { filaClave: string; columna: "PRESUPUESTADO" | "REAL"; texto: string };
 export type ResultadoCarga = { ok: true; guardados: number; borrados: number } | { ok: false; error: string };
@@ -73,7 +73,7 @@ export async function guardarValoresManuales(
         where: { empresaId_periodo: { empresaId: empresa.id, periodo } },
         select: { estado: true },
       }),
-      semanasDeEmpresa(empresa.id, [periodo]),
+      semanasDelPeriodo([periodo]),
     ]);
     for (const c of cambiados) {
       const campo = campos.get(`${c.filaClave}|${c.columna}`)!;

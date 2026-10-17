@@ -20,12 +20,12 @@ import { claveEquivalencia } from "@/lib/reporte/motor";
 // de float para sumar, y ninguna fila individual viaja al servidor.
 // upper(btrim()): una variante vieja como "SPP " (espacio final) cuenta como SPP.
 
-// Todas las unidades que hoy pertenecen a alguna empresa (normalizadas). Lo que
-// no esté acá (SIN ASIGNAR, valores viejos fuera de lista, EXPENSAS mientras no
-// tenga empresa) no entra en el REAL de nadie.
+// Todas las unidades que hoy pertenecen a alguna empresa ACTIVA (normalizadas). Lo que
+// no esté acá (SIN ASIGNAR, valores viejos fuera de lista) no entra en el REAL de nadie
+// y bloquea el cierre de la semana (§3.5).
 export async function obtenerUnidadesConEmpresa(): Promise<string[]> {
   const filas = await prisma.$queryRaw<{ unidad: string }[]>`
-    SELECT DISTINCT unnest("unidadesNegocio") AS unidad FROM "Empresa"
+    SELECT DISTINCT unnest("unidadesNegocio") AS unidad FROM "Empresa" WHERE activo
   `;
   return filas.map((f) => normalizarCuenta(f.unidad));
 }
@@ -41,8 +41,7 @@ async function clasificacionesDeRubros(periodo: string, rubros: readonly string[
     SELECT DISTINCT mb.clasificacion
     FROM "MovimientoBancario" mb
     JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
-    JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
-    WHERE pm.periodo = ${periodo}
+    WHERE es.periodo = ${periodo}
   `;
   return filas.map((f) => f.clasificacion).filter((c) => rubroDe(indice, c) !== null);
 }
@@ -63,8 +62,7 @@ export async function calcularRealPorRubro(
       SELECT mb.id, mb.clasificacion, mb.importe, mb."unidadNegocio"
       FROM "MovimientoBancario" mb
       JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
-      JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
-      WHERE pm.periodo = ${periodo} AND es.estado = 'CERRADA' AND NOT mb.ignorado
+        WHERE es.periodo = ${periodo} AND es.estado = 'CERRADA' AND NOT mb.ignorado
         AND mb.clasificacion = ANY(${crudas}::text[])
     )
     SELECT x.clasificacion, SUM(x.importe)::text AS total FROM (
@@ -114,8 +112,7 @@ export async function calcularRealPorClasificacion(
     SELECT DISTINCT mb.clasificacion
     FROM "MovimientoBancario" mb
     JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
-    JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
-    WHERE pm.periodo = ANY(${periodos}::text[])
+    WHERE es.periodo = ANY(${periodos}::text[])
   `;
   const crudas = guardadas.map((f) => f.clasificacion).filter((c) => pedidas.has(claveEquivalencia(c)));
   if (crudas.length === 0) return resultado;
@@ -123,11 +120,10 @@ export async function calcularRealPorClasificacion(
     { periodo: string; clasificacion: string; total: string | null; creditos: string | null; debitos: string | null }[]
   >`
     WITH mov AS (
-      SELECT mb.id, pm.periodo, mb.clasificacion, mb.importe, mb."unidadNegocio"
+      SELECT mb.id, es.periodo, mb.clasificacion, mb.importe, mb."unidadNegocio"
       FROM "MovimientoBancario" mb
       JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
-      JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
-      WHERE pm.periodo = ANY(${periodos}::text[]) AND es.estado = 'CERRADA' AND NOT mb.ignorado
+        WHERE es.periodo = ANY(${periodos}::text[]) AND es.estado = 'CERRADA' AND NOT mb.ignorado
         AND mb.clasificacion = ANY(${crudas}::text[])
     )
     SELECT x.periodo, x.clasificacion, SUM(x.importe)::text AS total,
@@ -161,11 +157,10 @@ export async function contarSemanasCerradasPorPeriodo(periodos: string[]): Promi
   const resultado = new Map<string, number>(periodos.map((p) => [p, 0]));
   if (periodos.length === 0) return resultado;
   const filas = await prisma.$queryRaw<{ periodo: string; semanas: number }[]>`
-    SELECT pm.periodo, COUNT(*)::int AS semanas
+    SELECT es.periodo, COUNT(*)::int AS semanas
     FROM "EjecucionSemanal" es
-    JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
-    WHERE pm.periodo = ANY(${periodos}::text[]) AND es.estado = 'CERRADA'
-    GROUP BY pm.periodo
+    WHERE es.periodo = ANY(${periodos}::text[]) AND es.estado = 'CERRADA'
+    GROUP BY es.periodo
   `;
   for (const f of filas) resultado.set(f.periodo, f.semanas);
   return resultado;
@@ -173,13 +168,12 @@ export async function contarSemanasCerradasPorPeriodo(periodos: string[]): Promi
 
 export type NoAsignado = { unidad: string; centavos: number; movimientos: number };
 
-// Bloque "No asignado a ninguna empresa" del Reporte: SOLO de los extractos de
-// ESTA empresa (sus semanas cerradas) — lo mismo que el gerente ya ve en
-// Ejecución, nunca detalle de extractos de otra empresa. Mismo criterio de
-// prorrateo que el REAL: un movimiento prorrateado aporta sus porciones, no su
-// unidad propia. Agrupado por unidad, ya normalizada.
-export async function calcularNoAsignadoDelExtracto(
-  empresaId: string,
+// Bloque "No asignado a ninguna empresa" del Reporte: del PERÍODO (semanas cerradas
+// de todo el holding; con Ejecución global ya no hay "extractos de esta empresa").
+// Detalle de otras unidades: lo muestra la pantalla solo a ADMIN y FINANZAS. Mismo
+// criterio de prorrateo que el REAL: un movimiento prorrateado aporta sus porciones,
+// no su unidad propia. Agrupado por unidad, ya normalizada.
+export async function calcularNoAsignadoDelPeriodo(
   periodo: string,
   rubros: readonly string[],
   unidadesConEmpresa: string[]
@@ -193,8 +187,7 @@ export async function calcularNoAsignadoDelExtracto(
       SELECT mb.id, mb.importe, mb."unidadNegocio", es."numeroSemana"
       FROM "MovimientoBancario" mb
       JOIN "EjecucionSemanal" es ON mb."ejecucionId" = es.id
-      JOIN "PresupuestoMensual" pm ON es."presupuestoId" = pm.id
-      WHERE pm."empresaId" = ${empresaId} AND pm.periodo = ${periodo}
+      WHERE es.periodo = ${periodo}
         AND es.estado = 'CERRADA' AND NOT mb.ignorado
         AND mb.clasificacion = ANY(${crudas}::text[])
     )

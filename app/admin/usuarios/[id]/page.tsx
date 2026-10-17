@@ -34,6 +34,7 @@ export default async function EditarUsuarioPage({ params }: Props) {
         email: usuario.email,
         rol: usuario.rol,
         activo: usuario.activo,
+        operaEjecucion: usuario.operaEjecucion,
         empresaIds: usuario.empresas.map((ue) => ue.empresaId),
         permisos: Object.fromEntries(
           usuario.empresas.map((ue) => [

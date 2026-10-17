@@ -22,8 +22,9 @@ export type ResultadoValidacionCuenta =
 
 const FORMA_NOMBRE = /^([A-Z]+) (\d+)$/;
 
-// `existentes`: las cuentas de la MISMA empresa (activas e inactivas). `editandoId`: la
-// cuenta que se está editando, para que no choque consigo misma.
+// `existentes`: TODAS las cuentas del holding (activas e inactivas): el nombre es único global
+// (Ejecución global, plan §3.2). `editandoId`: la cuenta que se está editando, para que no
+// choque consigo misma.
 export function validarCuenta(
   datos: DatosCuenta,
   existentes: CuentaExistente[],
@@ -57,14 +58,14 @@ export function validarCuenta(
     };
   }
 
-  // Repetido dentro de la misma empresa, contando también las inactivas.
+  // Repetido en el holding, contando también las inactivas.
   const repetida = existentes.find((c) => c.id !== editandoId && normalizarCuenta(c.nombre) === nombre);
   if (repetida) {
     return repetida.activa
-      ? { ok: false, error: `Ya existe la cuenta ${nombre} en esta empresa.` }
+      ? { ok: false, error: `Ya existe la cuenta ${nombre}.` }
       : {
           ok: false,
-          error: `Ya existe la cuenta ${nombre} en esta empresa, pero está inactiva. Reactivala en vez de crear otra.`,
+          error: `Ya existe la cuenta ${nombre}, pero está inactiva. Reactivala en vez de crear otra.`,
           reactivarId: repetida.id,
         };
   }

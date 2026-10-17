@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "@/lib/prisma";
 import type { Usuario } from "@prisma/client";
+import { puedeOperarEjecucionGlobal, puedeCerrarEjecucion } from "@/lib/permisosEjecucion";
 
 export { hashPassword, verifyPassword } from "@/lib/password";
 
@@ -123,25 +124,32 @@ export const requireAccesoEmpresa = cache(async (empresaId: string): Promise<Usu
   return usuario;
 });
 
-// Ver acceder vs. operar: tener acceso a una empresa (arriba) no implica poder
-// operar su Ejecución — subir extracto, reclasificar, cerrar semana. Es un
-// permiso más granular, por fila de UsuarioEmpresa (ver comentario en
-// schema.prisma). Mismo bypass de ADMIN que puedeAccederEmpresa.
-export async function puedeOperarEjecucion(usuario: Usuario, empresaId: string) {
-  if (usuario.rol === "ADMIN") return true;
-  const acceso = await prisma.usuarioEmpresa.findUnique({
-    where: { usuarioId_empresaId: { usuarioId: usuario.id, empresaId } },
-  });
-  return acceso?.puedeOperarEjecucion ?? false;
-}
+// Ejecución global (docs/ejecucion_global_plan.md §3.3): el permiso de operar ya no es
+// por empresa sino GLOBAL (Usuario.operaEjecucion; ADMIN opera siempre). Las reglas
+// puras viven en lib/permisosEjecucion.ts (con test). UsuarioEmpresa.puedeOperarEjecucion
+// queda en la base sin uso.
+export {
+  puedeOperarEjecucionGlobal,
+  puedeCerrarEjecucion,
+  veTodoEjecucion,
+  veBloquesReservadosDelReporte,
+} from "@/lib/permisosEjecucion";
 
-// Único punto de autorización para las Server Actions que MUTAN Ejecución
-// (subirExtracto/actualizarMovimiento/eliminarMovimiento/cerrarSemana). Ver
-// solo requiere requireAccesoEmpresa; esto es estrictamente más estricto.
-export const requireOperadorEjecucion = cache(async (empresaId: string): Promise<Usuario> => {
+// Único punto de autorización para las Server Actions que MUTAN Ejecución (subir
+// extracto, clasificar, asignar unidad, ignorar, prorratear). No depende de la empresa.
+export const requireOperadorEjecucionGlobal = cache(async (): Promise<Usuario> => {
   const usuario = await requireUsuario();
-  if (!(await puedeOperarEjecucion(usuario, empresaId))) {
-    throw new AccesoDenegadoError("No tenés permiso para operar Ejecución de esta empresa.");
+  if (!puedeOperarEjecucionGlobal(usuario)) {
+    throw new AccesoDenegadoError("No tenés permiso para operar Ejecución.");
+  }
+  return usuario;
+});
+
+// Cierre definitivo de una semana: solo FINANZAS y ADMIN (D-4).
+export const requireCierreEjecucion = cache(async (): Promise<Usuario> => {
+  const usuario = await requireUsuario();
+  if (!puedeCerrarEjecucion(usuario)) {
+    throw new AccesoDenegadoError("Solo Finanzas y los administradores pueden cerrar una semana.");
   }
   return usuario;
 });

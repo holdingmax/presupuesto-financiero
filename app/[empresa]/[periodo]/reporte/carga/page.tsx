@@ -6,7 +6,7 @@ import { centavosDeDecimalTexto } from "@/lib/conteoMovimientos";
 import { armarReporte, camposManuales, periodosHasta, type DatosMes } from "@/lib/reporte/motor";
 import { plantillaDeEmpresa } from "@/lib/reporte/plantillas";
 import { cargarDatosMeses } from "@/lib/reporte/cargarMeses";
-import { semanasDeEmpresa } from "@/lib/reporte/valoresManuales";
+import { semanasDelPeriodo } from "@/lib/reporte/valoresManuales";
 import { formatearCentavos, motivoBloqueo, periodoActual, SUGERENCIA_ESPEJO } from "@/lib/reporte/bloqueo";
 import CargaValoresManuales, { type CampoVista } from "./CargaValoresManuales";
 
@@ -50,7 +50,7 @@ export default async function CargaPage({ params }: Props) {
       where: { empresaId_periodo: { empresaId: empresa.id, periodo } },
       select: { estado: true },
     }),
-    semanasDeEmpresa(empresa.id, [periodo]),
+    semanasDelPeriodo([periodo]),
   ]);
 
   // Capital: resultado de la REGLA de la plantilla (sin el valor manual que lo reemplaza).

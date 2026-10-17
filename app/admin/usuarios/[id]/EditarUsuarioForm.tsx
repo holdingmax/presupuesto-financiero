@@ -12,6 +12,8 @@ type UsuarioInicial = {
   email: string;
   rol: string;
   activo: boolean;
+  // Permiso global de operar Ejecución (subir, clasificar, asignar). ADMIN opera siempre.
+  operaEjecucion: boolean;
   empresaIds: string[];
   // Permisos por empresa (UsuarioEmpresa) de las empresas que ya tiene.
   permisos: PermisosPorEmpresa;
@@ -117,6 +119,19 @@ export default function EditarUsuarioForm({
             empresaIdsIniciales={usuario.empresaIds}
             permisosIniciales={usuario.permisos}
           />
+        )}
+
+        {rol !== "ADMIN" && (
+          <div>
+            <input type="hidden" name="operaEjecucionIncluida" value="1" />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="operaEjecucion" defaultChecked={usuario.operaEjecucion} />
+              Opera Ejecución (todas las empresas)
+            </label>
+            <p className="mt-1 text-xs text-ink-muted">
+              Puede subir extractos, clasificar y asignar unidades. Cerrar la semana es solo de FINANZAS y ADMIN.
+            </p>
+          </div>
         )}
 
         <label className="flex items-center gap-2 text-sm">

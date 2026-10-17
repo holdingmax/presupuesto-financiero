@@ -17,6 +17,19 @@ import { PENDIENTES, PENDIENTES_DE_REAL, type CodigoPendiente } from "@/lib/repo
 
 export type Bloque = "DISPONIBILIDADES" | "INGRESOS" | "EGRESOS" | "ABAJO" | "CIERRE";
 
+// Bloques que solo ven ADMIN y FINANZAS (Ejecución global §3.4 y §6): quien no los ve no
+// recibe esas filas, ni sus valores, ni lo que se calcula a partir de ellas.
+export const BLOQUES_RESERVADOS: readonly Bloque[] = ["DISPONIBILIDADES", "CIERRE"];
+
+export function esBloqueReservado(bloque: Bloque): boolean {
+  return BLOQUES_RESERVADOS.includes(bloque);
+}
+
+// Claves de las filas que ve quien no tiene acceso a los bloques reservados.
+export function clavesVisibles(plantilla: Plantilla): Set<string> {
+  return new Set(plantilla.filas.filter((f) => !esBloqueReservado(f.bloque)).map((f) => f.clave));
+}
+
 export type Sentido = "creditos" | "debitos";
 
 export type FuenteReal =
@@ -179,8 +192,17 @@ export type Reporte = {
   filas: FilaReporte[];
   // Códigos K de la plantilla, en orden, sin repetir.
   pendientes: CodigoPendiente[];
-  // Uno por mes; null si la plantilla no tiene Disponibilidades.
+  // Uno por mes; null si la plantilla no tiene Disponibilidades (o si quien mira no las ve).
   arrastre: (ControlArrastre | null)[];
+  // true si se armó sin los bloques reservados: Disponibilidades y Cierre no están, y las
+  // celdas que dependen de ellos (ej. "Cheques en cartera despues del 10") quedan en null.
+  sinBloquesReservados: boolean;
+};
+
+export type OpcionesReporte = {
+  // false = quien mira NO ve Disponibilidades ni Cierre: esas filas no se calculan (no se
+  // lee ni su valor manual) ni se devuelven, y todo lo que depende de ellas queda en null.
+  verBloquesReservados?: boolean;
 };
 
 // Clave para emparejar una clasificación (de Ejecución o de Presupuesto) con la
@@ -237,7 +259,8 @@ function sumarAgrupado(datos: Map<string, number> | undefined, indice: Map<strin
   return porFila;
 }
 
-type Valor = { v: number | null; inc: boolean };
+// oculto: el valor depende de un bloque reservado que quien mira no ve (v = null).
+type Valor = { v: number | null; inc: boolean; oculto?: boolean };
 type Columna = "P" | "R";
 
 // Suma solo las filas con valor; sin ninguna con valor, null.
@@ -249,7 +272,13 @@ function sumarNoNulos(valores: (number | null)[]): number | null {
 // `mesesDeContexto`: los primeros meses de `meses` se usan solo para calcular
 // (espejo del mes anterior, control de arrastre del primer mes visible) y no
 // aparecen en el resultado.
-export function armarReporte(plantilla: Plantilla, meses: DatosMes[], mesesDeContexto = 0): Reporte {
+export function armarReporte(
+  plantilla: Plantilla,
+  meses: DatosMes[],
+  mesesDeContexto = 0,
+  opciones: OpcionesReporte = {}
+): Reporte {
+  const verReservado = opciones.verBloquesReservados ?? true;
   const filaPorClave = new Map(plantilla.filas.map((f) => [f.clave, f]));
   const filaDisponible = plantilla.filas.find((f): f is FilaDisponible => f.tipo === "disponible");
 
@@ -293,6 +322,12 @@ export function armarReporte(plantilla: Plantilla, meses: DatosMes[], mesesDeCon
     if (enCurso.has(k)) throw new Error(`Ciclo de dependencias en la plantilla: ${clave}`);
     const fila = filaPorClave.get(clave);
     if (!fila) throw new Error(`La plantilla no tiene la fila "${clave}".`);
+    // Bloque reservado sin permiso: ni se calcula ni se lee su valor manual.
+    if (!verReservado && esBloqueReservado(fila.bloque)) {
+      const oculto: Valor = { v: null, inc: false, oculto: true };
+      memo.set(k, oculto);
+      return oculto;
+    }
     enCurso.add(k);
     const resultado = calcular(fila, i, col);
     enCurso.delete(k);
@@ -310,19 +345,22 @@ export function armarReporte(plantilla: Plantilla, meses: DatosMes[], mesesDeCon
       }
       case "manual":
         return { v: meses[i].manuales?.presupuesto.get(fila.clave) ?? null, inc };
-      case "igualReal":
-        return { v: valor(fila.clave, i, "R").v, inc };
+      case "igualReal": {
+        const r = valor(fila.clave, i, "R");
+        return { v: r.v, inc, oculto: r.oculto };
+      }
       case "espejo": {
         const columna: Columna = p.columna === "presupuestado" ? "P" : "R";
         const j = p.mes === "actual" ? i : i - 1;
         // Sin mes anterior no hay valor.
         if (j < 0) return { v: null, inc };
-        const origen = valor(p.fila, j, columna).v;
-        return { v: origen === null ? null : sinMenosCero(p.factor * origen), inc };
+        const o = valor(p.fila, j, columna);
+        return { v: o.v === null ? null : sinMenosCero(p.factor * o.v), inc, oculto: o.oculto };
       }
       case "disponible": {
         if (!filaDisponible) throw new Error(`${fila.clave}: la plantilla no tiene fila de Disponible.`);
-        return { v: valor(filaDisponible.clave, i, "P").v, inc };
+        const d = valor(filaDisponible.clave, i, "P");
+        return { v: d.v, inc, oculto: d.oculto };
       }
       case "ninguna":
         return { v: null, inc };
@@ -342,8 +380,8 @@ export function armarReporte(plantilla: Plantilla, meses: DatosMes[], mesesDeCon
         return { v: meses[i].manuales?.real.get(fila.clave) ?? null, inc };
       case "igualPresupuesto": {
         // Se resuelve igual (ciclos); en un mes en curso el R queda vacío.
-        const p = valor(fila.clave, i, "P").v;
-        return { v: meses[i].mesCerrado ? p : null, inc };
+        const p = valor(fila.clave, i, "P");
+        return { v: meses[i].mesCerrado ? p.v : null, inc, oculto: p.oculto };
       }
       case "ninguna":
         return { v: null, inc };
@@ -363,6 +401,9 @@ export function armarReporte(plantilla: Plantilla, meses: DatosMes[], mesesDeCon
         const restas = (fila.resta ?? []).map((c) => valor(c, i, col));
         const requeridas = (fila.requiere ?? []).map((c) => valor(c, i, col));
         const inc = [...sumandos, ...restas].some((x) => x.inc);
+        // Un total que suma algo que depende de un bloque reservado no se puede mostrar:
+        // sería una suma parcial que parece completa.
+        if ([...sumandos, ...restas, ...requeridas].some((x) => x.oculto)) return { v: null, inc, oculto: true };
         if (col === "P" && fila.soloConPresupuesto && sinPresupuesto[i]) return { v: null, inc };
         if (requeridas.some((x) => x.v === null)) return { v: null, inc };
         const suma = sumarNoNulos(sumandos.map((x) => x.v));
@@ -393,7 +434,9 @@ export function armarReporte(plantilla: Plantilla, meses: DatosMes[], mesesDeCon
     }
   }
 
-  const filas: FilaReporte[] = plantilla.filas.map((fila) => {
+  // Sin permiso, las filas de los bloques reservados ni siquiera se recorren.
+  const filasAMostrar = verReservado ? plantilla.filas : plantilla.filas.filter((f) => !esBloqueReservado(f.bloque));
+  const filas: FilaReporte[] = filasAMostrar.map((fila) => {
     if (fila.tipo === "titulo") return { fila, celdas: [] };
     const conPorcentajes = fila.bloque !== "DISPONIBILIDADES" && fila.tipo !== "capital" && fila.tipo !== "disponible";
     const celdas = meses.map((_, i) => {
@@ -405,14 +448,14 @@ export function armarReporte(plantilla: Plantilla, meses: DatosMes[], mesesDeCon
   });
 
   const pendientes: CodigoPendiente[] = [];
-  for (const fila of plantilla.filas) {
+  for (const fila of filasAMostrar) {
     for (const k of pendientesDe(fila)) if (!pendientes.includes(k)) pendientes.push(k);
   }
 
   const filaTotalDisp = plantilla.filas.find((f) => f.tipo === "total" && f.rol === "totalDisponibilidades");
   const filaSaldo = plantilla.filas.find((f) => f.tipo === "total" && f.rol === "saldo");
   const arrastre = meses.map((_, i): ControlArrastre | null => {
-    if (!filaTotalDisp || !filaSaldo) return null;
+    if (!verReservado || !filaTotalDisp || !filaSaldo) return null;
     const cierreRealAnterior = i > 0 ? valor(filaSaldo.clave, i - 1, "R").v : null;
     let ajustes = 0;
     for (const f of plantilla.filas) {
@@ -441,6 +484,7 @@ export function armarReporte(plantilla: Plantilla, meses: DatosMes[], mesesDeCon
     filas: filas.map((f) => ({ fila: f.fila, celdas: f.celdas.slice(desde) })),
     pendientes,
     arrastre: arrastre.slice(desde),
+    sinBloquesReservados: !verReservado,
   };
 }
 

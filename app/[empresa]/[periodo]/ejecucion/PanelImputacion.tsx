@@ -16,7 +16,6 @@ import {
   type ResultadoContinuidadSaldo,
   type ResultadoLiquidacionAmbigua,
   type PosibleDuplicado,
-  type CuentaCompartida,
   type VistaPreviaExtracto,
 } from "./actions";
 import TablaMovimientos from "./TablaMovimientos";
@@ -121,15 +120,6 @@ export default function PanelImputacion({
   const [mensajeExito, setMensajeExito] = useState("");
   const [posiblesDuplicados, setPosiblesDuplicados] = useState<PosibleDuplicado[]>([]);
   const [cantidadPosiblesDuplicados, setCantidadPosiblesDuplicados] = useState(0);
-  // Aviso previo a cargar: cuentas del archivo que ya tienen movimientos en otra
-  // empresa. Mientras está visible no se cargó nada — "Cargar igual" reenvía el
-  // mismo archivo (y la misma hoja) con la confirmación.
-  const [cuentasCompartidas, setCuentasCompartidas] = useState<{
-    cuentas: CuentaCompartida[];
-    filasNuevas: number;
-    archivo: File;
-    hoja?: string;
-  } | null>(null);
   // "" = archivo madre (trae varias cuentas); si no, el nombre canónico de la cuenta del extracto crudo.
   const [cuenta, setCuenta] = useState("");
   // Resumen de un extracto crudo antes de cargarlo: mientras está visible no se cargó nada.
@@ -158,13 +148,12 @@ export default function PanelImputacion({
   const semanaAnterior = numeroSemana - 1;
 
   // Único camino de subida: la primera vez desde el form, y los reintentos con la
-  // hoja elegida (archivo con varias hojas) o con la confirmación de cuentas
-  // compartidas — en los dos se reenvía el mismo File ya elegido del disco, sin que
-  // el usuario tenga que volver a seleccionarlo.
+  // hoja elegida (archivo con varias hojas) o con la confirmación de la vista previa —
+  // en los dos se reenvía el mismo File ya elegido del disco, sin que el usuario tenga
+  // que volver a seleccionarlo.
   async function enviarArchivo(
     archivo: File,
     hoja?: string,
-    confirmarCuentas = false,
     confirmarPrevia = false
   ) {
     setSubiendo(true);
@@ -176,7 +165,6 @@ export default function PanelImputacion({
     setLiquidacionesAmbiguas([]);
     setHojasDisponibles([]);
     setArchivoAmbiguo(null);
-    setCuentasCompartidas(null);
     setVistaPrevia(null);
     setAvisosSubida([]);
 
@@ -191,7 +179,6 @@ export default function PanelImputacion({
       formData,
       {
         hoja,
-        confirmarCuentasCompartidas: confirmarCuentas,
         confirmarVistaPrevia: confirmarPrevia,
       }
     );
@@ -206,15 +193,6 @@ export default function PanelImputacion({
       }
       if ("requiereVistaPrevia" in resultado) {
         setVistaPrevia({ vista: resultado.vista, archivo, hoja });
-        return;
-      }
-      if ("requiereConfirmacionCuentas" in resultado) {
-        setCuentasCompartidas({
-          cuentas: resultado.cuentas,
-          filasNuevas: resultado.filasNuevas,
-          archivo,
-          hoja,
-        });
         return;
       }
       if (resultado.cuentaSugerida) setCuenta(resultado.cuentaSugerida);
@@ -373,7 +351,13 @@ export default function PanelImputacion({
     ) {
       return;
     }
-    const resultado = await cerrarSemana(empresaSlug, periodo, numeroSemana);
+    let resultado = await cerrarSemana(empresaSlug, periodo, numeroSemana);
+    // Avisos que no bloquean (SIN CLASIFICAR, sugerencias sin confirmar): el servidor pide
+    // confirmar con la cantidad.
+    if (!resultado.ok && resultado.requiereConfirmacion) {
+      if (!confirm(resultado.error)) return;
+      resultado = await cerrarSemana(empresaSlug, periodo, numeroSemana, { confirmarAvisos: true });
+    }
     if (!resultado.ok) {
       alert(resultado.error);
       return;
@@ -565,7 +549,7 @@ export default function PanelImputacion({
                 <button
                   type="button"
                   disabled={subiendo}
-                  onClick={() => enviarArchivo(vistaPrevia.archivo, vistaPrevia.hoja, false, true)}
+                  onClick={() => enviarArchivo(vistaPrevia.archivo, vistaPrevia.hoja, true)}
                   className="h-8 px-3 rounded-md bg-marino text-white text-xs font-medium hover:bg-marino-dark active:scale-[0.99] transition disabled:opacity-50"
                 >
                   Confirmar y cargar ({vistaPrevia.vista.nuevas} movimientos)
@@ -590,53 +574,6 @@ export default function PanelImputacion({
                 <li key={a}>{a}</li>
               ))}
             </ul>
-          )}
-          {cuentasCompartidas && (
-            <div className="mt-3 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
-              <p className="font-medium">
-                Todavía no se cargó nada: algunas cuentas de este archivo ya tienen
-                movimientos en otra empresa.
-              </p>
-              <p className="mt-1 text-xs">
-                Puede ser una cuenta compartida (ej. el extracto propio de Fredy trae cuentas
-                de otras unidades) o que el archivo se esté subiendo en la empresa
-                equivocada. Si muchas filas son idénticas, es casi seguro lo segundo.
-              </p>
-              <ul className="mt-2 list-disc pl-5 text-xs">
-                {cuentasCompartidas.cuentas.map((c) => (
-                  <li key={`${c.cuenta}|${c.empresa}`}>
-                    <span className="font-medium">{c.cuenta}</span>: {c.filasEnOtraEmpresa}{" "}
-                    movimientos cargados en <span className="font-medium">{c.empresa}</span>
-                    {" · "}
-                    {c.identicas} de las {c.filasNuevasDeLaCuenta} filas nuevas de esta cuenta
-                    son idénticas
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  disabled={subiendo}
-                  onClick={() =>
-                    enviarArchivo(cuentasCompartidas.archivo, cuentasCompartidas.hoja, true, true)
-                  }
-                  className="h-8 px-3 rounded-md bg-terracota text-white text-xs font-medium hover:opacity-90 active:scale-[0.99] transition disabled:opacity-50"
-                >
-                  Cargar igual ({cuentasCompartidas.filasNuevas} movimientos nuevos)
-                </button>
-                <button
-                  type="button"
-                  disabled={subiendo}
-                  onClick={() => {
-                    setCuentasCompartidas(null);
-                    if (fileInputRef.current) fileInputRef.current.value = "";
-                  }}
-                  className="h-8 px-3 rounded-md border border-terracota text-terracota text-xs font-medium hover:bg-paper transition disabled:opacity-50"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
           )}
           {cantidadPosiblesDuplicados > 0 && (
             <div className="mt-3 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">

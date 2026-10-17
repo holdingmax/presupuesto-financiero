@@ -143,10 +143,14 @@ export async function actualizarUsuario(
   //   permisosIncluidos no se tocan — una empresa nueva sin ellos queda sin permisos).
   // Un ADMIN no necesita filas (ve todo): al pasar a ADMIN se borran todas.
   const permisosDe = leerPermisos(formData);
+  // Permiso GLOBAL de operar Ejecución (Usuario.operaEjecucion, D-3): solo se toca si el
+  // formulario lo incluye (operaEjecucionIncluida), igual que los permisos por empresa.
+  const operaEjecucion =
+    formData.get("operaEjecucionIncluida") === "1" ? { operaEjecucion: formData.get("operaEjecucion") === "on" } : {};
   await prisma.$transaction([
     prisma.usuario.update({
       where: { id },
-      data: { nombre: datos.nombre, email: datos.email, rol: datos.rol as Rol, activo },
+      data: { nombre: datos.nombre, email: datos.email, rol: datos.rol as Rol, activo, ...operaEjecucion },
     }),
     ...(datos.rol === "ADMIN"
       ? [prisma.usuarioEmpresa.deleteMany({ where: { usuarioId: id } })]

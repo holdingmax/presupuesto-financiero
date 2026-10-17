@@ -73,19 +73,19 @@ export default function CuentasBancariasForm({ empresasIniciales }: Props) {
     setOcupado(true);
     const r = await editarCuentaBancaria(cuenta.id, editando.borrador);
     setOcupado(false);
-    if (!r.ok) return avisar(cuenta.empresaId, false, r.error);
+    if (!r.ok) return avisar(cuenta.empresaId ?? "", false, r.error);
     reemplazar(r.cuenta);
     setEditando(null);
-    avisar(cuenta.empresaId, true, ["Cuenta guardada.", ...r.avisos].join(" "));
+    avisar(cuenta.empresaId ?? "", true, ["Cuenta guardada.", ...r.avisos].join(" "));
   }
 
   async function cambiarEstado(cuenta: CuentaDto, activa: boolean) {
     setOcupado(true);
     const r = await cambiarEstadoCuentaBancaria(cuenta.id, activa);
     setOcupado(false);
-    if (!r.ok) return avisar(cuenta.empresaId, false, r.error);
+    if (!r.ok) return avisar(cuenta.empresaId ?? "", false, r.error);
     reemplazar(r.cuenta);
-    avisar(cuenta.empresaId, true, activa ? "Cuenta reactivada." : "Cuenta desactivada (no se borra).");
+    avisar(cuenta.empresaId ?? "", true, activa ? "Cuenta reactivada." : "Cuenta desactivada (no se borra).");
   }
 
   return (
