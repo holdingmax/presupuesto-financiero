@@ -139,7 +139,7 @@ export default async function ReportePage({ params }: Props) {
     calcularRealPorRubro(periodo, unidadesEmpresa, RUBROS_EGRESOS),
     // Solo de los extractos de ESTA empresa (lo que el gerente ya ve en
     // Ejecución): importes cuya unidad no pertenece a ninguna empresa (SIN
-    // ASIGNAR, valores viejos fuera de lista, EXPENSAS). Van en un bloque aparte,
+    // ASIGNAR, valores viejos fuera de lista). Van en un bloque aparte,
     // sin sumarse a ningún rubro (decisión 2026-10-07).
     calcularNoAsignadoDelExtracto(empresaId, periodo, RUBROS_EGRESOS, unidadesConEmpresa),
   ]);

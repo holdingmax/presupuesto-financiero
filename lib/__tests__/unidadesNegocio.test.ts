@@ -3,16 +3,17 @@ import assert from "node:assert/strict";
 import {
   UNIDADES_NEGOCIO,
   esUnidadDeLaLista,
+  opcionesUnidad,
   proponerUnidadPorCuenta,
   proponerUnidadPorRazonSocial,
 } from "@/lib/unidadesNegocio";
 
 // Tabla oficial de Kike (2026-10-13).
-test("razón social → unidad: TUCSON, CREAR, LI y HANDYWAY ya no son mixtas", () => {
+test("razón social → unidad: TUCSON, CREAR y LI ya no son mixtas; HANDYWAY es HWC", () => {
   assert.equal(proponerUnidadPorRazonSocial("TUCSON"), "RADIO");
   assert.equal(proponerUnidadPorRazonSocial("CREAR"), "MANTENOR");
   assert.equal(proponerUnidadPorRazonSocial("LI"), "BRILLANTE");
-  assert.equal(proponerUnidadPorRazonSocial("HANDYWAY"), "HANDYWAY");
+  assert.equal(proponerUnidadPorRazonSocial("HANDYWAY"), "HWC");
   // Tolera mayúsculas, tildes y espacios.
   assert.equal(proponerUnidadPorRazonSocial(" Tucson "), "RADIO");
 });
@@ -35,8 +36,23 @@ test("razón social: las que ya coincidían no cambian", () => {
   assert.equal(proponerUnidadPorRazonSocial("WEB MASTER"), "LOGISTICA");
 });
 
-test("HANDYWAY está en la lista cerrada de unidades", () => {
-  assert.ok(esUnidadDeLaLista("HANDYWAY"));
+// Kike, 2026-10-17: HWC y HANDYWAY son la misma unidad.
+test("HANDYWAY ya no es una unidad propia: no está en la lista y un valor viejo se muestra como extra", () => {
+  assert.ok(!esUnidadDeLaLista("HANDYWAY"));
+  assert.ok(esUnidadDeLaLista("HWC"));
+  const opciones = opcionesUnidad(["HANDYWAY", "HWC"]);
+  assert.equal(opciones[0], "HANDYWAY");
+  assert.equal(opciones.filter((o) => o === "HANDYWAY").length, 1);
+});
+
+test("EXPENSAS sigue siendo una unidad cargable", () => {
+  assert.ok(esUnidadDeLaLista("EXPENSAS"));
+});
+
+test("ninguna cuenta del mapa apunta a HANDYWAY", () => {
+  for (const c of ["BNA 241", "SANT 099", "FRANCES 525", "MACRO 833", "MACRO 918"]) {
+    assert.notEqual(proponerUnidadPorCuenta(c), "HANDYWAY", c);
+  }
 });
 
 test("cuenta Galicia 455 → SPP, en cualquier grafía", () => {

@@ -6,13 +6,16 @@ import { normalizarTexto } from "@/lib/texto";
 // Leticia) — la ofrecen el <select> de la unidad de cada fila y el panel de
 // prorrateo, y la valida el server (actualizarMovimiento /
 // guardarDesgloseMovimiento). Es el nombre exacto que se guarda.
-// - EXPENSAS: destino aparte, PROVISORIO hasta confirmarlo con Kike (también
-//   existe como clasificación). No pertenece a ninguna empresa todavía: el
-//   Reporte la muestra en el bloque "No asignado a ninguna empresa".
+// - EXPENSAS: unidad y empresa aparte, con presupuesto propio (decisión 2026-10-17;
+//   también existe como clasificación). El reparto entre empresas es manual, con
+//   prorrateo por movimiento. Si la empresa "Expensas" todavía no tiene la unidad
+//   asignada (/admin/unidades-negocio), el Reporte la muestra en "No asignado".
 // - BRADENTON (agregada 2026-10-07): unidad propia de la empresa Bradenton.
 // Qué unidad pertenece a qué empresa NO vive acá: es Empresa.unidadesNegocio,
 // editable en /admin/unidades-negocio.
-// - HANDYWAY (agregada 2026-10-13): unidad propia, tabla oficial de Kike.
+// - HANDYWAY (agregada 2026-10-13, retirada 2026-10-17): Kike confirmó que es la
+//   misma unidad que HWC. La razón social HANDYWAY mapea a HWC; una fila vieja con
+//   HANDYWAY no se rompe (el <select> la muestra como opción extra).
 // - Fuera a propósito: CREAR y Tucson (razones sociales), las razones sociales
 //   que entraban por la columna EMPRESA (QUINTEROS, WHEELER, GONZALEZ, SIERRA,
 //   ESTEVEZ), Gold Seguridad, Cielos, "SIN ASIGNAR" (es la marca de vacío),
@@ -25,7 +28,6 @@ export const UNIDADES_NEGOCIO = [
   "BRILLANTE",
   "EXPENSAS",
   "FREDY",
-  "HANDYWAY",
   "HAVANNA",
   "HWC",
   "JPS",
@@ -113,7 +115,7 @@ const UNIDAD_POR_CUENTA: Record<string, string> = {
   // Flavia la ubica en Conexión (LI); antes figuraba como BRILLANTE.
   "MACRO 247": "SPP",
 
-  // HWC: en el madre de Kike figuran con EMPRESA = HWC (2026-10-15). Pendiente K-2: HWC vs HANDYWAY.
+  // HWC: en el madre de Kike figuran con EMPRESA = HWC (2026-10-15). HWC y HANDYWAY son la misma unidad (Kike, 2026-10-17).
   "BNA 241": "HWC",
   "SANT 099": "HWC",
   // Cuentas de los madres HWC y Fredy (31.07); Kike confirmó que no mezclan unidades (2026-10-15).
@@ -154,7 +156,7 @@ export function unidadDeLaLista(valor: string): string | null {
 
 // Razón social → unidad madre (decisión 2026-10-07, confirmado por Kike; tabla
 // oficial actualizada 2026-10-13: TUCSON→RADIO, CREAR→MANTENOR, LI→BRILLANTE,
-// HANDYWAY→HANDYWAY). La
+// HANDYWAY→HWC desde 2026-10-17). La
 // columna EMPRESA de los extractos trae la RAZÓN SOCIAL, no la unidad — y en
 // algunos archivos la misma razón social aparece en "UNIDAD DE NEG" (error de
 // etiqueta: QUINTEROS, SIERRA, … son apellidos/razones sociales de Fredy). Mismo
@@ -175,7 +177,7 @@ const UNIDAD_POR_RAZON_SOCIAL: Record<string, string> = {
   "TUCSON": "RADIO",
   "CREAR": "MANTENOR",
   "LI": "BRILLANTE",
-  "HANDYWAY": "HANDYWAY",
+  "HANDYWAY": "HWC",
   "PANINI": "HAVANNA",
   "GOLD SEGURIDAD": "BRILLANTE",
   "WEB MASTER": "LOGISTICA",

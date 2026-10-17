@@ -21,6 +21,7 @@ const EMPRESAS = [
   "Gold Seguridad",
   "Cielos",
   "Tucson",
+  "Expensas",
 ];
 
 async function main() {
