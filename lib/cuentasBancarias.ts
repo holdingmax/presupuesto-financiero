@@ -116,6 +116,28 @@ export function controlarCuentaDelArchivo(
   return { ok: true, avisos: [] };
 }
 
+// ¿Se puede verificar que el extracto es de la cuenta elegida? Solo si el archivo trae su número de
+// cuenta (Macro, BBVA, Santander, Santiago del Estero). Galicia y Nación no lo traen: ahí lo único
+// que respalda la cuenta es lo que eligió la persona.
+export function cuentaEsVerificable(cuentaEnArchivo: string | null): boolean {
+  return cuentaEnArchivo !== null;
+}
+
+// Antes de CARGAR (no al previsualizar): un extracto cuya cuenta no se puede verificar solo se carga
+// si la persona confirmó expresamente que es de esa cuenta. Lo valida el servidor; el tilde de la
+// pantalla es solo la forma de pedirlo.
+export function exigirConfirmacionDeCuenta(
+  cuentaEnArchivo: string | null,
+  confirmoCuenta: boolean,
+  nombreCuenta: string
+): { ok: true } | { ok: false; error: string } {
+  if (cuentaEsVerificable(cuentaEnArchivo) || confirmoCuenta) return { ok: true };
+  return {
+    ok: false,
+    error: `Este formato no trae el número de cuenta: confirmá que el extracto es de la cuenta ${nombreCuenta} para poder cargarlo. No se cargó nada.`,
+  };
+}
+
 // Si el archivo trae número de cuenta y no se eligió cuenta, la que coincide (banco +
 // terminación) entre las activas — solo si es única.
 export function sugerirCuenta<T extends { nombre: string; banco: string; terminacion: string; activa: boolean }>(

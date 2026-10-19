@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   controlarCuentaDelArchivo,
+  cuentaEsVerificable,
   cuentasActivas,
+  exigirConfirmacionDeCuenta,
   sugerirCuenta,
   validarCuenta,
   type CuentaExistente,
@@ -122,4 +124,29 @@ test("sugerir cuenta: coincide banco + terminación entre las activas, solo si e
   assert.equal(sugerirCuenta(cuentas, "MACRO", "315909409281599")?.nombre, "MACRO 599");
   assert.equal(sugerirCuenta(cuentas, "MACRO", null), null);
   assert.equal(sugerirCuenta([{ ...MACRO, activa: false }], "MACRO", "315909409281599"), null);
+});
+
+// --- Cuenta no verificable (Galicia y Nación no traen el número de cuenta) ------------------
+
+test("cuenta verificable solo si el archivo trae su número de cuenta", () => {
+  assert.equal(cuentaEsVerificable("315909409281599"), true);
+  assert.equal(cuentaEsVerificable(null), false);
+});
+
+test("verificable: se carga con o sin confirmación", () => {
+  assert.deepEqual(exigirConfirmacionDeCuenta("315909409281599", false, "MACRO 599"), { ok: true });
+  assert.deepEqual(exigirConfirmacionDeCuenta("315909409281599", true, "MACRO 599"), { ok: true });
+});
+
+test("no verificable y sin confirmar: se rechaza, nombrando la cuenta", () => {
+  const r = exigirConfirmacionDeCuenta(null, false, "GALICIA 731");
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.match(r.error, /GALICIA 731/);
+    assert.match(r.error, /No se cargó nada/);
+  }
+});
+
+test("no verificable y confirmado: se carga", () => {
+  assert.deepEqual(exigirConfirmacionDeCuenta(null, true, "BNA 241"), { ok: true });
 });

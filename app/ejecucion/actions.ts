@@ -51,7 +51,12 @@ import {
   type ResultadoContinuidadSaldo,
 } from "@/lib/extractos/continuidad";
 import { NOMBRE_BANCO } from "@/lib/extractos/tipos";
-import { controlarCuentaDelArchivo, sugerirCuenta } from "@/lib/cuentasBancarias";
+import {
+  controlarCuentaDelArchivo,
+  cuentaEsVerificable,
+  exigirConfirmacionDeCuenta,
+  sugerirCuenta,
+} from "@/lib/cuentasBancarias";
 import { construirIndice, aplicarSugerenciasDeHistorial } from "@/lib/clasificacionHistorial";
 import { obtenerUnidadesConEmpresa, contarSinUnidadEnSemana } from "@/lib/reporte";
 import {
@@ -613,6 +618,9 @@ const MAX_POSIBLES_DUPLICADOS = 200;
 export type VistaPreviaExtracto = {
   banco: string;
   cuenta: string;
+  // false cuando el archivo no trae su número de cuenta (Galicia y Nación): la cuenta es solo la
+  // que eligió la persona y hay que pedirle que la confirme antes de cargar.
+  cuentaVerificada: boolean;
   filas: number;
   desde: string;
   hasta: string;
@@ -699,6 +707,9 @@ type OpcionesSubida = {
   hoja?: string;
   // true solo en el reenvío después de la vista previa de un extracto crudo.
   confirmarVistaPrevia?: boolean;
+  // true cuando la persona tildó "Confirmo que este extracto es de la cuenta X". Solo cuenta para
+  // extractos cuya cuenta no se puede verificar por el archivo (Galicia y Nación); el servidor lo exige.
+  confirmoCuenta?: boolean;
 };
 
 // Fila lista para importar. Las del extracto crudo traen además los centavos exactos
@@ -737,7 +748,7 @@ export async function subirExtracto(
   formData: FormData,
   opciones: OpcionesSubida = {}
 ): Promise<ResultadoImportar> {
-  const { hoja: hojaElegida, confirmarVistaPrevia = false } = opciones;
+  const { hoja: hojaElegida, confirmarVistaPrevia = false, confirmoCuenta = false } = opciones;
   const archivo = formData.get("archivo");
 
   if (!(archivo instanceof File) || archivo.size === 0) {
@@ -781,7 +792,7 @@ export async function subirExtracto(
   let cuentaCruda: { nombre: string } | null = null;
   let avisos: string[] = [];
   let continuidadSaldo: ResultadoContinuidadSaldo[];
-  let resumenCrudo: { banco: string; cuenta: string } | null = null;
+  let resumenCrudo: { banco: string; cuenta: string; cuentaVerificada: boolean } | null = null;
 
   // El archivo madre no se sube por la web para nadie (lo lee lib/extractos/madre.ts, que usa el
   // script de carga): se detecta por contenido y se rechaza siempre.
@@ -821,6 +832,15 @@ export async function subirExtracto(
     }
     const control = controlarCuentaDelArchivo(cuenta, lectura.banco, lectura.cuentaEnArchivo);
     if (!control.ok) return { ok: false, error: control.error };
+
+    // Galicia y Nación no traen el número de cuenta: solo se carga con la confirmación expresa de
+    // la persona. Lo único que carga datos es el reenvío con confirmarVistaPrevia (sin él, o no
+    // hay filas nuevas o se devuelve la vista previa), así que se exige ahí; el servidor no
+    // depende de que el botón esté deshabilitado en pantalla.
+    if (confirmarVistaPrevia) {
+      const confirmacion = exigirConfirmacionDeCuenta(lectura.cuentaEnArchivo, confirmoCuenta, cuenta.nombre);
+      if (!confirmacion.ok) return { ok: false, error: confirmacion.error };
+    }
 
     avisos = [...control.avisos, ...lectura.avisos];
     // CUIT distinto del de la TITULAR de la cuenta (si tiene): aviso, no bloqueo (hay cuentas
@@ -874,7 +894,11 @@ export async function subirExtracto(
       );
     }
     cuentaCruda = { nombre: cuenta.nombre };
-    resumenCrudo = { banco: NOMBRE_BANCO[lectura.banco], cuenta: cuenta.nombre };
+    resumenCrudo = {
+      banco: NOMBRE_BANCO[lectura.banco],
+      cuenta: cuenta.nombre,
+      cuentaVerificada: cuentaEsVerificable(lectura.cuentaEnArchivo),
+    };
   }
 
   // Importe y saldo en centavos, redondeados igual que Postgres: es lo que entra
@@ -1029,6 +1053,7 @@ export async function subirExtracto(
           vista: {
             banco: resumenCrudo.banco,
             cuenta: resumenCrudo.cuenta,
+            cuentaVerificada: resumenCrudo.cuentaVerificada,
             filas: filas.length,
             desde: desde.toISOString().slice(0, 10),
             hasta: hasta.toISOString().slice(0, 10),

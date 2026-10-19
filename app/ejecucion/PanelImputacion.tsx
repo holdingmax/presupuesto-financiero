@@ -135,6 +135,9 @@ export default function PanelImputacion({
     archivo: File;
     hoja?: string;
   } | null>(null);
+  // Tilde "Confirmo que este extracto es de la cuenta X": solo se pide cuando el archivo no trae su
+  // número de cuenta (Galicia y Nación). El servidor lo exige; esto es solo la forma de pedirlo.
+  const [confirmoCuenta, setConfirmoCuenta] = useState(false);
   const [avisosSubida, setAvisosSubida] = useState<string[]>([]);
   const [continuidadSaldo, setContinuidadSaldo] = useState<ResultadoContinuidadSaldo[]>([]);
   const [liquidacionesAmbiguas, setLiquidacionesAmbiguas] = useState<ResultadoLiquidacionAmbigua[]>(
@@ -161,7 +164,8 @@ export default function PanelImputacion({
   async function enviarArchivo(
     archivo: File,
     hoja?: string,
-    confirmarPrevia = false
+    confirmarPrevia = false,
+    confirmoLaCuenta = false
   ) {
     // Mismo tope y mensaje que el servidor (lib/extractos/limites.ts), pero sin viajar: si Next corta
     // el pedido por bodySizeLimit, la pantalla solo vería el mensaje genérico de "no respondió".
@@ -182,6 +186,7 @@ export default function PanelImputacion({
     setHojasDisponibles([]);
     setArchivoAmbiguo(null);
     setVistaPrevia(null);
+    setConfirmoCuenta(false);
     setAvisosSubida([]);
 
     const formData = new FormData();
@@ -195,6 +200,7 @@ export default function PanelImputacion({
       resultado = await subirExtracto(periodo, numeroSemana, formData, {
         hoja,
         confirmarVistaPrevia: confirmarPrevia,
+        confirmoCuenta: confirmoLaCuenta,
       });
     } catch {
       setErrorSubida(
@@ -481,7 +487,13 @@ export default function PanelImputacion({
             <select
               id="cuenta-extracto"
               value={cuenta}
-              onChange={(e) => setCuenta(e.target.value)}
+              onChange={(e) => {
+                setCuenta(e.target.value);
+                // Una vista previa ya armada era de la cuenta anterior: se descarta, así el tilde y
+                // "Confirmar y cargar" nunca quedan referidos a otra cuenta que la elegida.
+                setVistaPrevia(null);
+                setConfirmoCuenta(false);
+              }}
               className="h-9 px-2 rounded-md border border-line bg-paper text-sm text-ink focus:outline-none focus:border-marino"
             >
               <option value="" disabled>
@@ -592,11 +604,36 @@ export default function PanelImputacion({
                   muestran al cargar.
                 </p>
               )}
+              {!vistaPrevia.vista.cuentaVerificada && (
+                <div className="mt-3 rounded-md border border-terracota bg-terracota-tint px-3 py-2 text-terracota">
+                  <p className="text-xs font-medium">
+                    {vistaPrevia.vista.banco} no trae el número de cuenta: no se pudo verificar que este
+                    extracto sea de {vistaPrevia.vista.cuenta}. Compará con la pantalla del banco.
+                  </p>
+                  <label className="mt-2 flex cursor-pointer items-start gap-2 text-xs font-medium">
+                    <input
+                      type="checkbox"
+                      checked={confirmoCuenta}
+                      disabled={subiendo}
+                      onChange={(e) => setConfirmoCuenta(e.target.checked)}
+                      className="mt-0.5 accent-terracota"
+                    />
+                    Confirmo que este extracto es de la cuenta {vistaPrevia.vista.cuenta}
+                  </label>
+                </div>
+              )}
               <div className="mt-3 flex gap-2">
                 <button
                   type="button"
-                  disabled={subiendo}
-                  onClick={() => enviarArchivo(vistaPrevia.archivo, vistaPrevia.hoja, true)}
+                  disabled={subiendo || (!vistaPrevia.vista.cuentaVerificada && !confirmoCuenta)}
+                  onClick={() =>
+                    enviarArchivo(
+                      vistaPrevia.archivo,
+                      vistaPrevia.hoja,
+                      true,
+                      !vistaPrevia.vista.cuentaVerificada && confirmoCuenta
+                    )
+                  }
                   className="h-8 px-3 rounded-md bg-marino text-white text-xs font-medium hover:bg-marino-dark active:scale-[0.99] transition disabled:opacity-50"
                 >
                   Confirmar y cargar ({vistaPrevia.vista.nuevas} movimientos)
