@@ -1,7 +1,7 @@
 import Link from "next/link";
 import TablaMovimientos from "@/app/ejecucion/TablaMovimientos";
 import Paginacion from "@/app/ejecucion/Paginacion";
-import { formatearImporte } from "@/app/ejecucion/formato";
+import { formatearImporteConCentavos } from "@/app/ejecucion/formato";
 import { obtenerDatosSemanaDeEmpresa } from "../datos";
 import { AccesoDenegadoError } from "@/lib/auth";
 import { textoTrazabilidad } from "@/lib/fecha";
@@ -145,7 +145,7 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
                     : "text-ink"
               }`}
             >
-              ${formatearImporte(datos.totalImporte)}
+              ${formatearImporteConCentavos(datos.totalImporte)}
             </p>
           </div>
         </div>

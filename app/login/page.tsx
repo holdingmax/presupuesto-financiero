@@ -1,4 +1,3 @@
-import { CICLO_FISCAL_LABEL } from "@/lib/config";
 import LoginForm from "./LoginForm";
 
 export default function LoginPage() {
@@ -27,10 +26,6 @@ export default function LoginPage() {
               Presupuesto y<br />Ejecución Financiera
             </h1>
           </div>
-
-          <p className="text-xs text-paper/40 tracking-wide">
-            Ciclo fiscal · {CICLO_FISCAL_LABEL}
-          </p>
         </div>
 
         {/* Panel derecho: login */}

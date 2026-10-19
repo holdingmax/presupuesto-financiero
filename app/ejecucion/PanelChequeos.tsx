@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { formatearImporte } from "./formato";
+import { formatearImporteConCentavos } from "./formato";
 import type { ResultadoChequeo } from "./actions";
 
 // Mismo trazo que el resto de los íconos a mano (IconoOjo, IconoMenu) — alineado
@@ -62,7 +62,7 @@ function FilaChequeo({ chequeo, esUltima }: { chequeo: ResultadoChequeo; esUltim
           <span
             className={`tabular text-base font-semibold ${chequeo.ok ? "text-positive" : "text-negative"}`}
           >
-            {chequeo.ok && "✓ "}${formatearImporte(chequeo.neto)}
+            {chequeo.ok && "✓ "}${formatearImporteConCentavos(chequeo.neto)}
           </span>
         </span>
       </button>
@@ -74,7 +74,7 @@ function FilaChequeo({ chequeo, esUltima }: { chequeo: ResultadoChequeo; esUltim
         >
           {chequeo.lineas.map((l) => (
             <li key={l.id}>
-              {l.fecha} — {l.concepto}: ${formatearImporte(l.importe)}
+              {l.fecha} — {l.concepto}: ${formatearImporteConCentavos(l.importe)}
             </li>
           ))}
         </ul>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { formatearImporte } from "./formato";
+import { formatearImporteConCentavos } from "./formato";
 import type { ResultadoContinuidadSaldo } from "./actions";
 
 // Mismo trazo que el resto de los íconos a mano del sistema (IconoChevronDerecha
@@ -52,8 +52,8 @@ function FilaCuenta({ cuenta, esUltima }: { cuenta: ResultadoContinuidadSaldo; e
           {cuenta.rupturas.map((r, i) => (
             <li key={i}>
               {r.fechaAnterior} → {r.fechaSiguiente} ({r.concepto}): esperaba $
-              {formatearImporte(r.saldoEsperado)}, el archivo trae ${formatearImporte(r.saldoReal)} —
-              difiere ${formatearImporte(Math.abs(r.diferencia))}
+              {formatearImporteConCentavos(r.saldoEsperado)}, el archivo trae ${formatearImporteConCentavos(r.saldoReal)} —
+              difiere ${formatearImporteConCentavos(Math.abs(r.diferencia))}
             </li>
           ))}
         </ul>

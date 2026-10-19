@@ -27,7 +27,7 @@ import PanelChequeos from "./PanelChequeos";
 import PanelSugerenciasPendientes from "./PanelSugerenciasPendientes";
 import PanelUnidadesSugeridas, { claveGrupo } from "./PanelUnidadesSugeridas";
 import AlertaContinuidadSaldo from "./AlertaContinuidadSaldo";
-import { formatearImporte, formatearImporteConCentavos } from "./formato";
+import { formatearImporteConCentavos } from "./formato";
 
 // Sin librería de íconos en el proyecto — SVG a mano, mismo criterio que
 // IconoOjo/IconoMenu.
@@ -478,7 +478,7 @@ export default function PanelImputacion({
           <p className="text-xs text-ink-muted mb-4">
             Extracto de un banco tal cual se descarga (Macro, Galicia, BBVA Francés, Nación,
             Santander, Santiago del Estero: .xls, .xlsx o .csv, hasta 1 MB y 1.000 filas). Primero
-            elegí la cuenta. El archivo madre se carga por script.
+            elegí la cuenta.
           </p>
           <div className="mb-3 flex items-center gap-3">
             <label htmlFor="cuenta-extracto" className="text-xs text-ink-secondary whitespace-nowrap">
@@ -552,7 +552,12 @@ export default function PanelImputacion({
               {mensajeExito}
             </p>
           )}
-          {vistaPrevia && (
+          {vistaPrevia && (() => {
+            // El cuadro rojo de cuenta no verificable ya dice lo mismo que ese aviso: no se repite.
+            const avisosVistaPrevia = vistaPrevia.vista.cuentaVerificada
+              ? vistaPrevia.vista.avisos
+              : vistaPrevia.vista.avisos.filter((a) => !a.includes("no trae el número de cuenta"));
+            return (
             <div className="mt-3 text-sm bg-marino-tint text-marino rounded-md px-3 py-3">
               <p className="font-medium">
                 Todavía no se cargó nada: revisá el resumen y compará con la pantalla del banco.
@@ -585,9 +590,9 @@ export default function PanelImputacion({
                 <dt>Neto</dt>
                 <dd>${formatearImporteConCentavos(vistaPrevia.vista.neto)}</dd>
               </dl>
-              {vistaPrevia.vista.avisos.length > 0 && (
+              {avisosVistaPrevia.length > 0 && (
                 <ul className="mt-2 list-disc pl-5 text-xs">
-                  {vistaPrevia.vista.avisos.map((a) => (
+                  {avisosVistaPrevia.map((a) => (
                     <li key={a}>{a}</li>
                   ))}
                 </ul>
@@ -651,7 +656,8 @@ export default function PanelImputacion({
                 </button>
               </div>
             </div>
-          )}
+            );
+          })()}
           {avisosSubida.length > 0 && (
             <ul className="mt-3 list-disc pl-8 text-xs text-ink-secondary">
               {avisosSubida.map((a) => (
@@ -671,7 +677,7 @@ export default function PanelImputacion({
               <ul className="mt-2 list-disc pl-5 text-xs">
                 {posiblesDuplicados.slice(0, 20).map((d) => (
                   <li key={d.fila}>
-                    Fila {d.fila}: {d.fecha}, {d.bancoYCuenta}, ${formatearImporte(d.importe)} —{" "}
+                    Fila {d.fila}: {d.fecha}, {d.bancoYCuenta}, ${formatearImporteConCentavos(d.importe)} —{" "}
                     {d.concepto}
                   </li>
                 ))}
@@ -693,7 +699,7 @@ export default function PanelImputacion({
               <ul className="mt-2 list-disc pl-5 text-xs">
                 {liquidacionesAmbiguas.map((l) => (
                   <li key={l.fila}>
-                    Fila {l.fila}: {l.fecha}, ${formatearImporte(l.importe)} — podría ser{" "}
+                    Fila {l.fila}: {l.fecha}, ${formatearImporteConCentavos(l.importe)} — podría ser{" "}
                     {l.candidatos.join(" o ")}
                   </li>
                 ))}
@@ -717,7 +723,7 @@ export default function PanelImputacion({
                 totalImporte < 0 ? "text-negative" : totalImporte > 0 ? "text-positive" : "text-ink"
               }`}
             >
-              ${formatearImporte(totalImporte)}
+              ${formatearImporteConCentavos(totalImporte)}
             </p>
           </div>
         </div>
@@ -829,7 +835,7 @@ export default function PanelImputacion({
                   <li key={`${m.id}|${m.unidad}`} className="py-1.5 flex gap-3">
                     <span className="tabular w-20 shrink-0">{m.fecha}</span>
                     <span className="flex-1 truncate">{m.concepto}</span>
-                    <span className="tabular shrink-0">${formatearImporte(m.importe)}</span>
+                    <span className="tabular shrink-0">${formatearImporteConCentavos(m.importe)}</span>
                     <span className="w-28 shrink-0 truncate text-right font-medium">{m.unidad}</span>
                   </li>
                 ))}

@@ -2,7 +2,7 @@ import Link from "next/link";
 import PanelImputacion from "@/app/ejecucion/PanelImputacion";
 import TablaMovimientos from "@/app/ejecucion/TablaMovimientos";
 import Paginacion from "@/app/ejecucion/Paginacion";
-import { formatearImporte } from "@/app/ejecucion/formato";
+import { formatearImporteConCentavos } from "@/app/ejecucion/formato";
 import { obtenerDatosSemana, calcularChequeosSumaCero, listarSemanasDelPeriodo } from "@/app/ejecucion/actions";
 import { AccesoDenegadoError } from "@/lib/auth";
 import { textoTrazabilidad } from "@/lib/fecha";
@@ -142,7 +142,7 @@ export default async function EjecucionGlobalSemanaPage({ params, searchParams }
                   datos.totalImporte < 0 ? "text-negative" : datos.totalImporte > 0 ? "text-positive" : "text-ink"
                 }`}
               >
-                ${formatearImporte(datos.totalImporte)}
+                ${formatearImporteConCentavos(datos.totalImporte)}
               </p>
             </div>
           </div>

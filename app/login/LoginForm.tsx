@@ -20,7 +20,7 @@ export default function LoginForm() {
           name="email"
           type="email"
           required
-          placeholder="nombre@holdingmax.com"
+          placeholder="Tu email"
           className="w-full h-12 rounded-md border border-line bg-paper-raised px-3.5 text-[15px] outline-none focus:border-marino focus:ring-2 focus:ring-marino/15"
         />
       </div>

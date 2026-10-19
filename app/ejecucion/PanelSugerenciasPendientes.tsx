@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { formatearImporte } from "./formato";
+import { formatearImporteConCentavos } from "./formato";
 import type { GrupoSugerenciaClasificacion } from "./actions";
 
 // Sin librería de íconos en el proyecto — SVG a mano, mismo criterio que
@@ -136,7 +136,7 @@ export default function PanelSugerenciasPendientes({
                             <td className="py-1.5 pr-2 max-w-[240px] truncate" title={f.concepto}>
                               {f.chequeIvaAmbiguo && (
                                 <span
-                                  title="Esta referencia tiene más de un cheque real con el mismo N° e importe en la planilla de Macchi — confirmá solo después de revisarla a mano."
+                                  title="Esta referencia tiene más de un cheque real con el mismo N° e importe — confirmá solo después de revisarla a mano."
                                   className="mr-1 inline-block align-middle text-terracota"
                                 >
                                   <IconoAlerta />
@@ -150,7 +150,7 @@ export default function PanelSugerenciasPendientes({
                                 f.importe < 0 ? "text-negative" : "text-positive"
                               }`}
                             >
-                              ${formatearImporte(f.importe)}
+                              ${formatearImporteConCentavos(f.importe)}
                             </td>
                             <td className="py-1.5 pr-2">
                               <select
