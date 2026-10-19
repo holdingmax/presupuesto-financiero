@@ -13,8 +13,10 @@ function aCentavosSuma(importes: number[]): number {
   return importes.reduce((acc, n) => acc + Math.round(n * 100), 0);
 }
 
-// Lo que viaja al navegador por cada movimiento. NO incluye el saldo: ni el campo existe en el
-// objeto (§6). `soloUnidades` (vista de una empresa): de un movimiento prorrateado se ve SOLO la
+// Lo que viaja al navegador por cada movimiento. El saldo SOLO viaja con `verSaldo` (§6: ADMIN,
+// FINANZAS y quien opera, ver veTodoEjecucion); por defecto la clave `saldo` ni existe en el objeto
+// (no es null ni se oculta con CSS). Con `verSaldo`, un saldo que la fila no trae (BBVA) viaja como
+// null. `soloUnidades` (vista de una empresa): de un movimiento prorrateado se ve SOLO la
 // porción de esas unidades y el importe de ella, nunca el total ni las porciones de otras.
 export function mapearMovimiento(
   m: {
@@ -22,6 +24,7 @@ export function mapearMovimiento(
     fecha: Date;
     concepto: string;
     importe: unknown;
+    saldo?: unknown;
     bancoYCuenta: string;
     clasificacion: string;
     unidadNegocio: string;
@@ -32,7 +35,8 @@ export function mapearMovimiento(
     unidadSugeridaPorSistema: boolean;
     desglose: { id: string; unidadNegocio: string; importe: unknown }[];
   },
-  soloUnidades?: string[]
+  soloUnidades?: string[],
+  { verSaldo = false }: { verSaldo?: boolean } = {}
 ) {
   let importe = Number(m.importe);
   let desglose = m.desglose;
@@ -50,6 +54,7 @@ export function mapearMovimiento(
     fecha: m.fecha.toISOString().slice(0, 10),
     concepto: m.concepto,
     importe,
+    ...(verSaldo ? { saldo: m.saldo === null || m.saldo === undefined ? null : Number(m.saldo) } : {}),
     bancoYCuenta: m.bancoYCuenta,
     clasificacion: m.clasificacion,
     // unidadNegocio: valor único del movimiento en sí, editable inline en la tabla

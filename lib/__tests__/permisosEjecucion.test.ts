@@ -39,6 +39,13 @@ test("ve todo Ejecución: ADMIN, FINANZAS y quien opera; el gerente no", () => {
   assert.equal(veTodoEjecucion(gerente), false);
 });
 
+test("columna Saldo (verSaldo = veTodoEjecucion): ADMIN, FINANZAS y quien opera, incluida Flavia; ningún otro gerente", () => {
+  for (const u of [admin, finanzasSinPermiso, finanzasQueOpera, gerenteQueOpera]) {
+    assert.equal(veTodoEjecucion(u), true);
+  }
+  assert.equal(veTodoEjecucion(gerente), false);
+});
+
 test("bloques reservados del Reporte (Disponibilidades y Cierre): solo ADMIN y FINANZAS, operar no alcanza", () => {
   assert.equal(veBloquesReservadosDelReporte(admin), true);
   assert.equal(veBloquesReservadosDelReporte(finanzasSinPermiso), true);

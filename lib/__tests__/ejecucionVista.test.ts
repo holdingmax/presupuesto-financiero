@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { mapearMovimiento, filtroDeUnidades } from "@/lib/ejecucionVista";
 
 // Lo que viaja al navegador en la pestaña de solo lectura de una empresa (plan §3.4 y §6).
@@ -26,6 +28,31 @@ test("el movimiento que viaja al cliente no tiene saldo (ni como null)", () => {
   const m = mapearMovimiento(fila);
   assert.equal("saldo" in m, false);
   assert.equal(JSON.stringify(m).includes("123456"), false);
+});
+
+test("sin verSaldo (default) la clave saldo no existe, con o sin filtro de unidades", () => {
+  const fila = { ...base, saldo: "123456.78" };
+  assert.equal("saldo" in mapearMovimiento(fila), false);
+  assert.equal("saldo" in mapearMovimiento(fila, ["SPP"]), false);
+  assert.equal("saldo" in mapearMovimiento(fila, undefined, {}), false);
+  assert.equal("saldo" in mapearMovimiento(fila, undefined, { verSaldo: false }), false);
+  assert.equal(JSON.stringify(mapearMovimiento(fila, ["SPP"], { verSaldo: false })).includes("123456"), false);
+});
+
+test("con verSaldo el saldo viaja como número; si la fila no lo trae (BBVA) viaja como null", () => {
+  assert.equal(mapearMovimiento({ ...base, saldo: "123456.78" }, undefined, { verSaldo: true }).saldo, 123456.78);
+  assert.equal(mapearMovimiento({ ...base, saldo: "-50.10" }, undefined, { verSaldo: true }).saldo, -50.1);
+  const sinSaldo = mapearMovimiento({ ...base, saldo: null }, undefined, { verSaldo: true });
+  assert.equal("saldo" in sinSaldo, true);
+  assert.equal(sinSaldo.saldo, null);
+  assert.equal(mapearMovimiento(base, undefined, { verSaldo: true }).saldo, null);
+});
+
+test("la vista de una empresa (datos.ts) nunca pide el saldo: no usa verSaldo", () => {
+  const fuente = readFileSync(join(process.cwd(), "app", "[empresa]", "[periodo]", "ejecucion", "datos.ts"), "utf8");
+  assert.equal(/verSaldo/.test(fuente), false);
+  // Y su llamada (movimiento + unidades de la empresa) no devuelve saldo aunque la fila lo traiga.
+  assert.equal("saldo" in mapearMovimiento({ ...base, saldo: "9999.99" }, ["SPP"]), false);
 });
 
 test("sin filtro de unidades, un prorrateado conserva todas sus porciones y el importe total", () => {

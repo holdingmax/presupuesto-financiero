@@ -155,6 +155,9 @@ export type MovimientoTabla = {
   fecha: string;
   concepto: string;
   importe: number;
+  // Solo existe si el servidor autorizó el saldo (mapearMovimiento con verSaldo); null = el banco
+  // no lo informa (BBVA).
+  saldo?: number | null;
   bancoYCuenta: string;
   clasificacion: string;
   // Valor único de la fila — completamente separado de `desglose` de abajo
@@ -174,6 +177,8 @@ type Props = {
   movimientos: MovimientoTabla[];
   numeroSemana: number;
   soloLectura?: boolean;
+  // Columna Saldo: solo para quien ve todo Ejecución (el servidor ya decidió si los datos la traen).
+  mostrarSaldo?: boolean;
   deshabilitado?: boolean;
   clasificacionesDisponibles?: string[];
   onCambiarClasificacion?: (id: string, valor: string) => void;
@@ -189,6 +194,7 @@ export default function TablaMovimientos({
   movimientos,
   numeroSemana,
   soloLectura = false,
+  mostrarSaldo = false,
   deshabilitado = false,
   clasificacionesDisponibles = [],
   onCambiarClasificacion,
@@ -199,7 +205,7 @@ export default function TablaMovimientos({
   const router = useRouter();
   const { periodo } = useParams<{ periodo: string }>();
   const [desgloseAbiertoId, setDesgloseAbiertoId] = useState<string | null>(null);
-  const totalColumnas = soloLectura ? 6 : 7;
+  const totalColumnas = (soloLectura ? 6 : 7) + (mostrarSaldo ? 1 : 0);
 
   // Tilde "Prorratea" (pedido de Kike, 2026-10-06): tildarlo abre el panel;
   // destildarlo cierra el panel si todavía no se guardó nada, o — si ya hay un
@@ -220,13 +226,21 @@ export default function TablaMovimientos({
   }
 
   return (
-    <table className="w-full min-w-[880px] text-sm">
+    <table className={`w-full text-sm ${mostrarSaldo ? "min-w-[1000px]" : "min-w-[880px]"}`}>
       <thead>
         <tr className="text-xs text-ink-faint uppercase tracking-wide">
           <th className="text-left py-2 pr-3 font-medium">Fecha</th>
           <th className="text-left py-2 pr-3 font-medium">Concepto</th>
           <th className="text-left py-2 pr-3 font-medium">Banco</th>
           <th className="text-right py-2 pr-3 font-medium">Importe</th>
+          {mostrarSaldo && (
+            <th
+              className="text-right py-2 pr-3 font-medium cursor-help"
+              title="Saldo de la cuenta DESPUÉS del movimiento. En Nación el banco informa el saldo anterior; acá se muestra ya convertido al posterior. BBVA no informa saldo."
+            >
+              Saldo
+            </th>
+          )}
           <th className="text-left py-2 pr-3 font-medium">Clasificación</th>
           <th className="text-left py-2 pr-3 font-medium">Unidad de negocio</th>
           {!soloLectura && <th className="py-2 w-10" />}
@@ -258,6 +272,11 @@ export default function TablaMovimientos({
             >
               ${formatearImporteConCentavos(m.importe)}
             </td>
+            {mostrarSaldo && (
+              <td className="py-2 pr-3 text-right tabular whitespace-nowrap text-ink-secondary">
+                {m.saldo === null || m.saldo === undefined ? "" : `$${formatearImporteConCentavos(m.saldo)}`}
+              </td>
+            )}
             <td className="py-2 pr-3">
               {soloLectura ? (
                 <span>{m.clasificacion}</span>

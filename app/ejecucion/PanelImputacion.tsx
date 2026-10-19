@@ -45,6 +45,7 @@ type Movimiento = {
   fecha: string;
   concepto: string;
   importe: number;
+  saldo?: number | null;
   bancoYCuenta: string;
   clasificacion: string;
   unidadNegocio: string;
@@ -59,6 +60,8 @@ type Movimiento = {
 type Props = {
   // Solo FINANZAS y ADMIN ven el botón de cierre (D-4).
   puedeCerrar: boolean;
+  // Columna Saldo (ADMIN, FINANZAS y quien opera): lo decide el servidor.
+  verSaldo: boolean;
   numeroSemana: number;
   estado: string;
   movimientosIniciales: Movimiento[];
@@ -82,6 +85,7 @@ type Props = {
 
 export default function PanelImputacion({
   puedeCerrar,
+  verSaldo,
   numeroSemana,
   estado,
   movimientosIniciales,
@@ -728,6 +732,7 @@ export default function PanelImputacion({
               <TablaMovimientos
                 movimientos={movimientos}
                 numeroSemana={numeroSemana}
+                mostrarSaldo={verSaldo}
                 deshabilitado={cerrada}
                 clasificacionesDisponibles={clasificacionesDisponibles}
                 onCambiarClasificacion={(id, valor) => {

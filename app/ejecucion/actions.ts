@@ -26,6 +26,7 @@ import {
   requireCierreEjecucion,
   puedeOperarEjecucionGlobal,
   puedeCerrarEjecucion,
+  veTodoEjecucion,
 } from "@/lib/auth";
 import { FILAS_POR_PAGINA, mapearMovimiento } from "@/lib/ejecucionVista";
 import { calcularClasificacionesDisponibles } from "@/lib/clasificaciones";
@@ -151,6 +152,7 @@ export async function obtenerDatosSemana(
   const usuario = await requireVerEjecucionGlobal();
   const puedeOperar = puedeOperarEjecucionGlobal(usuario);
   const puedeCerrar = puedeCerrarEjecucion(usuario);
+  const verSaldo = veTodoEjecucion(usuario);
   const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
 
   if (!ejecucion) {
@@ -245,7 +247,10 @@ export async function obtenerDatosSemana(
     puedeOperar,
     puedeCerrar,
     clasificacionesDisponibles: await clasificacionesPromise,
-    movimientos: movimientos.map((m) => mapearMovimiento(m)),
+    // Columna Saldo: ADMIN, FINANZAS y quien opera (hoy: Kike, Flavia y los administradores). Se
+    // decide acá, en el servidor: para el resto la clave `saldo` no existe en lo que viaja.
+    verSaldo,
+    movimientos: movimientos.map((m) => mapearMovimiento(m, undefined, { verSaldo })),
     totalMovimientos,
     totalImporte: Number(agregadoSumaReal._sum.importe ?? 0),
     pagina: paginaEfectiva,

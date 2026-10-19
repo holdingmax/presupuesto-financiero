@@ -82,6 +82,7 @@ export default async function EjecucionGlobalSemanaPage({ params, searchParams }
         {selectorDeSemanas}
         <PanelImputacion
           puedeCerrar={datos.puedeCerrar}
+          verSaldo={datos.verSaldo}
           numeroSemana={datos.numeroSemana}
           estado={datos.estado}
           movimientosIniciales={datos.movimientos}
@@ -153,7 +154,12 @@ export default async function EjecucionGlobalSemanaPage({ params, searchParams }
           ) : (
             <>
               <div className="border-t border-line-strong overflow-x-auto">
-                <TablaMovimientos movimientos={datos.movimientos} numeroSemana={datos.numeroSemana} soloLectura />
+                <TablaMovimientos
+                  movimientos={datos.movimientos}
+                  numeroSemana={datos.numeroSemana}
+                  soloLectura
+                  mostrarSaldo={datos.verSaldo}
+                />
               </div>
               <Paginacion
                 base={`/ejecucion/${periodo}/${datos.numeroSemana}`}
