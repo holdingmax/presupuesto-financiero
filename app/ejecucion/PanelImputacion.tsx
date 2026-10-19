@@ -172,17 +172,22 @@ export default function PanelImputacion({
     formData.append("archivo", archivo);
     formData.append("cuenta", cuenta);
 
-    const resultado = await subirExtracto(
-      periodo,
-      numeroSemana,
-      formData,
-      {
+    // Si la Server Action lanza (timeout, servidor reiniciado, red), sin este try/catch/finally
+    // la pantalla quedaba en "Subiendo..." para siempre y el botón deshabilitado.
+    let resultado: Awaited<ReturnType<typeof subirExtracto>>;
+    try {
+      resultado = await subirExtracto(periodo, numeroSemana, formData, {
         hoja,
         confirmarVistaPrevia: confirmarPrevia,
-      }
-    );
-
-    setSubiendo(false);
+      });
+    } catch {
+      setErrorSubida(
+        "No se pudo completar la subida: el servidor no respondió o se interrumpió. No se confirmó ninguna carga; revisá la semana antes de reintentar (si el archivo es muy grande, puede haber quedado sin cargar)."
+      );
+      return;
+    } finally {
+      setSubiendo(false);
+    }
 
     if (!resultado.ok) {
       if ("requiereSeleccionHoja" in resultado) {
