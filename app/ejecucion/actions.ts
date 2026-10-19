@@ -36,6 +36,12 @@ import {
 } from "@/lib/unidadesNegocio";
 import { aCentavos, centavosADecimal } from "@/lib/prorrateo";
 import { leerArchivoSubido } from "@/lib/extractos/archivo";
+import {
+  MENSAJE_MADRE_POR_SCRIPT,
+  verificarCantidadFilas,
+  verificarCuentaElegida,
+  verificarTamanoArchivo,
+} from "@/lib/extractos/limites";
 import { type FilaMadre } from "@/lib/extractos/madre";
 import {
   analizarContinuidad,
@@ -739,10 +745,19 @@ export async function subirExtracto(
     return { ok: false, error: "El archivo tiene que ser un .xlsx, .xls o .csv." };
   }
 
-  // Cuenta elegida en el selector ("" = archivo madre, que trae sus propias cuentas).
+  // Cuenta elegida en el selector (obligatoria: el archivo madre no se sube por la web).
   const cuentaElegida = String(formData.get("cuenta") ?? "").trim();
 
   await resolverParaOperar(periodo);
+
+  // Frenos de memoria (lib/extractos/limites.ts), ANTES de leer el archivo con ExcelJS: la madre
+  // real (16.521 filas) superó los 512 MB de Render. Mismo tope para todos los roles; sin cuenta
+  // elegida solo podría ser la madre, que se carga por script.
+  const frenoCuenta = verificarCuentaElegida(cuentaElegida);
+  if (!frenoCuenta.ok) return { ok: false, error: frenoCuenta.error };
+  const frenoTamano = verificarTamanoArchivo(archivo.size);
+  if (!frenoTamano.ok) return { ok: false, error: frenoTamano.error };
+
   const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
   if (!ejecucion) {
     return { ok: false, error: `No encontré la semana ${numeroSemana}.` };
@@ -763,28 +778,14 @@ export async function subirExtracto(
   let continuidadSaldo: ResultadoContinuidadSaldo[];
   let resumenCrudo: { banco: string; cuenta: string } | null = null;
 
+  // El archivo madre no se sube por la web para nadie (lo lee lib/extractos/madre.ts, que usa el
+  // script de carga): se detecta por contenido y se rechaza siempre.
   if (leido.tipo === "madre") {
-    if (cuentaElegida) {
-      return {
-        ok: false,
-        error:
-          'El archivo madre trae sus propias cuentas: dejá el selector en "Archivo madre (trae varias cuentas)".',
-      };
-    }
-    filas = leido.filas;
-    if (filas.length === 0) {
-      return { ok: false, error: "No encontré ninguna fila con datos para importar." };
-    }
-    // Sobre TODAS las filas del archivo (también las que ya estaban cargadas): la
-    // continuidad es una propiedad del extracto en sí, y numeroFila (el orden real
-    // del Excel) solo existe acá — no se guarda en la base. El orden (más viejo→más
-    // nuevo o al revés) y si el saldo es el de antes o el de después del movimiento se
-    // detectan solos (lib/extractos/continuidad.ts).
-    const analisis = analizarContinuidad(filas);
-    continuidadSaldo = verificarContinuidadSaldo(filas);
-    avisos = avisosDeContinuidad(analisis, { incluirSinSaldo: false });
+    return { ok: false, error: MENSAJE_MADRE_POR_SCRIPT };
   } else {
     const { lectura } = leido;
+    const frenoFilas = verificarCantidadFilas(lectura.filas.length);
+    if (!frenoFilas.ok) return { ok: false, error: frenoFilas.error };
 
     // Validaciones en el servidor (el cliente no decide nada). Ejecución global: se elige entre
     // TODAS las cuentas del holding; la empresa de la cuenta es solo su titular (opcional).
@@ -1091,7 +1092,6 @@ export async function subirExtracto(
         continuidadSaldo,
         liquidacionesAmbiguas,
         avisos,
-        hoja: hojaElegida && leido.tipo === "madre" ? leido.hoja : undefined,
         // Semana (número) donde quedó cada mes que trajo filas nuevas.
         repartoPorPeriodo: repartoNuevas.map((r) => ({
           ...r,

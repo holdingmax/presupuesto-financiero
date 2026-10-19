@@ -120,8 +120,10 @@ export default function PanelImputacion({
   const [mensajeExito, setMensajeExito] = useState("");
   const [posiblesDuplicados, setPosiblesDuplicados] = useState<PosibleDuplicado[]>([]);
   const [cantidadPosiblesDuplicados, setCantidadPosiblesDuplicados] = useState(0);
-  // "" = archivo madre (trae varias cuentas); si no, el nombre canónico de la cuenta del extracto crudo.
+  // Nombre canónico de la cuenta del extracto. "" = todavía no eligió: no se puede subir (el
+  // archivo madre no se sube por la web).
   const [cuenta, setCuenta] = useState("");
+  const faltaElegirCuenta = cuenta === "";
   // Resumen de un extracto crudo antes de cargarlo: mientras está visible no se cargó nada.
   const [vistaPrevia, setVistaPrevia] = useState<{
     vista: VistaPreviaExtracto;
@@ -233,6 +235,10 @@ export default function PanelImputacion({
 
   async function handleSubir(e: React.FormEvent) {
     e.preventDefault();
+    if (faltaElegirCuenta) {
+      setErrorSubida("Elegí la cuenta del extracto antes de subir el archivo.");
+      return;
+    }
     const archivo = fileInputRef.current?.files?.[0];
     if (!archivo) {
       setErrorSubida("Elegí un archivo antes de subir.");
@@ -449,9 +455,9 @@ export default function PanelImputacion({
             )}
           </div>
           <p className="text-xs text-ink-muted mb-4">
-            Archivo madre (.xlsx con las columnas Fecha, Concepto, Importe, Clasificacion, Unidad de
-            Neg, etc.) o extracto de un banco tal cual se descarga (Macro, Galicia, BBVA Francés,
-            Nación, Santander, Santiago del Estero: .xls, .xlsx o .csv).
+            Extracto de un banco tal cual se descarga (Macro, Galicia, BBVA Francés, Nación,
+            Santander, Santiago del Estero: .xls, .xlsx o .csv, hasta 1 MB y 1.000 filas). Primero
+            elegí la cuenta. El archivo madre se carga por script.
           </p>
           <div className="mb-3 flex items-center gap-3">
             <label htmlFor="cuenta-extracto" className="text-xs text-ink-secondary whitespace-nowrap">
@@ -463,7 +469,9 @@ export default function PanelImputacion({
               onChange={(e) => setCuenta(e.target.value)}
               className="h-9 px-2 rounded-md border border-line bg-paper text-sm text-ink focus:outline-none focus:border-marino"
             >
-              <option value="">Archivo madre (trae varias cuentas)</option>
+              <option value="" disabled>
+                Elegí la cuenta…
+              </option>
               {cuentasBancarias.map((c) => (
                 <option key={c.nombre} value={c.nombre}>
                   {c.nombre}
@@ -480,7 +488,7 @@ export default function PanelImputacion({
             />
             <button
               type="submit"
-              disabled={subiendo}
+              disabled={subiendo || faltaElegirCuenta}
               className="h-10 px-4 rounded-md bg-marino text-white text-sm font-medium hover:bg-marino-dark active:scale-[0.99] transition disabled:opacity-50 whitespace-nowrap"
             >
               {subiendo ? "Subiendo..." : "Subir extracto"}
