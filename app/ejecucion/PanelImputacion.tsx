@@ -22,6 +22,7 @@ import {
 import TablaMovimientos from "./TablaMovimientos";
 import Paginacion from "./Paginacion";
 import { nombreDePeriodo } from "@/lib/ejecucionSemanas";
+import { verificarTamanoArchivo } from "@/lib/extractos/limites";
 import PanelChequeos from "./PanelChequeos";
 import PanelSugerenciasPendientes from "./PanelSugerenciasPendientes";
 import PanelUnidadesSugeridas, { claveGrupo } from "./PanelUnidadesSugeridas";
@@ -158,6 +159,15 @@ export default function PanelImputacion({
     hoja?: string,
     confirmarPrevia = false
   ) {
+    // Mismo tope y mensaje que el servidor (lib/extractos/limites.ts), pero sin viajar: si Next corta
+    // el pedido por bodySizeLimit, la pantalla solo vería el mensaje genérico de "no respondió".
+    const frenoTamano = verificarTamanoArchivo(archivo.size);
+    if (!frenoTamano.ok) {
+      setMensajeExito("");
+      setVistaPrevia(null);
+      setErrorSubida(frenoTamano.error);
+      return;
+    }
     setSubiendo(true);
     setErrorSubida("");
     setMensajeExito("");
