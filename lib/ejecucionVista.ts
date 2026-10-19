@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { centavosDeDecimalTexto } from "@/lib/conteoMovimientos";
+import { ordenarPorCadenaDeSaldo } from "@/lib/ordenSaldo";
 
 // Lectura de movimientos de Ejecución compartida por el módulo global (/ejecucion) y por la
 // pestaña de solo lectura de cada empresa (docs/ejecucion_global_plan.md §3.4 y §6). Vive fuera
@@ -11,6 +12,30 @@ export const FILAS_POR_PAGINA = 200;
 // Suma en centavos CON signo (aCentavos de lib/prorrateo devuelve la magnitud).
 function aCentavosSuma(importes: number[]): number {
   return importes.reduce((acc, n) => acc + Math.round(n * 100), 0);
+}
+
+// Ids de TODA la semana en el orden de la vista: fecha + id, y dentro de cada fecha y cuenta, el
+// orden de la cadena de saldo cuando cierra completa (lib/ordenSaldo.ts). Es solo de
+// visualización (no toca lo guardado) y no depende del rol: corre igual para todos. Se arma sobre
+// la semana entera y recién después se filtra y pagina, así un día que cae entre dos páginas queda
+// ordenado igual y el filtro "sin clasificar" no corta la cadena.
+export async function idsEnOrdenDeVista(ejecucionId: string, soloSinClasificar: boolean): Promise<string[]> {
+  const filas = await prisma.movimientoBancario.findMany({
+    where: { ejecucionId },
+    orderBy: [{ fecha: "asc" }, { id: "asc" }],
+    select: { id: true, fecha: true, bancoYCuenta: true, importe: true, saldo: true, clasificacion: true },
+  });
+  const ordenadas = ordenarPorCadenaDeSaldo(
+    filas.map((m) => ({
+      id: m.id,
+      clasificacion: m.clasificacion,
+      fecha: m.fecha.toISOString().slice(0, 10),
+      bancoYCuenta: m.bancoYCuenta,
+      importeCentavos: centavosDeDecimalTexto(m.importe.toFixed(2)),
+      saldoCentavos: m.saldo === null ? null : centavosDeDecimalTexto(m.saldo.toFixed(2)),
+    }))
+  );
+  return ordenadas.filter((m) => !soloSinClasificar || m.clasificacion === "SIN CLASIFICAR").map((m) => m.id);
 }
 
 // Lo que viaja al navegador por cada movimiento. El saldo SOLO viaja con `verSaldo` (§6: ADMIN,

@@ -28,7 +28,7 @@ import {
   puedeCerrarEjecucion,
   veTodoEjecucion,
 } from "@/lib/auth";
-import { FILAS_POR_PAGINA, mapearMovimiento } from "@/lib/ejecucionVista";
+import { FILAS_POR_PAGINA, mapearMovimiento, idsEnOrdenDeVista } from "@/lib/ejecucionVista";
 import { calcularClasificacionesDisponibles } from "@/lib/clasificaciones";
 import {
   normalizarCuenta,
@@ -218,13 +218,17 @@ export async function obtenerDatosSemana(
   // se edita (un UPDATE reubica la fila físicamente en el heap de Postgres) — eso es lo que
   // causó que una edición de Unidad de Negocio terminara pisando una fila distinta al volver
   // a esta página. `id` es único y no cambia nunca, así que el orden queda fijo para siempre.
-  const movimientos = await prisma.movimientoBancario.findMany({
-    where: { ejecucionId: ejecucion.id, ...filtroClasificacion },
-    orderBy: [{ fecha: "asc" }, { id: "asc" }],
-    skip: (paginaEfectiva - 1) * FILAS_POR_PAGINA,
-    take: FILAS_POR_PAGINA,
+  //
+  // Dentro de cada fecha y cuenta, las filas siguen la cadena de saldo cuando esta cierra completa
+  // (idsEnOrdenDeVista, solo visualización): Flavia controla el arrastre con la columna Saldo.
+  const idsOrdenados = await idsEnOrdenDeVista(ejecucion.id, soloSinClasificar);
+  const idsPagina = idsOrdenados.slice((paginaEfectiva - 1) * FILAS_POR_PAGINA, paginaEfectiva * FILAS_POR_PAGINA);
+  const filasPagina = await prisma.movimientoBancario.findMany({
+    where: { ejecucionId: ejecucion.id, id: { in: idsPagina } },
     include: { desglose: { orderBy: { createdAt: "asc" } } },
   });
+  const filaPorId = new Map(filasPagina.map((m) => [m.id, m]));
+  const movimientos = idsPagina.flatMap((id) => filaPorId.get(id) ?? []);
 
   // Cuentas activas del holding para el selector de "Subir extracto" (solo si puede operar).
   const cuentasBancarias = puedeOperar
