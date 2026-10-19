@@ -72,7 +72,7 @@ export function normalizarCuenta(bancoYCuenta: string): string {
 // como clave más, no con lógica difusa. Los valores son el nombre exacto que ya
 // existe en la base: "SPP" siempre sin espacio final (hay filas viejas "SPP "
 // anteriores al .trim() de subirExtracto, no repetir esa variante acá).
-const UNIDAD_POR_CUENTA: Record<string, string> = {
+export const UNIDAD_POR_CUENTA: Record<string, string> = {
   "MACRO 037": "BRILLANTE",
   "MACRO 8037": "BRILLANTE",
   "BNA 497": "BRILLANTE",
