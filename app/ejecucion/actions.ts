@@ -45,6 +45,7 @@ import {
 } from "@/lib/extractos/continuidad";
 import { NOMBRE_BANCO } from "@/lib/extractos/tipos";
 import { controlarCuentaDelArchivo, sugerirCuenta } from "@/lib/cuentasBancarias";
+import { construirIndice, aplicarSugerenciasDeHistorial } from "@/lib/clasificacionHistorial";
 import { obtenerUnidadesConEmpresa, contarSinUnidadEnSemana } from "@/lib/reporte";
 import {
   centavosDeNumero,
@@ -695,6 +696,30 @@ type FilaAImportar = FilaMadre & { importeCentavos?: number; saldoCentavos?: num
 
 const pesos = (centavos: number) => centavos / 100;
 
+// Historial confirmado de TODAS las unidades, agrupado en la base (concepto + signo + clasificación)
+// y vuelto a indexar acá con la normalización del concepto. Solo cuenta lo que una persona dio por
+// bueno: no ignorados, con clasificación real y sin sugerencias del sistema pendientes — así las
+// filas de una subida anterior (sugeridas o SIN CLASIFICAR) no entran, ni tampoco las de esta
+// (todavía no se guardaron). Se arma UNA vez por subida, antes de armar las filas.
+async function cargarIndiceDeHistorial() {
+  const filas = await prisma.$queryRaw<{ concepto: string; signo: number; clasificacion: string; veces: number }[]>`
+    SELECT concepto, CASE WHEN importe > 0 THEN 1 ELSE -1 END AS signo, clasificacion, COUNT(*)::int AS veces
+    FROM "MovimientoBancario"
+    WHERE NOT ignorado AND NOT "sugeridaPorSistema" AND clasificacion <> 'SIN CLASIFICAR'
+    GROUP BY 1, 2, 3
+  `;
+  return construirIndice(
+    filas.map((f) => ({
+      concepto: f.concepto,
+      importe: f.signo,
+      clasificacion: f.clasificacion,
+      ignorado: false,
+      sugeridaPorSistema: false,
+      veces: f.veces,
+    }))
+  );
+}
+
 export async function subirExtracto(
   periodo: string,
   numeroSemana: number,
@@ -802,9 +827,12 @@ export async function subirExtracto(
       );
     }
 
-    // La unidad sale del mapa por cuenta; no se clasifica por leyenda (va en otra etapa).
+    // La unidad sale del mapa por cuenta. La clasificación se SUGIERE desde el historial ya
+    // clasificado (lib/clasificacionHistorial.ts); sin historial suficiente queda SIN CLASIFICAR.
+    // No se usan las keywords de proponerClasificacionAutomatica (acertaron 0 de 21 en el backtest).
     const unidadPorCuenta = proponerUnidadPorCuenta(cuenta.nombre);
-    filas = lectura.filas.map((f) => ({
+    const indiceHistorial = await cargarIndiceDeHistorial();
+    const filasSinClasificar = lectura.filas.map((f) => ({
       numeroFila: f.numeroFila,
       fecha: f.fecha,
       nroReferencia: f.referencia,
@@ -824,6 +852,8 @@ export async function subirExtracto(
       chequeIvaAmbiguo: false,
       unidadSugeridaPorSistema: unidadPorCuenta !== null,
     }));
+    const conHistorial = aplicarSugerenciasDeHistorial(filasSinClasificar, indiceHistorial);
+    filas = conHistorial.filas;
 
     // Las filas ya vienen cronológicas y con el saldo posterior; se numeran en ese orden.
     const analisis = analizarContinuidad(filas.map((f, i) => ({ ...f, numeroFila: i })));
@@ -831,6 +861,11 @@ export async function subirExtracto(
     avisos.push(...avisosDeContinuidad(analisis));
     if (unidadPorCuenta === null) {
       avisos.push(`${cuenta.nombre} no tiene unidad sugerida: los movimientos entran como SIN ASIGNAR.`);
+    }
+    if (conHistorial.sugeridas > 0) {
+      avisos.push(
+        `${conHistorial.sugeridas} de ${filas.length} movimientos tienen una clasificación sugerida por el historial: quedan para confirmar en el panel de sugerencias.`
+      );
     }
     cuentaCruda = { nombre: cuenta.nombre };
     resumenCrudo = { banco: NOMBRE_BANCO[lectura.banco], cuenta: cuenta.nombre };
