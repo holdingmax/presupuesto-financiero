@@ -403,7 +403,8 @@ export default function PanelImputacion({
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-10">
+    // Con la columna Saldo la tabla necesita más ancho que max-w-5xl (976 px útiles).
+    <div className={`mx-auto w-full ${verSaldo ? "max-w-7xl" : "max-w-5xl"} px-6 py-10`}>
       <div className="flex items-start justify-between mb-8">
         <div>
           <p className="flex items-center gap-2 text-xs tracking-[0.15em] text-ink-secondary uppercase mb-1">

@@ -226,7 +226,14 @@ export default function TablaMovimientos({
   }
 
   return (
-    <table className={`w-full text-sm ${mostrarSaldo ? "min-w-[1000px]" : "min-w-[880px]"}`}>
+    // Con la columna Saldo la tabla se compacta para entrar en ~1.230 px (contenedor max-w-7xl) sin
+    // scroll: paddings de celda más chicos, Concepto más angosto (truncado, con el texto completo en
+    // el tooltip) y select de Clasificación más corto. La unidad y los controles quedan completos.
+    <table
+      className={`w-full text-sm ${
+        mostrarSaldo ? "min-w-[1040px] [&_th]:pr-2 [&_td]:pr-2" : "min-w-[880px]"
+      }`}
+    >
       <thead>
         <tr className="text-xs text-ink-faint uppercase tracking-wide">
           <th className="text-left py-2 pr-3 font-medium">Fecha</th>
@@ -259,7 +266,7 @@ export default function TablaMovimientos({
             }`}
           >
             <td className="py-2 pr-3 whitespace-nowrap text-ink-secondary">{m.fecha}</td>
-            <td className="py-2 pr-3 max-w-xs truncate" title={m.concepto}>
+            <td className={`py-2 pr-3 truncate ${mostrarSaldo ? "max-w-[12rem]" : "max-w-xs"}`} title={m.concepto}>
               {m.concepto}
             </td>
             <td className="py-2 pr-3 whitespace-nowrap text-ink-secondary">
@@ -286,7 +293,7 @@ export default function TablaMovimientos({
                     value={m.clasificacion}
                     disabled={deshabilitado}
                     onChange={(e) => onCambiarClasificacion?.(m.id, e.target.value)}
-                    className="w-40 appearance-none rounded-md border border-transparent bg-transparent py-1 pl-2 pr-6 text-sm outline-none transition hover:border-line hover:bg-surface-hover focus:border-marino focus:bg-paper-raised disabled:cursor-not-allowed disabled:text-ink-muted disabled:hover:bg-transparent"
+                    className={`${mostrarSaldo ? "w-36" : "w-40"} appearance-none rounded-md border border-transparent bg-transparent py-1 pl-2 pr-6 text-sm outline-none transition hover:border-line hover:bg-surface-hover focus:border-marino focus:bg-paper-raised disabled:cursor-not-allowed disabled:text-ink-muted disabled:hover:bg-transparent`}
                   >
                     {!clasificacionesDisponibles.includes(m.clasificacion) && (
                       <option value={m.clasificacion}>{m.clasificacion}</option>
