@@ -40,6 +40,24 @@ function IconoFlechaArriba() {
   );
 }
 
+function IconoChevronBarra({ abierto }: { abierto: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="12"
+      height="12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`shrink-0 transition-transform ${abierto ? "rotate-180" : ""}`}
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+
 type Movimiento = {
   id: string;
   fecha: string;
@@ -110,6 +128,9 @@ export default function PanelImputacion({
   // de ahí el toggle es manual (mostrarSubida), no se auto-colapsa después de
   // subir un archivo para no tapar el mensaje de éxito/duplicados.
   const [mostrarSubida, setMostrarSubida] = useState(movimientosIniciales.length === 0);
+  // Barra de paneles sobre la tabla: cerrada por defecto, abre uno por vez. Los tres paneles quedan
+  // montados (solo ocultos) para que no pierdan su estado interno al cerrarse.
+  const [panelAbierto, setPanelAbierto] = useState<"sugerencias" | "unidades" | "chequeos" | null>(null);
 
   // Al cambiar de página (o tras un router.refresh() con datos nuevos del servidor),
   // el segmento de ruta es el mismo — React puede reconciliar este componente como una
@@ -120,6 +141,14 @@ export default function PanelImputacion({
   useEffect(() => {
     setMovimientos(movimientosIniciales);
   }, [movimientosIniciales]);
+
+  // Al pasar de página Next lleva al tope la ventana, pero no las cajas con scroll propio, y esta
+  // se reconcilia (no se remonta): sin esto la caja de la tabla conserva el scrollTop de la página
+  // anterior y la primera fila queda cortada bajo el encabezado fijo.
+  const cajaTablaRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (cajaTablaRef.current) cajaTablaRef.current.scrollTop = 0;
+  }, [pagina]);
   const [subiendo, setSubiendo] = useState(false);
   const [errorSubida, setErrorSubida] = useState("");
   const [mensajeExito, setMensajeExito] = useState("");
@@ -408,9 +437,20 @@ export default function PanelImputacion({
     router.refresh();
   }
 
+  // Sugerencias y chequeos que mostrará la barra de paneles (los mismos números que cada panel).
+  const totalSugerencias = sugerenciasClasificacion.reduce((suma, g) => suma + g.cantidad, 0);
+  const cuentasConUnidadSugerida = new Set(unidadesSugeridas.map((g) => g.cuenta)).size;
+  const chequeosQueNoDan = chequeos.filter((c) => !c.ok).length;
+
+  function alternarPanel(panel: "sugerencias" | "unidades" | "chequeos") {
+    setPanelAbierto((actual) => (actual === panel ? null : panel));
+  }
+
   return (
-    // Con la columna Saldo la tabla necesita más ancho que max-w-5xl (976 px útiles).
-    <div className={`mx-auto w-full ${verSaldo ? "max-w-7xl" : "max-w-5xl"} px-6 py-10`}>
+    // La tabla ocupa todo el ancho (margen chico); el encabezado, el bloque de subida y el cierre
+    // siguen con el ancho de antes, centrados (max-w-7xl con Saldo, max-w-5xl sin Saldo).
+    <div className="w-full px-4 py-10">
+      <div className={`mx-auto w-full ${verSaldo ? "max-w-7xl" : "max-w-5xl"} px-2`}>
       <div className="flex items-start justify-between mb-8">
         <div>
           <p className="flex items-center gap-2 text-xs tracking-[0.15em] text-ink-secondary uppercase mb-1">
@@ -708,6 +748,7 @@ export default function PanelImputacion({
           )}
         </form>
       )}
+      </div>
 
       <div>
         <div className="flex items-start justify-between mb-2">
@@ -747,24 +788,104 @@ export default function PanelImputacion({
           </Link>
         </div>
 
-        {!cerrada && (
-          <PanelSugerenciasPendientes
-            grupos={sugerenciasClasificacion}
-            clasificacionesDisponibles={clasificacionesDisponibles}
-            onConfirmarFila={confirmarFilaSugerida}
-            onConfirmarGrupo={confirmarGrupoSugerido}
-          />
+        {/* Una sola barra, cerrada por defecto: cada contador abre su panel, que funciona igual que
+            antes. Solo aparecen los que tienen algo para mostrar. */}
+        {!cerrada && (totalSugerencias > 0 || unidadesSugeridas.length > 0 || chequeos.length > 0) && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+            {totalSugerencias > 0 && (
+              <button
+                type="button"
+                onClick={() => alternarPanel("sugerencias")}
+                aria-expanded={panelAbierto === "sugerencias"}
+                className={`flex h-7 items-center gap-1.5 rounded-md border px-2.5 font-medium transition ${
+                  panelAbierto === "sugerencias"
+                    ? "border-marino bg-marino-tint text-marino"
+                    : "border-line text-ink-secondary hover:bg-paper-cool hover:text-ink"
+                }`}
+              >
+                Sugerencias de clasificación ({totalSugerencias})
+                <IconoChevronBarra abierto={panelAbierto === "sugerencias"} />
+              </button>
+            )}
+            {unidadesSugeridas.length > 0 && (
+              <button
+                type="button"
+                onClick={() => alternarPanel("unidades")}
+                aria-expanded={panelAbierto === "unidades"}
+                className={`flex h-7 items-center gap-1.5 rounded-md border px-2.5 font-medium transition ${
+                  panelAbierto === "unidades"
+                    ? "border-marino bg-marino-tint text-marino"
+                    : "border-line text-ink-secondary hover:bg-paper-cool hover:text-ink"
+                }`}
+              >
+                Unidades sugeridas ({cuentasConUnidadSugerida} {cuentasConUnidadSugerida === 1 ? "cuenta" : "cuentas"})
+                <IconoChevronBarra abierto={panelAbierto === "unidades"} />
+              </button>
+            )}
+            {chequeos.length > 0 && (
+              <button
+                type="button"
+                onClick={() => alternarPanel("chequeos")}
+                aria-expanded={panelAbierto === "chequeos"}
+                className={`flex h-7 items-center gap-1.5 rounded-md border px-2.5 font-medium transition ${
+                  panelAbierto === "chequeos"
+                    ? "border-marino bg-marino-tint text-marino"
+                    : chequeosQueNoDan > 0
+                      ? "border-terracota text-terracota hover:bg-terracota-tint"
+                      : "border-line text-ink-secondary hover:bg-paper-cool hover:text-ink"
+                }`}
+              >
+                {chequeosQueNoDan > 0 ? `Chequeos (${chequeosQueNoDan} no dan $0)` : "Chequeos (todos dan $0)"}
+                <IconoChevronBarra abierto={panelAbierto === "chequeos"} />
+              </button>
+            )}
+          </div>
         )}
 
         {!cerrada && (
-          <PanelUnidadesSugeridas
-            grupos={unidadesSugeridas}
-            onConfirmarCuenta={confirmarCuentaSugerida}
-            confirmando={confirmandoUnidad}
-          />
+          <>
+            <div className={panelAbierto === "sugerencias" ? "" : "hidden"}>
+              <PanelSugerenciasPendientes
+                grupos={sugerenciasClasificacion}
+                clasificacionesDisponibles={clasificacionesDisponibles}
+                onConfirmarFila={confirmarFilaSugerida}
+                onConfirmarGrupo={confirmarGrupoSugerido}
+              />
+            </div>
+            <div className={panelAbierto === "unidades" ? "" : "hidden"}>
+              <PanelUnidadesSugeridas
+                grupos={unidadesSugeridas}
+                onConfirmarCuenta={confirmarCuentaSugerida}
+                confirmando={confirmandoUnidad}
+              />
+            </div>
+            <div className={panelAbierto === "chequeos" ? "" : "hidden"}>
+              <PanelChequeos chequeos={chequeos} />
+            </div>
+          </>
         )}
 
-        {!cerrada && <PanelChequeos chequeos={chequeos} />}
+        {/* Bloquea el cierre: queda siempre visible, en una línea, aunque los paneles estén cerrados. */}
+        {!cerrada && cantidadSinUnidad > 0 && (
+          <p className="mb-2 rounded-md border border-terracota bg-terracota-tint px-3 py-1.5 text-xs text-terracota">
+            <span className="font-medium">
+              {cantidadSinUnidad === 1
+                ? "1 movimiento sin unidad asignada"
+                : `${cantidadSinUnidad} movimientos sin unidad asignada`}
+            </span>{" "}
+            ({sinUnidadAsignada.map((s) => `${s.unidad} ${s.movimientos}`).join(" · ")}): no entran en el
+            Reporte de nadie. Asignales una unidad (o prorrateálos) antes del cierre semanal.
+          </p>
+        )}
+
+        <div className="mb-2 empty:hidden [&>div]:mt-0">
+          <Paginacion
+            base={`/ejecucion/${periodo}/${numeroSemana}`}
+            pagina={pagina}
+            totalPaginas={totalPaginas}
+            filtro={soloSinClasificar ? "sin_clasificar" : undefined}
+          />
+        </div>
 
         {totalMovimientos === 0 ? (
           <p className="text-sm text-ink-muted py-6 border-t border-line-strong">
@@ -772,7 +893,9 @@ export default function PanelImputacion({
           </p>
         ) : (
           <>
-            <div className="border-t border-line-strong overflow-x-auto">
+            {/* overflow-auto + alto máximo: el encabezado de la tabla (sticky) se pega al borde de esta
+                caja, no al de la ventana, así que la caja tiene que ser la que scrollea. */}
+            <div ref={cajaTablaRef} className="max-h-[calc(100vh-12rem)] overflow-auto border-t border-line-strong">
               <TablaMovimientos
                 movimientos={movimientos}
                 numeroSemana={numeroSemana}
@@ -807,24 +930,7 @@ export default function PanelImputacion({
         )}
       </div>
 
-      {!cerrada && cantidadSinUnidad > 0 && (
-        <div className="mt-10 rounded-md border border-line-strong border-l-4 border-l-terracota bg-paper-raised px-5 py-4 text-sm">
-          <p className="font-medium">
-            {cantidadSinUnidad === 1
-              ? "1 movimiento sin unidad asignada"
-              : `${cantidadSinUnidad} movimientos sin unidad asignada`}
-          </p>
-          <p className="mt-1 text-xs text-ink-muted">
-            Su unidad de negocio no pertenece a ninguna empresa, así que no van a entrar en el
-            Reporte de nadie. Asignales una unidad (o prorrateálos) antes del cierre semanal: una
-            semana cerrada ya no se puede editar.
-          </p>
-          <p className="mt-2 text-xs text-ink-secondary">
-            {sinUnidadAsignada.map((s) => `${s.unidad} (${s.movimientos})`).join(" · ")}
-          </p>
-        </div>
-      )}
-
+      <div className={`mx-auto w-full ${verSaldo ? "max-w-7xl" : "max-w-5xl"} px-2`}>
       {bloqueoCierre && (
         <div className="mt-10 rounded-md border border-terracota bg-terracota-tint px-5 py-4 text-sm text-terracota">
           <p className="font-medium">{bloqueoCierre.mensaje}</p>
@@ -868,6 +974,7 @@ export default function PanelImputacion({
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

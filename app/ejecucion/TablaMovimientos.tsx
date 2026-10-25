@@ -34,8 +34,12 @@ function IconoChevron() {
 // table-layout automático — sin esta columna a ancho fijo, el navegador achica
 // la que no tenga contenido protegido en vez de desbordar). El botón ⋯ es de
 // ancho fijo y siempre visible — no depende del viewport ni del hover.
-// El prorrateo ya no vive acá: se abre con el tilde "Prorratea" de la celda de
-// unidad de negocio (pedido de Kike, 2026-10-06).
+// El prorrateo ya no vive acá: se abre con el tilde de la columna Prorrateo
+// (pedido de Kike, 2026-10-06).
+// La tabla vive dentro de una caja con scroll (encabezado fijo), que recortaría
+// un menú "absolute" en las últimas filas: por eso el panel es "fixed", ubicado
+// con el rectángulo del botón, y abre hacia arriba si abajo no hay lugar. Como
+// "fixed" no acompaña al scroll, el menú se cierra si se mueve la caja o la ventana.
 function MenuAcciones({
   ignorado,
   onToggleIgnorado,
@@ -46,22 +50,48 @@ function MenuAcciones({
   onQuitar?: () => void;
 }) {
   const [abierto, setAbierto] = useState(false);
+  const [posicion, setPosicion] = useState<{ right: number; top?: number; bottom?: number }>({ right: 0 });
   const ref = useRef<HTMLDivElement>(null);
+  const botonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!abierto) return;
     function alClickearAfuera(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setAbierto(false);
     }
+    function cerrar() {
+      setAbierto(false);
+    }
     document.addEventListener("mousedown", alClickearAfuera);
-    return () => document.removeEventListener("mousedown", alClickearAfuera);
+    window.addEventListener("scroll", cerrar, true);
+    window.addEventListener("resize", cerrar);
+    return () => {
+      document.removeEventListener("mousedown", alClickearAfuera);
+      window.removeEventListener("scroll", cerrar, true);
+      window.removeEventListener("resize", cerrar);
+    };
   }, [abierto]);
+
+  function alternar() {
+    if (!abierto && botonRef.current) {
+      const r = botonRef.current.getBoundingClientRect();
+      const right = window.innerWidth - r.right;
+      // El panel mide ~80 px (dos opciones); con menos de 100 px debajo del botón abre hacia arriba.
+      setPosicion(
+        window.innerHeight - r.bottom < 100
+          ? { right, bottom: window.innerHeight - r.top + 4 }
+          : { right, top: r.bottom + 4 }
+      );
+    }
+    setAbierto((v) => !v);
+  }
 
   return (
     <div ref={ref} className="relative inline-block">
       <button
+        ref={botonRef}
         type="button"
-        onClick={() => setAbierto((v) => !v)}
+        onClick={alternar}
         aria-label="Acciones"
         className="flex h-7 w-7 items-center justify-center rounded-md text-ink-muted hover:bg-paper-cool hover:text-ink transition"
       >
@@ -75,8 +105,8 @@ function MenuAcciones({
         // el background-color computado ya daba blanco sólido), pero esto es
         // a prueba de balas independientemente de la causa real en testing.
         <div
-          className="absolute right-0 top-full z-30 mt-1 w-36 rounded-md border border-line-strong bg-paper-raised py-1 shadow-lg shadow-ink/15"
-          style={{ backgroundColor: "#ffffff", isolation: "isolate" }}
+          className="fixed z-30 w-36 rounded-md border border-line-strong bg-paper-raised py-1 shadow-lg shadow-ink/15"
+          style={{ backgroundColor: "#ffffff", isolation: "isolate", ...posicion }}
         >
           {onToggleIgnorado && (
             <button
@@ -137,7 +167,7 @@ function ResumenProrrateo({
   const detalle = partes
     .map((p) => `${p.unidad}: $${formatearCentavos(p.centavos)} (${formatearPorcentaje(p.porcentaje)}%)`)
     .join("\n");
-  const clases = "max-w-[19rem] truncate text-left text-sm text-marino";
+  const clases = "max-w-[19rem] truncate text-left text-[13px] text-marino";
 
   return onAbrir ? (
     <button type="button" onClick={onAbrir} title={`Prorrateado:\n${detalle}`} className={`${clases} hover:underline`}>
@@ -205,9 +235,9 @@ export default function TablaMovimientos({
   const router = useRouter();
   const { periodo } = useParams<{ periodo: string }>();
   const [desgloseAbiertoId, setDesgloseAbiertoId] = useState<string | null>(null);
-  const totalColumnas = (soloLectura ? 6 : 7) + (mostrarSaldo ? 1 : 0);
+  const totalColumnas = (soloLectura ? 7 : 8) + (mostrarSaldo ? 1 : 0);
 
-  // Tilde "Prorratea" (pedido de Kike, 2026-10-06): tildarlo abre el panel;
+  // Tilde de la columna Prorrateo (pedido de Kike, 2026-10-06): tildarlo abre el panel;
   // destildarlo cierra el panel si todavía no se guardó nada, o — si ya hay un
   // prorrateo guardado — pide confirmación y lo borra.
   async function alTildarProrrateo(m: MovimientoTabla, tildado: boolean) {
@@ -225,32 +255,36 @@ export default function TablaMovimientos({
     router.refresh();
   }
 
+  // Cada th es sticky (no el thead): dentro de la caja con scroll de la pantalla se pega al borde
+  // de arriba de la caja. Fondo sólido y z-20 para tapar a los selects que pasan por debajo; la
+  // línea de abajo es un box-shadow porque con border-collapse un borde sticky se queda atrás.
+  const th =
+    "sticky top-0 z-20 bg-paper py-1.5 font-medium shadow-[inset_0_-1px_0_var(--color-line-strong)]";
+
   return (
-    // Con la columna Saldo la tabla se compacta para entrar en ~1.230 px (contenedor max-w-7xl) sin
-    // scroll: paddings de celda más chicos, Concepto más angosto (truncado, con el texto completo en
-    // el tooltip) y select de Clasificación más corto. La unidad y los controles quedan completos.
-    <table
-      className={`w-full text-sm ${
-        mostrarSaldo ? "min-w-[1040px] [&_th]:pr-2 [&_td]:pr-2" : "min-w-[880px]"
-      }`}
-    >
+    // Con el ancho completo de la pantalla la tabla ya no se comprime: Concepto se ajusta en varias
+    // líneas (ancho mínimo 18rem), Clasificación toma el ancho de su opción más larga y el resto
+    // queda en una sola línea. El min-w evita que se aplaste en pantallas angostas (scroll horizontal
+    // dentro de la caja).
+    <table className={`w-full text-[13px] ${mostrarSaldo ? "min-w-[1180px]" : "min-w-[1020px]"}`}>
       <thead>
         <tr className="text-xs text-ink-faint uppercase tracking-wide">
-          <th className="text-left py-2 pr-3 font-medium">Fecha</th>
-          <th className="text-left py-2 pr-3 font-medium">Concepto</th>
-          <th className="text-left py-2 pr-3 font-medium">Banco</th>
-          <th className="text-right py-2 pr-3 font-medium">Importe</th>
+          <th className={`${th} text-left pr-3`}>Fecha</th>
+          <th className={`${th} text-left pr-3`}>Banco y cuenta</th>
+          <th className={`${th} text-left pr-3`}>Concepto</th>
+          <th className={`${th} text-right pr-3`}>Importe</th>
           {mostrarSaldo && (
             <th
-              className="text-right py-2 pr-3 font-medium cursor-help"
+              className={`${th} text-right pr-3 cursor-help`}
               title="Saldo de la cuenta DESPUÉS del movimiento. En Nación el banco informa el saldo anterior; acá se muestra ya convertido al posterior. BBVA no informa saldo."
             >
               Saldo
             </th>
           )}
-          <th className="text-left py-2 pr-3 font-medium">Clasificación</th>
-          <th className="text-left py-2 pr-3 font-medium">Unidad de negocio</th>
-          {!soloLectura && <th className="py-2 w-10" />}
+          <th className={`${th} text-left pr-3`}>Clasificación</th>
+          <th className={`${th} text-left pr-3`}>Unidad de negocio</th>
+          <th className={`${th} text-center pr-3`}>Prorrateo</th>
+          {!soloLectura && <th className={`${th} w-10`} />}
         </tr>
       </thead>
       <tbody>
@@ -265,26 +299,24 @@ export default function TablaMovimientos({
               m.ignorado ? "line-through text-ink-muted opacity-60" : ""
             }`}
           >
-            <td className="py-2 pr-3 whitespace-nowrap text-ink-secondary">{m.fecha}</td>
-            <td className={`py-2 pr-3 truncate ${mostrarSaldo ? "max-w-[12rem]" : "max-w-xs"}`} title={m.concepto}>
-              {m.concepto}
-            </td>
-            <td className="py-2 pr-3 whitespace-nowrap text-ink-secondary">
+            <td className="py-1 pr-3 whitespace-nowrap text-ink-secondary">{m.fecha}</td>
+            <td className="py-1 pr-3 whitespace-nowrap text-ink-secondary">
               {m.bancoYCuenta}
             </td>
+            <td className="min-w-[18rem] whitespace-normal break-words py-1 pr-3">{m.concepto}</td>
             <td
-              className={`py-2 pr-3 text-right tabular whitespace-nowrap ${
+              className={`py-1 pr-3 text-right tabular whitespace-nowrap ${
                 m.importe < 0 ? "text-negative" : "text-positive"
               }`}
             >
               ${formatearImporteConCentavos(m.importe)}
             </td>
             {mostrarSaldo && (
-              <td className="py-2 pr-3 text-right tabular whitespace-nowrap text-ink-secondary">
+              <td className="py-1 pr-3 text-right tabular whitespace-nowrap text-ink-secondary">
                 {m.saldo === null || m.saldo === undefined ? "" : `$${formatearImporteConCentavos(m.saldo)}`}
               </td>
             )}
-            <td className="py-2 pr-3">
+            <td className="py-1 pr-3 whitespace-nowrap">
               {soloLectura ? (
                 <span>{m.clasificacion}</span>
               ) : (
@@ -293,7 +325,7 @@ export default function TablaMovimientos({
                     value={m.clasificacion}
                     disabled={deshabilitado}
                     onChange={(e) => onCambiarClasificacion?.(m.id, e.target.value)}
-                    className={`${mostrarSaldo ? "w-36" : "w-40"} appearance-none rounded-md border border-transparent bg-transparent py-1 pl-2 pr-6 text-sm outline-none transition hover:border-line hover:bg-surface-hover focus:border-marino focus:bg-paper-raised disabled:cursor-not-allowed disabled:text-ink-muted disabled:hover:bg-transparent`}
+                    className="appearance-none rounded-md border border-transparent bg-transparent py-0.5 pl-2 pr-6 text-[13px] outline-none transition hover:border-line hover:bg-surface-hover focus:border-marino focus:bg-paper-raised disabled:cursor-not-allowed disabled:text-ink-muted disabled:hover:bg-transparent"
                   >
                     {!clasificacionesDisponibles.includes(m.clasificacion) && (
                       <option value={m.clasificacion}>{m.clasificacion}</option>
@@ -310,7 +342,7 @@ export default function TablaMovimientos({
                 </div>
               )}
             </td>
-            <td className="py-2 pr-3">
+            <td className="py-1 pr-3">
               <div className="flex items-center gap-2">
                 {desglosado ? (
                   <ResumenProrrateo
@@ -340,7 +372,7 @@ export default function TablaMovimientos({
                           ? "Sugerida por la cuenta bancaria — sin confirmar"
                           : undefined
                       }
-                      className={`w-32 appearance-none rounded-md border border-transparent bg-transparent py-1 pl-2 pr-6 text-sm outline-none transition hover:border-line hover:bg-surface-hover focus:border-marino focus:bg-paper-raised disabled:cursor-not-allowed disabled:text-ink-muted disabled:hover:bg-transparent ${
+                      className={`w-32 appearance-none rounded-md border border-transparent bg-transparent py-0.5 pl-2 pr-6 text-[13px] outline-none transition hover:border-line hover:bg-surface-hover focus:border-marino focus:bg-paper-raised disabled:cursor-not-allowed disabled:text-ink-muted disabled:hover:bg-transparent ${
                         m.unidadSugeridaPorSistema ? "italic text-ink-secondary" : ""
                       }`}
                     >
@@ -363,29 +395,29 @@ export default function TablaMovimientos({
                     · sugerida
                   </span>
                 )}
-                {!soloLectura && !deshabilitado && (
-                  <label
-                    title={
-                      m.importe === 0
-                        ? "Un movimiento de $0 no se puede prorratear"
-                        : "Repartir este movimiento entre varias unidades de negocio"
-                    }
-                    className="ml-auto flex shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap text-xs text-ink-muted has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-40"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={desglosado || expandida}
-                      disabled={m.importe === 0}
-                      onChange={(e) => alTildarProrrateo(m, e.target.checked)}
-                      className="accent-marino"
-                    />
-                    Prorratea
-                  </label>
-                )}
               </div>
             </td>
+            <td className="py-1 pr-3 text-center whitespace-nowrap">
+              {!soloLectura && !deshabilitado ? (
+                <input
+                  type="checkbox"
+                  aria-label="Prorratea"
+                  title={
+                    m.importe === 0
+                      ? "Un movimiento de $0 no se puede prorratear"
+                      : "Repartir este movimiento entre varias unidades de negocio"
+                  }
+                  checked={desglosado || expandida}
+                  disabled={m.importe === 0}
+                  onChange={(e) => alTildarProrrateo(m, e.target.checked)}
+                  className="cursor-pointer accent-marino disabled:cursor-not-allowed disabled:opacity-40"
+                />
+              ) : (
+                desglosado && <span className="text-xs text-ink-secondary">sí</span>
+              )}
+            </td>
             {!soloLectura && (
-              <td className="py-2">
+              <td className="py-1">
                 {!deshabilitado && (
                   <MenuAcciones
                     ignorado={m.ignorado}

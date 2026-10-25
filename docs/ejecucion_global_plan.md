@@ -1,6 +1,7 @@
 # Ejecución global (un solo módulo para todo el holding): plan para aprobar
 
 Estado: **solo plan, sin implementar**. Fecha: 2026-10-17.
+Actualización 2026-10-22: **§13 — Pantalla de control diario (pedido de Flavia)**, plan aprobado con el orden de entregas 1a → 1a-bis → 1b → empresa en el desplegable → Detalle → Detalle 2.
 Origen: reunión con Kike y Flavia del 15/10. Ejecución deja de ser por empresa: se suben todos los extractos por cuenta bancaria, cada movimiento queda asignado a su unidad y no queda nada sin asignar. Presupuesto y Reporte siguen por empresa.
 
 ## 0. Decisiones tomadas (2026-10-17)
@@ -480,3 +481,196 @@ Siguen abiertas:
 - **K-G3.** ¿Cuántos días suele tardar el Macro en mostrar los gastos atrasados? (solo informativo; sin cierre provisorio en el lanzamiento).
 - **K-G9.** Un gerente que tiene varias empresas (ej. Brillante y Mantenor), ¿ve en Ejecución las unidades de todas sus empresas juntas o una por una? (el plan asume una por una, según la pestaña de cada empresa).
 - **K-G10.** Expensas: ¿quién carga y valida el presupuesto global de Expensas y qué usuarios lo ven?
+
+---
+
+## 13. Pantalla de control diario (pedido de Flavia, 19–22/10) · Plan aprobado 2026-10-22
+
+Estado: **aprobado, sin implementar**. Reemplaza, para la tabla de Ejecución global, lo que §5.1 decía de los filtros (acá están acotados a lo que pidió Flavia). Lo demás de §5 (Ignorar con trazabilidad, sacar Quitar) sigue como estaba.
+
+Marcas: **[C]** confirmado en el código (archivo:línea a la fecha del plan), **[P]** parcial, **[PEND]** pendiente. Las líneas pueden correrse cuando se edite: buscar por el nombre de la función.
+
+### 13.0 Reglas para quien implemente
+
+- Una entrega por vez, en este orden: **1a → 1a-bis → 1b → empresa en el desplegable → Detalle → Detalle 2**. Cada una es un commit aparte y se frena a esperar el ok del diff. **Sin commit ni push sin ok.**
+- No tocar ninguna base (ni local, ni testing, ni producción). No crear sesiones ni usuarios. No correr `prisma migrate` ni `db push`. Ninguna entrega necesita migración.
+- Next 16: antes de usar una API de Next, leer `node_modules/next/dist/docs/` (ver `AGENTS.md`).
+- No tocar `prisma/scripts/medicion-*.ts` ni `prisma/scripts/verificar-detalle-bbva.ts`: son de la medición y se reusan después de 1a-bis.
+- Verificación por entrega: `npm test` y `npx tsc --noEmit`. El build completo y el E2E los decide la usuaria.
+- No mostrar nunca URLs ni contraseñas de bases.
+
+### 13.1 Contexto y medición (2026-10-22)
+
+Lo que pidió Flavia: ver en cada fila fecha, banco y cuenta, concepto tal como figura en el extracto, importe, clasificación, unidad de negocio y prorrateo. Sobre todo, ver **concepto, importe y clasificación completos y juntos**: hoy se cortan, por ejemplo "COM Y GTOS BR" y "TRANSF ZOSSI,PAB 2016686…". Además pidió una columna Detalle de texto libre, filtros y el orden del extracto (el orden por saldo ya está hecho, commit 8e35a61).
+
+Volumen: ~1.800 movimientos por día en todo el holding; Panini hasta ~900 un lunes y ~2.800 por semana. La semana de la pantalla global es de todo el holding, así que puede tener ~9.000 filas **[C]** (las semanas son del período, no de la empresa: `prisma/schema.prisma:180-198`).
+
+Medición local (rama Neon `medicion-2099`, semana sintética de 3.000 filas, páginas de 200; los tiempos incluyen la latencia PC→Neon):
+- Página: ~1,6 MB de HTML y ~19.000 elementos, igual en la primera y en la última; ~5–6 s.
+- Edición de una fila: la respuesta pesa ~332 KB y trae "MED2099" 1.453 veces, es decir, casi toda la pantalla recalculada; ~5,7 s.
+- Memoria del servidor: pico de 202 MB (una persona, 3 páginas, 3 ediciones; tope probado 400 MB).
+- **[PEND]** La medición con volumen real se hace en **testing con Render**, leyendo métricas y mirando la pantalla. Los scripts de medición no se corren contra testing.
+
+Por qué una edición devuelve todo **[C]**: `actualizarMovimiento` termina con `revalidarSemana` (`app/ejecucion/actions.ts:1205`), que llama a `revalidatePath` (`app/ejecucion/actions.ts:84-87`). En Next 16, una Server Function que revalida la ruta abierta *"Updates the UI immediately"* (`node_modules/next/dist/docs/01-app/03-api-reference/04-functions/revalidatePath.md:19`). Eso vuelve a correr:
+- el orden por saldo sobre la semana entera (`lib/ejecucionVista.ts:22-39`);
+- los totales y los paneles (`app/ejecucion/actions.ts:181-210`);
+- los chequeos (`app/ejecucion/[periodo]/[numeroSemana]/page.tsx:79`).
+
+Por qué la página pesa tanto **[P]**: cada fila trae dos `<select>` con todas sus opciones. Clasificación: ~22 sugeridas más las que haya en la base (`lib/clasificaciones.ts:153-164`). Unidad: 12 (`lib/unidadesNegocio.ts:25-38`). Son ~95 elementos por fila; estimo que la mitad o dos tercios son opciones. No está medido.
+
+### 13.2 Entrega 1a — Vista de control · Tamaño: M
+
+Objetivo: que Flavia vea, sin cortes, concepto, importe y clasificación juntos, con la tabla arriba y a todo el ancho.
+
+**Qué cambia**
+
+1. **Ancho completo.** El contenedor de `PanelImputacion` hoy es `max-w-7xl`/`max-w-5xl` (`app/ejecucion/PanelImputacion.tsx:413`) **[C]**. La sección de la tabla pasa a ocupar todo el ancho con margen chico (por ejemplo `max-w-none px-4`). El encabezado y el bloque de subida pueden quedar como están. Lo mismo en la rama de solo lectura de `app/ejecucion/[periodo]/[numeroSemana]/page.tsx` (contenedores con `max-w-7xl`/`max-w-5xl`) y en el selector de semanas de esa página.
+2. **Orden de columnas** (pedido de Flavia): Fecha · Banco y cuenta · Concepto · Importe · Saldo (solo si `mostrarSaldo`) · Clasificación · Unidad de negocio · Prorrateo · ⋯ (menú, solo editable). Hoy el orden es Fecha · Concepto · Banco · Importe · Saldo · Clasificación · Unidad · ⋯ (`app/ejecucion/TablaMovimientos.tsx:236-254`) **[C]**.
+3. **Prorrateo como columna propia.** El tilde "Prorratea" sale de la celda de Unidad (`app/ejecucion/TablaMovimientos.tsx:370-388`) **[C]** y pasa a su propia columna, con la misma lógica (`alTildarProrrateo`). El resumen "HAVANNA 60% · RADIO 40%" (`ResumenProrrateo`) sigue reemplazando al select de Unidad, como hoy. En solo lectura, la columna Prorrateo se muestra vacía o con "sí". `totalColumnas` (`app/ejecucion/TablaMovimientos.tsx:207`) se ajusta a la columna nueva, porque lo usa la fila del panel de prorrateo (`:402-414`).
+4. **Concepto sin cortar.** Hoy `truncate` con `max-w-[12rem]`/`max-w-xs` y el texto completo en el tooltip (`app/ejecucion/TablaMovimientos.tsx:270-272`) **[C]**. Pasa a ajustarse en varias líneas (`whitespace-normal break-words`, ancho mínimo ~18rem) y se saca el `title`. Fecha, Banco, Importe y Saldo quedan en una sola línea.
+5. **Clasificación sin cortar.** Se saca el ancho fijo `w-36`/`w-40` del select (`app/ejecucion/TablaMovimientos.tsx:296`) **[C]**: un `<select>` nativo sin ancho toma el de su opción más larga, así que todos quedan iguales y completos. No se usa tooltip.
+6. **Filas compactas.** Celdas `py-2` → `py-1`, selects `py-1` → `py-0.5`, letra ~13 px. Que el foco de los controles siga visible.
+7. **Encabezado fijo.** La caja de la tabla hoy es `overflow-x-auto` (`app/ejecucion/PanelImputacion.tsx:775`) **[C]**: dentro de una caja así, `sticky` no se pega al borde de la ventana. La caja pasa a `overflow-auto` con alto máximo (por ejemplo `max-h-[calc(100vh-12rem)]`). El `thead` queda `sticky top-0` con fondo sólido y `z-index` por encima de los selects. Lo mismo en la rama de solo lectura (`page.tsx`, caja `border-t … overflow-x-auto`).
+8. **Paneles plegables, con la tabla arriba.** Hoy, encima de la tabla están `PanelSugerenciasPendientes`, `PanelUnidadesSugeridas` y `PanelChequeos` (`app/ejecucion/PanelImputacion.tsx:751-767`) **[C]**. Se agrupan en **una barra** cerrada por defecto, con contadores; por ejemplo: "Sugerencias de clasificación (N) · Unidades sugeridas (N cuentas) · Chequeos (N no dan $0)". Cada contador abre su panel, que funciona igual que hoy. El aviso de movimientos sin unidad de empresa (bloquea el cierre) sigue visible como una línea. `AlertaContinuidadSaldo` sigue apareciendo después de subir un extracto.
+9. **Paginación arriba y abajo** de la tabla (`app/ejecucion/Paginacion.tsx`, sin cambiar su lógica).
+
+**Qué NO cambia en 1a:** el orden de las filas (`idsEnOrdenDeVista`, `lib/ejecucionVista.ts:22-39`), `FILAS_POR_PAGINA = 200` (`lib/ejecucionVista.ts:10`), las Server Actions, los datos que viajan y los filtros.
+
+**Archivos:** `app/ejecucion/TablaMovimientos.tsx`, `app/ejecucion/PanelImputacion.tsx`, `app/ejecucion/[periodo]/[numeroSemana]/page.tsx`. También revisar la vista de solo lectura de cada empresa, que usa la misma tabla (`app/[empresa]/[periodo]/ejecucion/[numeroSemana]/page.tsx:160`) **[C]**, y su contenedor.
+
+**Riesgos:**
+- El menú ⋯ de las últimas filas puede quedar recortado por la caja con scroll. Abrirlo hacia arriba en esas filas.
+- Concepto en dos líneas: las filas pasan a tener alto variable. No cambia el orden.
+- **[PEND]** En monitores angostos con Saldo puede haber scroll horizontal dentro de la caja.
+
+**Verificación:**
+- `npm test`: `lib/__tests__/ordenSaldo.test.ts` y `lib/__tests__/ejecucionVista.test.ts` tienen que pasar sin cambios. Además `npx tsc --noEmit`.
+- **En pantalla:** columnas en el orden pedido; "COM Y GTOS BRIOS" y "TRANSF ZOSSI,PAB…" completos; el encabezado queda fijo al bajar; la barra de paneles cerrada; al abrir cada panel funciona igual, incluido "Confirmar las N"; un día de una cuenta en el mismo orden que antes; la página 2 sigue funcionando.
+- **En testing:** lo mismo con una semana real.
+
+**Fuera de 1a:** selects livianos (crear el `<select>` recién al hacer foco, para bajar el peso de la página **[P]**): se evalúa **después del 1/11**, según lo que muestre testing.
+
+### 13.3 Entrega 1a-bis — Corregir una fila sin recalcular la pantalla · Tamaño: S–M · commit propio
+
+1. **Servidor.** En `actualizarMovimiento` (`app/ejecucion/actions.ts:1151-1206`) no llamar a `revalidarSemana` cuando se edita clasificación o unidad (después también detalle y detalle 2). Se mantiene para `ignorado`. La acción devuelve `{ ok: true } | { ok: false, error }`.
+   - **[P]** Las páginas son dinámicas porque leen la sesión con `cookies()` (`lib/auth.ts:51`), así que la próxima carga trae lo nuevo. Se confirma repitiendo la medición: las apariciones de "MED2099" en la respuesta de la edición tienen que bajar a ~0.
+2. **Pantalla.** `guardarCampo` hoy usa `startTransition` y no espera la respuesta (`app/ejecucion/PanelImputacion.tsx:341-345`) **[C]**. Pasa a esperar el resultado y, si falla, marca la celda y vuelve al valor anterior. Esto es obligatorio: sin el recálculo, un error de guardado quedaría escondido.
+3. **Paneles.** Botón "Actualizar paneles" en la barra de 1a (hace `router.refresh()`), y un aviso "hay cambios sin reflejar en los paneles" después de la primera edición. El botón queda deshabilitado mientras haya guardados pendientes, por la carrera con el `useEffect` que vuelve a cargar las filas (`app/ejecucion/PanelImputacion.tsx:120-121`) **[P]**.
+
+**Qué queda desactualizado hasta "Actualizar"** **[C]**:
+- contadores de sugerencias de clasificación (`actions.ts:1202`);
+- unidades sugeridas (`actions.ts:1195`);
+- chequeos suma-cero (`actions.ts:415-420`);
+- aviso "sin unidad de empresa" (`actions.ts:198-201`).
+
+El Total no cambia con estas ediciones. El cierre no pierde seguridad: vuelve a contar todo en el servidor (`actions.ts:1497`) **[C]**.
+
+**Verificación:**
+- Repetir `prisma/scripts/medicion-navegador-2099.ts` en `medicion-2099`: tienen que bajar mucho los KB y las apariciones.
+- **En pantalla:** editar, recargar y ver el valor guardado.
+- Error a propósito: con la semana cerrada desde otra pestaña, la celda tiene que marcar el error.
+
+**Por qué antes del 1/11:** es chico, es la mejora más grande que mostró la medición, y Detalle y Detalle 2 (texto escrito a mano) multiplicarían el costo de cada edición.
+
+### 13.4 Entrega 1b — Filtros: clasificación, fecha, unidad y "solo sugeridas" · Tamaño: M
+
+- **En la URL** (como `?filtro=sin_clasificar`, que se mantiene): `clasif` (una o varias), `fecha` (AAAA-MM-DD), `unidad` y `sugeridas=1`. Se aplican **en la consulta**: el total, la cantidad y la paginación se calculan sobre lo filtrado.
+- **`idsEnOrdenDeVista`** (`lib/ejecucionVista.ts:22-39`) hoy filtra **después** de ordenar, solo para "sin clasificar" **[C]**. Pasa a recibir un objeto de filtros y sigue filtrando después de ordenar la semana entera, para no cortar la cadena de saldo. Hay que sumar `sugeridaPorSistema`, `unidadNegocio` y los prorrateos a lo que lee (`:26`).
+- **Totales:** los dos `aggregate` (`app/ejecucion/actions.ts:181-188`) con el mismo filtro.
+- **Unidad con prorrateo:** incluir el movimiento si su unidad propia (cuando no tiene prorrateo) o alguna porción es de esa unidad, como `filtroDeUnidades` (`lib/ejecucionVista.ts:105-114`) **[C]**. **[PEND]** Falta decidir si el Total filtrado suma solo la porción (`sumarImporteDeUnidades`, `:117`) o el importe completo.
+- **Paginación:** `Paginacion.tsx` hoy conserva solo `filtro` **[C]**; tiene que conservar todos los parámetros. El enlace `href="?filtro=sin_clasificar"` (`app/ejecucion/PanelImputacion.tsx:741`) pisa los demás parámetros **[C]**.
+- **Paneles:** siguen calculándose sobre la semana entera (`actions.ts:191-195`). Decirlo en la pantalla.
+- **Tests:** `idsEnOrdenDeVista` con cada filtro, sin cortar la cadena de un día.
+- **Si hay atraso:** se cae primero el filtro de unidad y después "solo sugeridas".
+
+### 13.5 Empresa en el desplegable de cuenta · Tamaño: S · decidido, sin preguntas
+
+- **Etiqueta:** `"<cuenta> · <titular>"` si la cuenta tiene `empresaId`. Si no, `"<cuenta> · <unidad madre>"` con `proponerUnidadPorCuenta` (`lib/unidadesNegocio.ts:145-147`; por ejemplo `MACRO 689` → `RADIO`, `:90`). Si no tiene ninguna de las dos, solo el nombre. El **valor** de la opción sigue siendo el nombre de la cuenta: la subida no cambia.
+- **Archivos:** consulta de cuentas en `obtenerDatosSemana` (`app/ejecucion/actions.ts:235-239`, sumar `empresa: { select: { nombre: true } }`) y opciones en `app/ejecucion/PanelImputacion.tsx:502-504` **[C]**.
+- **[C]** El script de carga dejó `empresaId` siempre vacío (`prisma/scripts/cargar-cuentas-bancarias.ts:3`, `:133`). **[PEND]** Cuántas tienen titular hoy: ver la consulta Q1 en §13.8.
+
+### 13.6 Entrega Detalle · Tamaño: S–M
+
+- **Qué es:** texto libre que escribe Flavia. Para PROV Y SERV, el proveedor; para impuestos, el nombre del impuesto; etc. Columna junto a Clasificación.
+- **Se edita** con el mismo patrón que Clasificación y Unidad, con las mismas reglas: solo semana abierta y solo quien opera.
+  - Celda propia con borrador local: se guarda al salir del campo o con Enter; Escape vuelve al valor anterior. Tope de 200 caracteres; si queda vacío, se guarda null.
+  - Aviso "completar" si está vacío en las 7 clasificaciones de Flavia. **[PEND]** Faltan los nombres exactos de dos (Q2).
+- **Archivos:**
+  - `actualizarMovimiento`: sumar `detalle` y copiar **solo los campos permitidos**; hoy guarda con `data: { ...datos }` (`app/ejecucion/actions.ts:1194`) **[C]**.
+  - `mapearMovimiento` (ya manda `detalle`, `lib/ejecucionVista.ts:91`).
+  - Tipos en `TablaMovimientos.tsx:153-175` y `PanelImputacion.tsx:43-58`.
+  - Función pura de normalización con tests.
+- **Hechos:**
+  - **[C]** No hace falta migración (`prisma/schema.prisma:242`).
+  - **[C]** No lo leen el Reporte, el cierre, el motor de sugerencias ni la clave de reconocimiento de filas.
+  - **[C]** Volver a subir un extracto no lo pisa: solo se insertan filas nuevas (`app/ejecucion/actions.ts:1093-1117`).
+- **BBVA:**
+  - **[C]** El lector guarda el DETALLE del banco en `detalle` y lo agrega al final del concepto (`lib/extractos/bancos/bbva.ts:46-56`).
+  - **[P]** Con el extracto real hubo 8 filas, 4 con detalle y 0 con el detalle fuera del final del concepto: una muestra chica.
+  - **Se mantiene como está:** las filas de BBVA van a aparecer con ese texto ya cargado en Detalle.
+- **Riesgos:** si una fila se Quita y vuelve con una nueva subida, vuelve sin detalle. Si hay filas del madre en semanas abiertas, se ven con su DETALLE (`lib/extractos/madre.ts:38-43`).
+
+### 13.7 Entrega Detalle 2 · Tamaño: S (encima de Detalle) · se cae primero si hay atraso
+
+- **Qué es:** Detalle = proveedor; Detalle 2 = descripción del pago. Mismo patrón y mismas reglas que Detalle.
+- **[C]** Hoy `detalle2` no llega a la pantalla (`lib/ejecucionVista.ts:47-100`). Lo escribe solo el madre (`lib/extractos/madre.ts:43`, `:253`; `app/ejecucion/actions.ts:1112`). En los extractos crudos queda vacío (`actions.ts:880`).
+- No hace falta migración (`prisma/schema.prisma:243`).
+- **[PEND]** De dónde sale el dato (pregunta para Flavia).
+
+### 13.8 Consultas de solo lectura (las corre la usuaria)
+
+```sql
+-- Q1a. Cuentas activas con y sin empresa titular.
+SELECT COUNT(*) FILTER (WHERE "empresaId" IS NOT NULL) AS con_titular,
+       COUNT(*) FILTER (WHERE "empresaId" IS NULL)     AS sin_titular,
+       COUNT(*)                                        AS total
+FROM "CuentaBancaria"
+WHERE activa;
+
+-- Q1b. Detalle por cuenta (titular vacío = se mostrará la unidad madre del código).
+SELECT cb.nombre AS cuenta, e.nombre AS titular
+FROM "CuentaBancaria" cb
+LEFT JOIN "Empresa" e ON e.id = cb."empresaId"
+WHERE cb.activa
+ORDER BY cb.nombre;
+
+-- Q2. Nombres exactos de las clasificaciones de Detalle (préstamos, tarjetas y las otras 5),
+--     en movimientos y en presupuesto, con cantidad de filas.
+SELECT 'movimientos' AS origen, clasificacion, COUNT(*) AS filas
+FROM "MovimientoBancario"
+WHERE clasificacion ILIKE ANY (ARRAY['%PREST%', '%TARJ%', '%TC%', '%CRED%', '%FCI%', '%TRANSF%', '%PROV%', '%IMP%', '%CHEQ%', '%CH %'])
+GROUP BY clasificacion
+UNION ALL
+SELECT 'presupuesto', clasificacion, COUNT(*)
+FROM "LineaPresupuesto"
+WHERE clasificacion ILIKE ANY (ARRAY['%PREST%', '%TARJ%', '%TC%', '%CRED%', '%FCI%', '%TRANSF%', '%PROV%', '%IMP%', '%CHEQ%', '%CH %'])
+GROUP BY clasificacion
+ORDER BY 2, 1;
+```
+
+### 13.9 Orden de recorte si hay atraso
+
+1. Detalle 2
+2. Filtro de unidad
+3. Filtro "solo sugeridas"
+4. Selects livianos (ya fuera del 1/11)
+
+No se recortan: 1a, 1a-bis, filtros de clasificación y fecha, Detalle y empresa en el desplegable.
+
+### 13.10 Preguntas abiertas
+
+**Flavia:**
+1. ¿CHEQUES lleva Detalle (beneficiario)?
+2. Detalle 2: ¿de dónde sale el dato? ¿Lo escribe a mano?
+3. ¿Le sirve "Actualizar paneles" (1a-bis)?
+4. ¿Qué monitor y resolución usa?
+5. ¿"MACRO 599" le alcanza como banco y número de cuenta?
+6. ¿Dónde quiere Detalle y Detalle 2: junto a Clasificación o al final?
+
+**Kike:**
+1. Filtro de unidad con prorrateos: ¿el Total filtrado suma solo la porción o el importe completo?
+2. **[C]** Las sugerencias sin confirmar no bloquean el cierre, solo generan un aviso (`lib/cierreEjecucion.ts:64-66`), y al cerrar el Reporte las cuenta igual que las confirmadas (`lib/reporte.ts:65`). ¿Se mantiene así? Fuera de este plan.
+3. ¿Los gerentes ven Detalle y Detalle 2 en la vista de su empresa?
+4. **[PEND]** Tope de 1.000 filas por archivo (`lib/extractos/limites.ts:12`): ¿algún extracto de una sola cuenta lo supera?
+
+**Pendiente de la medición:** volumen real en testing con Render. La rama `medicion-2099` y los scripts `prisma/scripts/medicion-*.ts` / `verificar-detalle-bbva.ts` **se conservan** para repetir la medición después de 1a-bis. Al final se borran la semana 2099-01, los scripts y Playwright (`npm uninstall playwright --no-save`).

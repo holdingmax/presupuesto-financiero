@@ -61,7 +61,8 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-10">
+    // Ancho completo: la tabla ya no entra en max-w-5xl sin scroll horizontal.
+    <div className="w-full px-4 py-10">
       <div className="flex items-start justify-between mb-8">
         <div>
           <p className="flex items-center gap-2 text-xs tracking-[0.15em] text-ink-secondary uppercase mb-1">
@@ -156,7 +157,16 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
           </p>
         ) : (
           <>
-            <div className="border-t border-line-strong overflow-x-auto">
+            <div className="mb-2 empty:hidden [&>div]:mt-0">
+              <Paginacion
+                base={`/${empresa}/${periodo}/ejecucion/${datos.numeroSemana}`}
+                pagina={datos.pagina}
+                totalPaginas={datos.totalPaginas}
+                filtro={filtro}
+              />
+            </div>
+            {/* overflow-auto + alto máximo: el encabezado sticky de la tabla se pega al borde de esta caja. */}
+            <div className="max-h-[calc(100vh-12rem)] overflow-auto border-t border-line-strong">
               <TablaMovimientos
                 movimientos={datos.movimientos}
                 numeroSemana={datos.numeroSemana}
