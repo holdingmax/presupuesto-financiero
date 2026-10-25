@@ -75,11 +75,24 @@ export default async function EjecucionGlobalSemanaPage({ params, searchParams }
       </nav>
     ) : null;
 
+  // Toda la semana (no solo la página visible); es un enlace común, la descarga la hace el navegador.
+  const botonExcel = (
+    <div className="w-full px-4 pt-4 flex justify-end">
+      <a
+        href={`/ejecucion/${periodo}/${datos.numeroSemana}/excel`}
+        className="rounded-md px-2.5 py-1 text-sm text-marino border border-marino hover:bg-marino-tint transition"
+      >
+        Descargar Excel
+      </a>
+    </div>
+  );
+
   if (datos.estado === "ABIERTA" && datos.puedeOperar) {
     const chequeos = await calcularChequeosSumaCero(periodo, numeroSemana);
     return (
       <>
         {selectorDeSemanas}
+        {botonExcel}
         <PanelImputacion
           puedeCerrar={datos.puedeCerrar}
           verSaldo={datos.verSaldo}
@@ -105,7 +118,8 @@ export default async function EjecucionGlobalSemanaPage({ params, searchParams }
   return (
     <>
       {selectorDeSemanas}
-      <div className="w-full px-4 py-10">
+      {botonExcel}
+      <div className="w-full px-4 pb-10 pt-6">
         <div className={`mx-auto w-full ${datos.verSaldo ? "max-w-7xl" : "max-w-5xl"} px-2`}>
         <div className="flex items-start justify-between mb-8">
           <div>

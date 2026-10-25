@@ -86,6 +86,12 @@ export default async function EjecucionSemanaPage({ params, searchParams }: Prop
           )}
         </div>
         <div className="text-right">
+          <a
+            href={`/${empresa}/${periodo}/ejecucion/${datos.numeroSemana}/excel`}
+            className="mr-3 rounded-md px-2.5 py-1 text-sm text-marino border border-marino hover:bg-marino-tint transition"
+          >
+            Descargar Excel
+          </a>
           <span
             className={`text-xs px-2.5 py-1 rounded-md ${
               datos.estado === "CERRADA"
