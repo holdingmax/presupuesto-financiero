@@ -460,11 +460,20 @@ export async function confirmarVersionFinal(
     return { ok: false, error: "Todavía no marcaron que terminaron de revisar este presupuesto." };
   }
 
-  await prisma.presupuestoMensual.update({
-    where: { id: presupuesto.id },
+  // Guardia atómica: los chequeos de arriba se hicieron sobre una lectura que pudo
+  // quedar vieja (otra persona cambió el estado en el medio). Repetir las condiciones
+  // en el WHERE hace que VALIDADO solo se escriba si sigue EN_REVISION y completada.
+  const { count } = await prisma.presupuestoMensual.updateMany({
+    where: { id: presupuesto.id, estado: "EN_REVISION", revisionCompletada: true },
     // Trazabilidad (decisión 2026-10-07): quién confirmó la versión final.
     data: { estado: "VALIDADO", fechaValidacion: new Date(), validadoPorId: usuario.id },
   });
+  if (count === 0) {
+    return {
+      ok: false,
+      error: "El presupuesto cambió mientras lo confirmabas. Recargá la pantalla y revisá su estado.",
+    };
+  }
   revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
   return { ok: true };
 }
