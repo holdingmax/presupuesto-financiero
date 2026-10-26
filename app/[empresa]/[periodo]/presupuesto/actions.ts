@@ -9,6 +9,7 @@ import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
 import { requireAccesoEmpresa, puedeRevisarPresupuesto } from "@/lib/auth";
 import { normalizarClasificacion, esElegibleParaDesglose } from "@/lib/clasificaciones";
 import { parsearImporteArgentino } from "@/lib/numero";
+import { validarMensajePedido, puedePedirCambios } from "@/lib/pedidoCambiosPresupuesto";
 import {
   CLASIFICACIONES_PRESUPUESTO_TODAS,
   traducirClasificacionPresupuesto,
@@ -128,13 +129,19 @@ function validarCamposLinea(datos: {
 
 export async function obtenerDatos(empresaSlug: string, periodo: string) {
   const { empresa, presupuesto, usuario } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
-  const [lineas, esRevisor] = await Promise.all([
+  const [lineas, esRevisor, ultimoPedido] = await Promise.all([
     prisma.lineaPresupuesto.findMany({
       where: { presupuestoId: presupuesto.id },
       orderBy: { createdAt: "asc" },
       include: { desglose: { orderBy: { createdAt: "asc" } } },
     }),
     puedeRevisarPresupuesto(usuario, empresa.id),
+    // El vigente es el más reciente (el historial queda en la tabla). La pantalla
+    // lo muestra solo mientras el presupuesto está ABIERTO.
+    prisma.pedidoCambiosPresupuesto.findFirst({
+      where: { presupuestoId: presupuesto.id },
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
 
   return {
@@ -151,6 +158,16 @@ export async function obtenerDatos(empresaSlug: string, periodo: string) {
           por: presupuesto.validadoPorId
             ? ((await prisma.usuario.findUnique({ where: { id: presupuesto.validadoPorId }, select: { nombre: true } }))?.nombre ?? null)
             : null,
+        }
+      : null,
+    // "Pedido por X el dd/mm". por = null si el usuario ya no existe.
+    pedidoCambios: ultimoPedido
+      ? {
+          mensaje: ultimoPedido.mensaje,
+          fecha: ultimoPedido.createdAt.toISOString(),
+          por:
+            (await prisma.usuario.findUnique({ where: { id: ultimoPedido.solicitadoPorId }, select: { nombre: true } }))
+              ?.nombre ?? null,
         }
       : null,
     esRevisor,
@@ -440,6 +457,54 @@ export async function marcarRevisionCompletada(
     where: { id: presupuesto.id },
     data: { revisionCompletada: true },
   });
+  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  return { ok: true };
+}
+
+// El revisor le devuelve el presupuesto al gerente con un mensaje: EN_REVISION →
+// ABIERTO, revisionCompletada=false y queda registrado el pedido (mensaje, quién y
+// cuándo) en PedidoCambiosPresupuesto. Se puede repetir (cada pedido es una fila).
+// El cambio de estado y el registro van en una sola transacción, y el updateMany con
+// estado EN_REVISION en el WHERE es la guardia: si en el medio se confirmó la versión
+// final (VALIDADO) o ya se pidieron cambios, no se escribe nada. VALIDADO no se toca.
+export async function pedirCambios(
+  empresaSlug: string,
+  periodo: string,
+  mensajeCrudo: string
+): Promise<ResultadoTransicionEstado> {
+  const validacion = validarMensajePedido(mensajeCrudo);
+  if (!validacion.ok) {
+    return { ok: false, error: validacion.error };
+  }
+
+  const { empresa, presupuesto, usuario } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+
+  if (presupuesto.estado !== "EN_REVISION") {
+    return { ok: false, error: "Este presupuesto no está en revisión." };
+  }
+  const esRevisor = await puedeRevisarPresupuesto(usuario, empresa.id);
+  if (!puedePedirCambios(presupuesto, esRevisor)) {
+    return { ok: false, error: "No tenés permiso para pedir cambios en este presupuesto." };
+  }
+
+  const aplicado = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.presupuestoMensual.updateMany({
+      where: { id: presupuesto.id, estado: "EN_REVISION" },
+      data: { estado: "ABIERTO", revisionCompletada: false },
+    });
+    if (count !== 1) return false;
+    await tx.pedidoCambiosPresupuesto.create({
+      data: { presupuestoId: presupuesto.id, mensaje: validacion.mensaje, solicitadoPorId: usuario.id },
+    });
+    return true;
+  });
+  if (!aplicado) {
+    return {
+      ok: false,
+      error: "El presupuesto cambió de estado mientras pedías los cambios. Recargá la pantalla y revisá su estado.",
+    };
+  }
+
   revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
   return { ok: true };
 }
