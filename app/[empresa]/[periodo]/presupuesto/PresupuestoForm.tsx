@@ -108,7 +108,6 @@ export default function PresupuestoForm({
   const [importe, setImporte] = useState("");
   const [clasificacion, setClasificacion] = useState("");
   const [errores, setErrores] = useState<Record<string, string>>({});
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Borra solo el error de ESE campo apenas el usuario lo modifica — no espera a un
   // nuevo submit ni pisa errores de otros campos que todavía puedan estar vigentes.
@@ -132,8 +131,8 @@ export default function PresupuestoForm({
   const [errorValidar, setErrorValidar] = useState("");
   // Puramente informativo: no transforma el valor de `importe` en ningún
   // momento (el gerente sigue tipeando el número en positivo, como siempre)
-  // ni se persiste — no hay flujo de edición de líneas existentes (solo alta
-  // y borrado), así que no hace falta recordar esta elección entre sesiones.
+  // ni se persiste — editar una línea existente (EditarLineaPanel) no tiene
+  // este toggle, así que no hace falta recordar esta elección entre sesiones.
   // Sirve de recordatorio visual y para sugerir la clasificación típica de
   // cada tipo (ver texto de ayuda debajo del campo Clasificación).
   const [tipoLinea, setTipoLinea] = useState<"ingreso" | "egreso">("egreso");
@@ -178,7 +177,6 @@ export default function PresupuestoForm({
     setDetalle("");
     setImporte("");
     setClasificacion("");
-    if (fileInputRef.current) fileInputRef.current.value = "";
     setGuardando(false);
     router.refresh();
   }
@@ -203,6 +201,17 @@ export default function PresupuestoForm({
     const archivo = archivoMasivoRef.current?.files?.[0];
     if (!archivo) {
       setErrorMasiva("Elegí un archivo antes de subir.");
+      return;
+    }
+
+    // La carga masiva siempre SUMA líneas, nunca reemplaza las existentes: avisar antes
+    // de que alguien suba dos veces el mismo archivo sin darse cuenta.
+    if (
+      lineas.length > 0 &&
+      !confirm(
+        `Ya tenés ${lineas.length} líneas cargadas; esta carga va a sumar las del archivo. ¿Continuar?`
+      )
+    ) {
       return;
     }
 
@@ -481,24 +490,6 @@ export default function PresupuestoForm({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm text-ink-secondary mb-1.5">
-                  Comprobante (opcional)
-                </label>
-                <div className="flex items-center gap-3">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*,application/pdf"
-                    className="text-sm text-ink-secondary file:mr-3 file:h-9 file:px-3 file:rounded-md file:border file:border-line file:bg-paper file:text-sm file:text-ink-secondary hover:file:border-line-strong"
-                  />
-                </div>
-                <p className="mt-1 text-xs text-ink-muted">
-                  Por ahora solo se guarda el archivo del lado del navegador — todavía falta
-                  conectar el almacenamiento de comprobantes.
-                </p>
-              </div>
-
               <button
                 type="submit"
                 disabled={guardando}
@@ -577,7 +568,7 @@ export default function PresupuestoForm({
 
         <div className="flex items-center justify-end gap-3 mb-4">
           <label htmlFor="totalReferencia" className="text-xs text-ink-muted">
-            Total de referencia (para comparar, no se guarda):
+            Total de referencia (solo para chequear, no se guarda)
           </label>
           <input
             id="totalReferencia"
@@ -607,12 +598,9 @@ export default function PresupuestoForm({
               const desglosada = linea.desglose.length > 0;
               const expandida = desgloseAbiertoId === linea.id;
               const editando = editandoId === linea.id;
-              // El botón de editar solo se muestra para el revisor en
-              // EN_REVISION (pedido explícito) — en ABIERTO el server también
-              // lo permitiría (mismo gate que agregarLinea), pero la UI no lo
-              // ofrece ahí: se mantiene el formulario simple de siempre para
-              // esa etapa.
-              const puedeEditarEstaLinea = enRevision && esRevisor;
+              // Mismo gate que "Quitar" y que el server (autorizarEdicionLinea):
+              // en ABIERTO cualquiera con acceso, en EN_REVISION solo el revisor.
+              const puedeEditarEstaLinea = puedeEditarAhora;
               return (
                 <div key={linea.id} className="border-b border-line">
                   <div className="group grid grid-cols-[auto_1fr_auto_auto_auto] items-baseline gap-x-3 py-3">
@@ -645,7 +633,8 @@ export default function PresupuestoForm({
                       ${formatearImporte(linea.importe)}
                     </span>
                     <span className="w-0" />
-                    <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition">
+                    {/* Siempre visibles en pantallas táctiles (sin hover); con mouse, solo al pasar por la fila. */}
+                    <div className="flex items-center gap-3 transition pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100">
                       {puedeEditarEstaLinea && (
                         <button
                           onClick={() => setEditandoId(editando ? null : linea.id)}
