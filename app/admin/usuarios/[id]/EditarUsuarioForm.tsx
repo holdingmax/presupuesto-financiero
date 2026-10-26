@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { startTransition, useActionState, useState } from "react";
 import Link from "next/link";
 import { actualizarUsuario, restablecerPassword, type ResultadoActualizar } from "../actions";
 import EmpresasYPermisos, { type PermisosPorEmpresa } from "../EmpresasYPermisos";
@@ -53,13 +53,22 @@ export default function EditarUsuarioForm({
     setPasswordTemporal(resultado.passwordTemporal);
   }
 
+  // Con action={formAction} React 19 resetea el formulario al terminar la action: los
+  // campos vuelven a su valor inicial (select de rol, checkboxes, y nombre/email tras
+  // un error de validación). Con onSubmit se arma el mismo FormData pero sin reset.
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const datos = new FormData(e.currentTarget);
+    startTransition(() => formAction(datos));
+  }
+
   const erroresCampo = estado && !estado.ok ? estado.errores : {};
 
   return (
     <div className="mx-auto w-full max-w-lg px-6 py-14">
       <h1 className="text-3xl font-serif font-semibold tracking-tight mb-8">Editar usuario</h1>
 
-      <form action={formAction} className="space-y-5">
+      <form onSubmit={handleSubmit} className="space-y-5">
         <div>
           <label htmlFor="nombre" className="block text-sm text-ink-secondary mb-1.5">
             Nombre
