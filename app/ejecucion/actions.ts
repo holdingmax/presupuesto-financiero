@@ -28,7 +28,8 @@ import {
   puedeCerrarEjecucion,
   veTodoEjecucion,
 } from "@/lib/auth";
-import { FILAS_POR_PAGINA, mapearMovimiento, idsEnOrdenDeVista } from "@/lib/ejecucionVista";
+import { FILAS_POR_PAGINA, mapearMovimiento, vistaDeLaSemana } from "@/lib/ejecucionVista";
+import { SIN_FILTROS, type FiltrosEjecucion } from "@/lib/filtrosEjecucion";
 import { calcularClasificacionesDisponibles } from "@/lib/clasificaciones";
 import {
   CHEQUEOS_SUMA_CERO,
@@ -145,17 +146,17 @@ export async function listarSemanasDelPeriodo(periodo: string) {
 // Solo lectura: nunca crea nada. Devuelve null si esa semana no existe todavía.
 // `pagina` es 1-indexada; se clampea entre 1 y el total de páginas reales, así un
 // ?pagina=9999 nunca muestra un vacío falso en una semana que sí tiene movimientos.
-// `soloSinClasificar` filtra en la query misma (no en memoria sobre la página ya
-// traída) — recalcula totalMovimientos/totalPaginas/totalImporte sobre el universo
-// filtrado, así el usuario nunca se pierde una fila "SIN CLASIFICAR" que cayó en
-// otra página. Pedido de Kike: encontrarlas sin tener que buscarlas una por una.
+// `filtros` (lib/filtrosEjecucion.ts: "sin clasificar", fechas, clasificación, unidad, cuenta, texto)
+// recalcula totalMovimientos/totalPaginas/totalImporte sobre el universo filtrado, así el usuario
+// nunca se pierde una fila que cayó en otra página. Los paneles de sugerencias, unidades sugeridas,
+// sin unidad y los chequeos NO dependen del filtro: son de la semana completa.
 // Ve ADMIN, FINANZAS y quien opera (todo el holding, todas las unidades); opera quien tenga el
 // permiso. Un gerente no entra acá: ve su empresa en la pestaña de solo lectura.
 export async function obtenerDatosSemana(
   periodo: string,
   numeroSemana: number,
   pagina: number = 1,
-  soloSinClasificar: boolean = false
+  filtros: FiltrosEjecucion = SIN_FILTROS
 ) {
   if (!FORMATO_PERIODO.test(periodo)) {
     throw new Error(`"${periodo}" no es un período válido (AAAA-MM).`);
@@ -175,29 +176,14 @@ export async function obtenerDatosSemana(
     return null;
   }
 
-  // Agregación separada del fetch paginado: el total en pesos y el conteo de filas
-  // tienen que representar TODA la semana, no solo la página que se está mostrando.
-  // Esta sí tiene que ir antes del findMany (no en paralelo con él): el skip correcto
-  // depende de totalPaginas, que depende de este resultado.
-  //
-  // Dos aggregates, no uno: totalMovimientos (conteo, para paginación) tiene que incluir
-  // las filas "ignorado" — siguen visibles en la tabla, así que la paginación tiene que
-  // seguir contándolas o el skip/take del findMany de abajo (que tampoco las filtra)
-  // quedaría desalineado. totalImporte (el $ que se reporta) sí las excluye — es
-  // justamente el cálculo que "ignorado" existe para poder sacar de los reportes.
-  // Mismo where base que ya comparten las 3 queries de abajo — se le suma esta
-  // condición solo cuando el filtro está activo, sin cambiar nada más.
-  const filtroClasificacion = soloSinClasificar ? { clasificacion: "SIN CLASIFICAR" } : {};
+  // La lista filtrada y ordenada es la única fuente de la cantidad, el Total y las páginas (ver
+  // vistaDeLaSemana): el Total excluye las filas "ignorado" (es justamente el cálculo que "ignorado"
+  // existe para poder sacar de los reportes) y la cantidad las incluye (siguen visibles en la tabla,
+  // la paginación tiene que contarlas).
+  const vistaPromise = vistaDeLaSemana(ejecucion.id, filtros);
 
-  const [agregadoTotal, agregadoSumaReal, unidadesSugeridas, sinUnidadAsignada, sugerenciasClasificacion] = await Promise.all([
-    prisma.movimientoBancario.aggregate({
-      where: { ejecucionId: ejecucion.id, ...filtroClasificacion },
-      _count: true,
-    }),
-    prisma.movimientoBancario.aggregate({
-      where: { ejecucionId: ejecucion.id, ignorado: false, ...filtroClasificacion },
-      _sum: { importe: true },
-    }),
+  const [vista, unidadesSugeridas, sinUnidadAsignada, sugerenciasClasificacion] = await Promise.all([
+    vistaPromise,
     // Panel de unidades sugeridas: a diferencia de las filas de la tabla, no se pagina — un
     // archivo de ~16.500 filas reparte las sugerencias en decenas de páginas.
     // Los tres paneles son solo de quien opera: para el resto ni se consultan.
@@ -210,12 +196,7 @@ export async function obtenerDatosSemana(
     puedeOperar ? agruparSugerenciasClasificacion(ejecucion.id) : Promise.resolve([]),
   ]);
 
-  const totalMovimientos = agregadoTotal._count;
-  // Filas de TODA la semana, sin el filtro: con el filtro activo y 0 resultados la pantalla tiene que
-  // distinguir "no hay sin clasificar" de "la semana está vacía".
-  const totalSemana = soloSinClasificar
-    ? await prisma.movimientoBancario.count({ where: { ejecucionId: ejecucion.id } })
-    : totalMovimientos;
+  const totalMovimientos = vista.cantidad;
   const totalPaginas = Math.max(1, Math.ceil(totalMovimientos / FILAS_POR_PAGINA));
   const paginaEfectiva = Math.min(Math.max(1, pagina), totalPaginas);
 
@@ -226,9 +207,8 @@ export async function obtenerDatosSemana(
   // a esta página. `id` es único y no cambia nunca, así que el orden queda fijo para siempre.
   //
   // Dentro de cada fecha y cuenta, las filas siguen la cadena de saldo cuando esta cierra completa
-  // (idsEnOrdenDeVista, solo visualización): Flavia controla el arrastre con la columna Saldo.
-  const idsOrdenados = await idsEnOrdenDeVista(ejecucion.id, soloSinClasificar);
-  const idsPagina = idsOrdenados.slice((paginaEfectiva - 1) * FILAS_POR_PAGINA, paginaEfectiva * FILAS_POR_PAGINA);
+  // (vistaDeLaSemana, solo visualización): Flavia controla el arrastre con la columna Saldo.
+  const idsPagina = vista.ids.slice((paginaEfectiva - 1) * FILAS_POR_PAGINA, paginaEfectiva * FILAS_POR_PAGINA);
   const filasPagina = await prisma.movimientoBancario.findMany({
     where: { ejecucionId: ejecucion.id, id: { in: idsPagina } },
     include: { desglose: { orderBy: { createdAt: "asc" } } },
@@ -267,11 +247,13 @@ export async function obtenerDatosSemana(
     verSaldo,
     movimientos: movimientos.map((m) => mapearMovimiento(m, undefined, { verSaldo })),
     totalMovimientos,
-    totalSemana,
-    totalImporte: Number(agregadoSumaReal._sum.importe ?? 0),
+    totalSemana: vista.totalSemana,
+    cuentasDeLaSemana: vista.cuentas,
+    totalImporte: vista.totalCentavos / 100,
     pagina: paginaEfectiva,
     totalPaginas,
-    soloSinClasificar,
+    filtros,
+    soloSinClasificar: filtros.soloSinClasificar,
     unidadesSugeridas,
     sinUnidadAsignada,
     sugerenciasClasificacion,

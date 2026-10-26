@@ -9,6 +9,9 @@ type Props = {
   // de página, si no un "Siguiente" con el filtro prendido lo perdería en la
   // navegación.
   filtro?: string;
+  // Querystring completo de los filtros de Ejecución global (sin "?" ni pagina, ver aQuery en
+  // lib/filtrosEjecucion.ts). Si viene, reemplaza a `filtro`.
+  query?: string;
 };
 
 // Son <Link> planos (sin "use client"): funcionan igual dentro de un Server
@@ -18,10 +21,11 @@ export default function Paginacion({
   pagina,
   totalPaginas,
   filtro,
+  query,
 }: Props) {
   if (totalPaginas <= 1) return null;
 
-  const sufijoFiltro = filtro ? `&filtro=${filtro}` : "";
+  const sufijoFiltro = query !== undefined ? (query ? `&${query}` : "") : filtro ? `&filtro=${filtro}` : "";
   const hayAnterior = pagina > 1;
   const haySiguiente = pagina < totalPaginas;
 

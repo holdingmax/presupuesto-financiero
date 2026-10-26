@@ -2,14 +2,17 @@ import Link from "next/link";
 import PanelImputacion from "@/app/ejecucion/PanelImputacion";
 import TablaMovimientos from "@/app/ejecucion/TablaMovimientos";
 import Paginacion from "@/app/ejecucion/Paginacion";
+import BarraFiltros from "@/app/ejecucion/BarraFiltros";
 import { formatearImporteConCentavos } from "@/app/ejecucion/formato";
 import { obtenerDatosSemana, calcularChequeosSumaCero, listarSemanasDelPeriodo } from "@/app/ejecucion/actions";
 import { AccesoDenegadoError } from "@/lib/auth";
 import { textoTrazabilidad } from "@/lib/fecha";
+import { aQuery, hayFiltros, hayFiltrosAdemasDeSinClasificar, parsearFiltros, type ParametrosUrl } from "@/lib/filtrosEjecucion";
+import { opcionesUnidad } from "@/lib/unidadesNegocio";
 
 type Props = {
   params: Promise<{ periodo: string; numeroSemana: string }>;
-  searchParams: Promise<{ pagina?: string; filtro?: string }>;
+  searchParams: Promise<ParametrosUrl>;
 };
 
 function parsearPagina(paginaParam: string | undefined) {
@@ -23,9 +26,10 @@ function parsearPagina(paginaParam: string | undefined) {
 // el mismo bloque de solo lectura. El layout ya dejó pasar solo a ADMIN, FINANZAS y quien opera.
 export default async function EjecucionGlobalSemanaPage({ params, searchParams }: Props) {
   const { periodo, numeroSemana: numeroSemanaParam } = await params;
-  const { pagina: paginaParam, filtro } = await searchParams;
+  const parametros = await searchParams;
+  const paginaParam = Array.isArray(parametros.pagina) ? parametros.pagina[0] : parametros.pagina;
   const numeroSemana = Number(numeroSemanaParam);
-  const soloSinClasificar = filtro === "sin_clasificar";
+  const filtros = parsearFiltros(parametros);
 
   if (!Number.isInteger(numeroSemana) || numeroSemana < 1) {
     return (
@@ -41,7 +45,7 @@ export default async function EjecucionGlobalSemanaPage({ params, searchParams }
   let semanas;
   try {
     [datos, semanas] = await Promise.all([
-      obtenerDatosSemana(periodo, numeroSemana, parsearPagina(paginaParam), soloSinClasificar),
+      obtenerDatosSemana(periodo, numeroSemana, parsearPagina(paginaParam), filtros),
       listarSemanasDelPeriodo(periodo),
     ]);
   } catch (error) {
@@ -75,11 +79,14 @@ export default async function EjecucionGlobalSemanaPage({ params, searchParams }
       </nav>
     ) : null;
 
-  // Toda la semana (no solo la página visible); es un enlace común, la descarga la hace el navegador.
+  // Respeta los filtros activos (toda la lista filtrada, no solo la página visible); es un enlace
+  // común, la descarga la hace el navegador.
+  const queryFiltros = aQuery(filtros);
+  const baseSemana = `/ejecucion/${periodo}/${datos.numeroSemana}`;
   const botonExcel = (
     <div className="w-full px-4 pt-4 flex justify-end">
       <a
-        href={`/ejecucion/${periodo}/${datos.numeroSemana}/excel`}
+        href={`${baseSemana}/excel${queryFiltros ? `?${queryFiltros}` : ""}`}
         className="rounded-md px-2.5 py-1 text-sm text-marino border border-marino hover:bg-marino-tint transition"
       >
         Descargar Excel
@@ -105,7 +112,8 @@ export default async function EjecucionGlobalSemanaPage({ params, searchParams }
           totalImporte={datos.totalImporte}
           pagina={datos.pagina}
           totalPaginas={datos.totalPaginas}
-          soloSinClasificar={datos.soloSinClasificar}
+          filtros={datos.filtros}
+          cuentasDeLaSemana={datos.cuentasDeLaSemana}
           chequeos={chequeos}
           unidadesSugeridas={datos.unidadesSugeridas}
           sinUnidadAsignada={datos.sinUnidadAsignada}
@@ -164,18 +172,44 @@ export default async function EjecucionGlobalSemanaPage({ params, searchParams }
             </div>
           </div>
 
-          {datos.totalMovimientos === 0 ? (
+          <BarraFiltros
+            base={baseSemana}
+            filtros={filtros}
+            clasificaciones={datos.clasificacionesDisponibles}
+            unidades={opcionesUnidad([])}
+            cuentas={datos.cuentasDeLaSemana}
+          />
+
+          {datos.totalSemana === 0 ? (
             <p className="text-sm text-ink-muted py-6 border-t border-line-strong">
               Esta semana no tiene movimientos cargados.
+            </p>
+          ) : datos.totalMovimientos === 0 ? (
+            <p className="text-sm text-ink-muted py-6 border-t border-line-strong">
+              {hayFiltros(filtros) && !hayFiltrosAdemasDeSinClasificar(filtros) ? (
+                <>
+                  No hay movimientos sin clasificar.{" "}
+                  <Link href={baseSemana} className="text-marino hover:underline">
+                    Ver todos
+                  </Link>
+                </>
+              ) : (
+                <>
+                  No hay movimientos que coincidan con los filtros.{" "}
+                  <Link href={baseSemana} className="text-marino hover:underline">
+                    Limpiar filtros
+                  </Link>
+                </>
+              )}
             </p>
           ) : (
             <>
               <div className="mb-2 empty:hidden [&>div]:mt-0">
                 <Paginacion
-                  base={`/ejecucion/${periodo}/${datos.numeroSemana}`}
+                  base={baseSemana}
                   pagina={datos.pagina}
                   totalPaginas={datos.totalPaginas}
-                  filtro={filtro}
+                  query={queryFiltros}
                 />
               </div>
               {/* overflow-auto + alto máximo: el encabezado sticky de la tabla se pega al borde de esta caja. */}
@@ -188,10 +222,10 @@ export default async function EjecucionGlobalSemanaPage({ params, searchParams }
                 />
               </div>
               <Paginacion
-                base={`/ejecucion/${periodo}/${datos.numeroSemana}`}
+                base={baseSemana}
                 pagina={datos.pagina}
                 totalPaginas={datos.totalPaginas}
-                filtro={filtro}
+                query={queryFiltros}
               />
             </>
           )}

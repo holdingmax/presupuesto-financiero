@@ -23,6 +23,7 @@ import {
 } from "./actions";
 import TablaMovimientos from "./TablaMovimientos";
 import Paginacion from "./Paginacion";
+import BarraFiltros from "./BarraFiltros";
 import { nombreDePeriodo } from "@/lib/ejecucionSemanas";
 import { verificarTamanoArchivo } from "@/lib/extractos/limites";
 import PanelChequeos from "./PanelChequeos";
@@ -30,6 +31,8 @@ import PanelSugerenciasPendientes from "./PanelSugerenciasPendientes";
 import PanelUnidadesSugeridas, { claveGrupo } from "./PanelUnidadesSugeridas";
 import AlertaContinuidadSaldo from "./AlertaContinuidadSaldo";
 import { formatearImporteConCentavos } from "./formato";
+import { aQuery, hayFiltros, hayFiltrosAdemasDeSinClasificar, type FiltrosEjecucion } from "@/lib/filtrosEjecucion";
+import { opcionesUnidad } from "@/lib/unidadesNegocio";
 
 // Sin librería de íconos en el proyecto — SVG a mano, mismo criterio que
 // IconoOjo/IconoMenu.
@@ -92,7 +95,10 @@ type Props = {
   totalImporte: number;
   pagina: number;
   totalPaginas: number;
-  soloSinClasificar: boolean;
+  // Filtros activos de la lista (vienen de la URL). Los agregados de los paneles NO dependen de ellos.
+  filtros: FiltrosEjecucion;
+  // Cuentas de toda la semana, para el selector de la barra de filtros.
+  cuentasDeLaSemana: string[];
   chequeos: ResultadoChequeo[];
   unidadesSugeridas: GrupoUnidadSugerida[];
   // Movimientos de toda la semana cuya unidad no pertenece a ninguna empresa
@@ -117,7 +123,8 @@ export default function PanelImputacion({
   totalImporte,
   pagina,
   totalPaginas,
-  soloSinClasificar,
+  filtros,
+  cuentasDeLaSemana,
   chequeos: chequeosIniciales,
   unidadesSugeridas: unidadesSugeridasIniciales,
   sinUnidadAsignada: sinUnidadAsignadaIniciales,
@@ -126,6 +133,8 @@ export default function PanelImputacion({
 }: Props) {
   const router = useRouter();
   const { periodo } = useParams<{ periodo: string }>();
+  const baseSemana = `/ejecucion/${periodo}/${numeroSemana}`;
+  const queryFiltros = aQuery(filtros);
   const [movimientos, setMovimientos] = useState(movimientosIniciales);
   // Jerarquía visual: con movimientos ya cargados, la tarjeta grande de subida
   // estorba más de lo que ayuda — colapsa a un botón compacto junto al Total.
@@ -394,9 +403,16 @@ export default function PanelImputacion({
   }
 
   function guardarCampo(id: string, campo: "clasificacion" | "unidadNegocio", valor: string) {
-    // Con la lista filtrada por "sin clasificar", reclasificar saca la fila del filtro y cambia
-    // el Total, la cantidad y las páginas: ahí hace falta la página recalculada.
-    if (soloSinClasificar && campo === "clasificacion") {
+    // Si el campo editado forma parte de un filtro activo (clasificación con "sin clasificar" o con
+    // el filtro de clasificación; unidad con el filtro de unidad), editarlo puede sacar la fila de
+    // la lista y cambia el Total, la cantidad y las páginas: ahí hace falta la página recalculada.
+    // Los agregados de los paneles no dependen de los filtros, así que el resto sigue por la vía
+    // liviana.
+    const saleDelFiltro =
+      campo === "clasificacion"
+        ? filtros.soloSinClasificar || filtros.clasificacion !== undefined
+        : filtros.unidad !== undefined;
+    if (saleDelFiltro) {
       startTransition(() => {
         actualizarMovimiento(periodo, numeroSemana, id, { [campo]: valor });
       });
@@ -805,24 +821,13 @@ export default function PanelImputacion({
           </div>
         </div>
 
-        <div className="mb-4 inline-flex rounded-md border border-line p-0.5">
-          <Link
-            href="?"
-            className={`px-2.5 py-1 rounded text-xs font-medium transition ${
-              !soloSinClasificar ? "bg-marino-tint text-marino" : "text-ink-secondary hover:text-ink"
-            }`}
-          >
-            Todos
-          </Link>
-          <Link
-            href="?filtro=sin_clasificar"
-            className={`px-2.5 py-1 rounded text-xs font-medium transition ${
-              soloSinClasificar ? "bg-marino-tint text-marino" : "text-ink-secondary hover:text-ink"
-            }`}
-          >
-            Solo sin clasificar
-          </Link>
-        </div>
+        <BarraFiltros
+          base={baseSemana}
+          filtros={filtros}
+          clasificaciones={clasificacionesDisponibles}
+          unidades={opcionesUnidad([])}
+          cuentas={cuentasDeLaSemana}
+        />
 
         {/* Una sola barra, cerrada por defecto: cada contador abre su panel, que funciona igual que
             antes. Solo aparecen los que tienen algo para mostrar. */}
@@ -916,20 +921,27 @@ export default function PanelImputacion({
 
         <div className="mb-2 empty:hidden [&>div]:mt-0">
           <Paginacion
-            base={`/ejecucion/${periodo}/${numeroSemana}`}
+            base={baseSemana}
             pagina={pagina}
             totalPaginas={totalPaginas}
-            filtro={soloSinClasificar ? "sin_clasificar" : undefined}
+            query={queryFiltros}
           />
         </div>
 
         {totalMovimientos === 0 ? (
           <p className="text-sm text-ink-muted py-6 border-t border-line-strong">
-            {soloSinClasificar && totalSemana > 0 ? (
+            {totalSemana > 0 && hayFiltros(filtros) && !hayFiltrosAdemasDeSinClasificar(filtros) ? (
               <>
                 No hay movimientos sin clasificar.{" "}
-                <Link href="?" className="text-marino hover:underline">
+                <Link href={baseSemana} className="text-marino hover:underline">
                   Ver todos
+                </Link>
+              </>
+            ) : totalSemana > 0 ? (
+              <>
+                No hay movimientos que coincidan con los filtros.{" "}
+                <Link href={baseSemana} className="text-marino hover:underline">
+                  Limpiar filtros
                 </Link>
               </>
             ) : (
@@ -969,7 +981,7 @@ export default function PanelImputacion({
               base={`/ejecucion/${periodo}/${numeroSemana}`}
               pagina={pagina}
               totalPaginas={totalPaginas}
-              filtro={soloSinClasificar ? "sin_clasificar" : undefined}
+              query={queryFiltros}
             />
           </>
         )}

@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { centavosDeDecimalTexto } from "@/lib/conteoMovimientos";
 import { ordenarPorCadenaDeSaldo } from "@/lib/ordenSaldo";
+import { coincide, type FiltrosEjecucion } from "@/lib/filtrosEjecucion";
 
 // Lectura de movimientos de Ejecución compartida por el módulo global (/ejecucion) y por la
 // pestaña de solo lectura de cada empresa (docs/ejecucion_global_plan.md §3.4 y §6). Vive fuera
@@ -36,6 +37,67 @@ export async function idsEnOrdenDeVista(ejecucionId: string, soloSinClasificar: 
     }))
   );
   return ordenadas.filter((m) => !soloSinClasificar || m.clasificacion === "SIN CLASIFICAR").map((m) => m.id);
+}
+
+// La lista de la pantalla con los filtros de lib/filtrosEjecucion.ts: mismo orden de la vista que
+// idsEnOrdenDeVista (se ordena la semana ENTERA y recién después se filtra, así un filtro no corta la
+// cadena de saldo), y de esa misma lista salen los ids, la cantidad, el Total y las páginas — una
+// sola fuente, sin una segunda versión del filtro en la base. Misma regla que antes para el Total:
+// sin ignorados, sumado en centavos enteros. `cuentas` y `totalSemana` son de la semana completa
+// (opciones del selector de cuenta y "la semana está vacía").
+export async function vistaDeLaSemana(ejecucionId: string, filtros: FiltrosEjecucion) {
+  const [filas, desglose] = await Promise.all([
+    prisma.movimientoBancario.findMany({
+      where: { ejecucionId },
+      orderBy: [{ fecha: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        fecha: true,
+        concepto: true,
+        bancoYCuenta: true,
+        importe: true,
+        saldo: true,
+        clasificacion: true,
+        unidadNegocio: true,
+        ignorado: true,
+      },
+    }),
+    // Solo hace falta el desglose para filtrar por unidad.
+    filtros.unidad
+      ? prisma.movimientoBancarioDesglose.findMany({
+          where: { movimiento: { ejecucionId } },
+          select: { movimientoId: true, unidadNegocio: true },
+        })
+      : Promise.resolve([]),
+  ]);
+  const unidadesDesglose = new Map<string, string[]>();
+  for (const d of desglose) {
+    const lista = unidadesDesglose.get(d.movimientoId);
+    if (lista) lista.push(d.unidadNegocio);
+    else unidadesDesglose.set(d.movimientoId, [d.unidadNegocio]);
+  }
+  const ordenadas = ordenarPorCadenaDeSaldo(
+    filas.map((m) => ({
+      id: m.id,
+      fecha: m.fecha.toISOString().slice(0, 10),
+      concepto: m.concepto,
+      bancoYCuenta: m.bancoYCuenta,
+      clasificacion: m.clasificacion,
+      unidadNegocio: m.unidadNegocio,
+      unidadesDesglose: unidadesDesglose.get(m.id) ?? [],
+      ignorado: m.ignorado,
+      importeCentavos: centavosDeDecimalTexto(m.importe.toFixed(2)),
+      saldoCentavos: m.saldo === null ? null : centavosDeDecimalTexto(m.saldo.toFixed(2)),
+    }))
+  );
+  const visibles = ordenadas.filter((f) => coincide(f, filtros));
+  return {
+    ids: visibles.map((f) => f.id),
+    cantidad: visibles.length,
+    totalCentavos: visibles.reduce((acc, f) => (f.ignorado ? acc : acc + f.importeCentavos), 0),
+    totalSemana: ordenadas.length,
+    cuentas: Array.from(new Set(ordenadas.map((f) => f.bancoYCuenta))).sort((a, b) => a.localeCompare(b, "es")),
+  };
 }
 
 // Lo que viaja al navegador por cada movimiento. El saldo SOLO viaja con `verSaldo` (§6: ADMIN,
