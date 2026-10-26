@@ -87,6 +87,8 @@ type Props = {
   movimientosIniciales: Movimiento[];
   clasificacionesDisponibles: string[];
   totalMovimientos: number;
+  // Filas de toda la semana (sin el filtro "sin clasificar").
+  totalSemana: number;
   totalImporte: number;
   pagina: number;
   totalPaginas: number;
@@ -111,6 +113,7 @@ export default function PanelImputacion({
   movimientosIniciales,
   clasificacionesDisponibles,
   totalMovimientos,
+  totalSemana,
   totalImporte,
   pagina,
   totalPaginas,
@@ -537,7 +540,7 @@ export default function PanelImputacion({
         >
           <div className="flex items-start justify-between mb-1">
             <p className="text-sm font-medium">Subir extracto bancario</p>
-            {totalMovimientos > 0 && (
+            {totalSemana > 0 && (
               <button
                 type="button"
                 onClick={() => setMostrarSubida(false)}
@@ -922,7 +925,16 @@ export default function PanelImputacion({
 
         {totalMovimientos === 0 ? (
           <p className="text-sm text-ink-muted py-6 border-t border-line-strong">
-            Todavía no hay movimientos cargados en esta semana. Subí un extracto para empezar.
+            {soloSinClasificar && totalSemana > 0 ? (
+              <>
+                No hay movimientos sin clasificar.{" "}
+                <Link href="?" className="text-marino hover:underline">
+                  Ver todos
+                </Link>
+              </>
+            ) : (
+              "Todavía no hay movimientos cargados en esta semana. Subí un extracto para empezar."
+            )}
           </p>
         ) : (
           <>
@@ -999,7 +1011,7 @@ export default function PanelImputacion({
           {puedeCerrar && (
             <button
               onClick={handleCerrarSemana}
-              disabled={totalMovimientos === 0}
+              disabled={totalSemana === 0}
               className="h-14 px-6 rounded-md bg-ink text-paper text-base font-semibold tracking-wide disabled:opacity-30 disabled:cursor-not-allowed hover:bg-ink/90 active:scale-[0.99] transition shadow-sm hover:shadow-md"
             >
               Cierre semanal

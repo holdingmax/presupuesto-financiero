@@ -101,6 +101,7 @@ export default async function EjecucionGlobalSemanaPage({ params, searchParams }
           movimientosIniciales={datos.movimientos}
           clasificacionesDisponibles={datos.clasificacionesDisponibles}
           totalMovimientos={datos.totalMovimientos}
+          totalSemana={datos.totalSemana}
           totalImporte={datos.totalImporte}
           pagina={datos.pagina}
           totalPaginas={datos.totalPaginas}

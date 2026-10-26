@@ -211,6 +211,11 @@ export async function obtenerDatosSemana(
   ]);
 
   const totalMovimientos = agregadoTotal._count;
+  // Filas de TODA la semana, sin el filtro: con el filtro activo y 0 resultados la pantalla tiene que
+  // distinguir "no hay sin clasificar" de "la semana está vacía".
+  const totalSemana = soloSinClasificar
+    ? await prisma.movimientoBancario.count({ where: { ejecucionId: ejecucion.id } })
+    : totalMovimientos;
   const totalPaginas = Math.max(1, Math.ceil(totalMovimientos / FILAS_POR_PAGINA));
   const paginaEfectiva = Math.min(Math.max(1, pagina), totalPaginas);
 
@@ -262,6 +267,7 @@ export async function obtenerDatosSemana(
     verSaldo,
     movimientos: movimientos.map((m) => mapearMovimiento(m, undefined, { verSaldo })),
     totalMovimientos,
+    totalSemana,
     totalImporte: Number(agregadoSumaReal._sum.importe ?? 0),
     pagina: paginaEfectiva,
     totalPaginas,
