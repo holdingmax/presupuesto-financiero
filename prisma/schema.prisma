@@ -130,8 +130,27 @@ model PresupuestoMensual {
   empresa   Empresa              @relation(fields: [empresaId], references: [id])
   lineas    LineaPresupuesto[]
   semanas   EjecucionSemanal[]
+  pedidosCambios PedidoCambiosPresupuesto[]
 
   @@unique([empresaId, periodo])
+}
+
+// Pedido de cambios del revisor al gerente mientras el presupuesto está
+// EN_REVISION: devuelve el presupuesto a ABIERTO y deja constancia acá. Una
+// fila por pedido (se puede repetir las veces que haga falta, el historial no
+// se pisa); el vigente es el más reciente. solicitadoPorId sin FK a Usuario, igual
+// que PresupuestoMensual.validadoPorId. El mensaje es obligatorio y se limita
+// a 1000 caracteres en el servidor (no en la base).
+model PedidoCambiosPresupuesto {
+  id              String   @id @default(uuid())
+  presupuestoId   String
+  mensaje         String
+  solicitadoPorId String
+  createdAt       DateTime @default(now())
+
+  presupuesto PresupuestoMensual @relation(fields: [presupuestoId], references: [id], onDelete: Cascade)
+
+  @@index([presupuestoId, createdAt])
 }
 
 // Concepto (texto libre por ahora — todavía no hay un listado curado de
