@@ -97,7 +97,6 @@ export default function EditarUsuarioForm({
           </label>
           <select
             id="rol"
-            name="rol"
             value={rol}
             onChange={(e) => setRol(e.target.value)}
             disabled={esPropioUsuario}
@@ -107,6 +106,7 @@ export default function EditarUsuarioForm({
             <option value="FINANZAS">FINANZAS</option>
             <option value="ADMIN">ADMIN</option>
           </select>
+          <input type="hidden" name="rol" value={rol} />
           {esPropioUsuario && (
             <p className="mt-1 text-xs text-ink-muted">No podés cambiar tu propio rol.</p>
           )}
