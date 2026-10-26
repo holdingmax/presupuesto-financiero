@@ -30,6 +30,7 @@ export default async function PresupuestoPage({ params }: Props) {
       fueModificadoPorRevisor={datos.fueModificadoPorRevisor}
       revisionCompletada={datos.revisionCompletada}
       validacion={datos.validacion}
+      pedidoCambios={datos.pedidoCambios}
       esRevisor={datos.esRevisor}
       lineasIniciales={datos.lineas}
     />
