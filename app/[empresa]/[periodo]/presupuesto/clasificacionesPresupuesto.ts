@@ -67,12 +67,20 @@ export const CLASIFICACIONES_PRESUPUESTO_EGRESO: OpcionClasificacionPresupuesto[
   { textoVisible: "Sueldos", valorPersistido: "SUELDOS" },
 ];
 
-// Para EditarLineaPanel.tsx: ese panel no tiene toggle Ingreso/Egreso, así
-// que muestra las 22 opciones combinadas sin filtrar (pedido explícito).
+// Ingreso + Egreso juntos, con repetidos (ver UNICAS, justo debajo, que es la que
+// usa EditarLineaPanel.tsx: ese panel no tiene toggle Ingreso/Egreso).
 export const CLASIFICACIONES_PRESUPUESTO_TODAS: OpcionClasificacionPresupuesto[] = [
   ...CLASIFICACIONES_PRESUPUESTO_INGRESO,
   ...CLASIFICACIONES_PRESUPUESTO_EGRESO,
 ];
+
+// TODAS sin repetidos por valorPersistido (primera aparición): "Préstamo Cocos" y
+// "Préstamo MS" están en Ingreso y en Egreso con el mismo valor, y como el tipo no
+// se persiste (LineaPresupuesto no lo guarda), ofrecerlas dos veces en un
+// desplegable sin toggle no aporta nada y repite la key de React.
+export const CLASIFICACIONES_PRESUPUESTO_UNICAS: OpcionClasificacionPresupuesto[] = Array.from(
+  new Map(CLASIFICACIONES_PRESUPUESTO_TODAS.map((o) => [o.valorPersistido, o])).values()
+);
 
 // Carga masiva desde Excel (decisión 2026-10-07): la clasificación de cada fila
 // tiene que terminar en un valorPersistido de la lista. Se acepta, sin

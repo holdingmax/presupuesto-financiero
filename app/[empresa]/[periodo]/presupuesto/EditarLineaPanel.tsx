@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { editarLinea } from "./actions";
 import {
-  CLASIFICACIONES_PRESUPUESTO_TODAS,
+  CLASIFICACIONES_PRESUPUESTO_UNICAS,
   obtenerAyudaClasificacion,
 } from "./clasificacionesPresupuesto";
 import CampoImporte from "@/components/CampoImporte";
@@ -18,8 +18,8 @@ type Props = {
 
 // Mismo patrón visual que DesglosePanel.tsx (panel que se expande debajo de
 // la fila). Este panel no tiene toggle Ingreso/Egreso (edita una línea ya
-// cargada, no tiene sentido re-tipificarla acá) — muestra las 22 opciones
-// combinadas (Ingreso + Egreso) sin filtrar, a propósito. Lista cerrada
+// cargada, no tiene sentido re-tipificarla acá) — muestra las opciones
+// de Ingreso + Egreso juntas, sin filtrar y sin repetidos, a propósito. Lista cerrada
 // (decisión 2026-10-07): sin "+ clasificación nueva". Si la línea tiene una
 // categoría vieja fuera de la lista, se muestra como opción extra (elegida) y
 // se puede guardar tal cual — el server la acepta solo si no cambió (ver
@@ -31,7 +31,7 @@ export default function EditarLineaPanel({ lineaId, valoresIniciales, onCerrar }
     periodo: string;
   }>();
 
-  const clasificacionEsConocida = CLASIFICACIONES_PRESUPUESTO_TODAS.some(
+  const clasificacionEsConocida = CLASIFICACIONES_PRESUPUESTO_UNICAS.some(
     (o) => o.valorPersistido === valoresIniciales.clasificacion
   );
 
@@ -150,7 +150,7 @@ export default function EditarLineaPanel({ lineaId, valoresIniciales, onCerrar }
                 {valoresIniciales.clasificacion} (fuera de la lista)
               </option>
             )}
-            {CLASIFICACIONES_PRESUPUESTO_TODAS.map((o) => (
+            {CLASIFICACIONES_PRESUPUESTO_UNICAS.map((o) => (
               <option key={o.valorPersistido} value={o.valorPersistido}>
                 {o.textoVisible}
               </option>
