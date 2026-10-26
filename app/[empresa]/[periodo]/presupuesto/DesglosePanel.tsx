@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { guardarDesglose, eliminarDesglose } from "./actions";
-import { parsearImporteArgentino } from "@/lib/numero";
+import { formatearImporteParaEditar, parsearImporteArgentino } from "@/lib/numero";
 import CampoImporte from "@/components/CampoImporte";
 
 type SubLinea = { detalle: string; importe: string };
@@ -28,7 +28,7 @@ export default function DesglosePanel({ lineaId, importeLinea, desgloseInicial, 
 
   const [sublineas, setSublineas] = useState<SubLinea[]>(
     desgloseInicial.length > 0
-      ? desgloseInicial.map((s) => ({ detalle: s.detalle, importe: String(s.importe) }))
+      ? desgloseInicial.map((s) => ({ detalle: s.detalle, importe: formatearImporteParaEditar(s.importe) }))
       : [
           { detalle: "", importe: "" },
           { detalle: "", importe: "" },

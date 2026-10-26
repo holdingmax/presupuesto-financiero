@@ -29,3 +29,12 @@ export function parsearImporteArgentino(texto: string): number {
   }
   return Number(limpio.replace(/\./g, ""));
 }
+
+// Inverso de parsearImporteArgentino para precargar un <input> de edición con un
+// importe ya guardado: coma decimal, sin separador de miles. Un String(n) pelado
+// ("1234.5") no sirve — parsearImporteArgentino lee ese punto como separador de
+// miles y lo convierte en 12345 al guardar, sin ningún aviso.
+export function formatearImporteParaEditar(valor: number): string {
+  // La columna es Decimal(18,2): más de 2 decimales no existen en la base.
+  return String(Number(valor.toFixed(2))).replace(".", ",");
+}

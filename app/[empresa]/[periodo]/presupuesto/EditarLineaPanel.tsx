@@ -8,6 +8,7 @@ import {
   obtenerAyudaClasificacion,
 } from "./clasificacionesPresupuesto";
 import CampoImporte from "@/components/CampoImporte";
+import { formatearImporteParaEditar } from "@/lib/numero";
 
 type Props = {
   lineaId: string;
@@ -36,7 +37,7 @@ export default function EditarLineaPanel({ lineaId, valoresIniciales, onCerrar }
 
   const [concepto, setConcepto] = useState(valoresIniciales.concepto);
   const [detalle, setDetalle] = useState(valoresIniciales.detalle);
-  const [importe, setImporte] = useState(String(valoresIniciales.importe));
+  const [importe, setImporte] = useState(formatearImporteParaEditar(valoresIniciales.importe));
   const [clasificacion, setClasificacion] = useState(valoresIniciales.clasificacion);
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [guardando, setGuardando] = useState(false);
