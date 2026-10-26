@@ -31,6 +31,17 @@ import {
 import { FILAS_POR_PAGINA, mapearMovimiento, idsEnOrdenDeVista } from "@/lib/ejecucionVista";
 import { calcularClasificacionesDisponibles } from "@/lib/clasificaciones";
 import {
+  CHEQUEOS_SUMA_CERO,
+  MUESTRA_POR_GRUPO,
+  agruparUnidadesSugeridas,
+  armarChequeo,
+  ordenarGruposSugerencia,
+  totalizarSugerencias,
+  type GrupoSugerenciaClasificacion,
+  type GrupoUnidadSugerida,
+  type ResultadoChequeo,
+} from "@/lib/agregadosEjecucion";
+import {
   normalizarCuenta,
   proponerUnidadPorCuenta,
   esUnidadDeLaLista,
@@ -178,7 +189,7 @@ export async function obtenerDatosSemana(
   // condición solo cuando el filtro está activo, sin cambiar nada más.
   const filtroClasificacion = soloSinClasificar ? { clasificacion: "SIN CLASIFICAR" } : {};
 
-  const [agregadoTotal, agregadoSumaReal, gruposUnidadSugerida, sinUnidadAsignada, sugerenciasClasificacion] = await Promise.all([
+  const [agregadoTotal, agregadoSumaReal, unidadesSugeridas, sinUnidadAsignada, sugerenciasClasificacion] = await Promise.all([
     prisma.movimientoBancario.aggregate({
       where: { ejecucionId: ejecucion.id, ...filtroClasificacion },
       _count: true,
@@ -187,23 +198,13 @@ export async function obtenerDatosSemana(
       where: { ejecucionId: ejecucion.id, ignorado: false, ...filtroClasificacion },
       _sum: { importe: true },
     }),
-    // Panel de unidades sugeridas: TODA la semana (sin paginar y sin
-    // filtroClasificacion), a diferencia de las filas de la tabla — un archivo
-    // de ~16.500 filas reparte las sugerencias en decenas de páginas.
+    // Panel de unidades sugeridas: a diferencia de las filas de la tabla, no se pagina — un
+    // archivo de ~16.500 filas reparte las sugerencias en decenas de páginas.
     // Los tres paneles son solo de quien opera: para el resto ni se consultan.
-    puedeOperar
-      ? prisma.movimientoBancario.groupBy({
-          by: ["bancoYCuenta", "unidadNegocio"],
-          where: { ejecucionId: ejecucion.id, unidadSugeridaPorSistema: true },
-          _count: true,
-        })
-      : Promise.resolve([]),
-    // Aviso antes del cierre (decisión 2026-10-07): movimientos de TODA la semana
-    // cuya unidad no pertenece a ninguna empresa — no van a entrar en el Reporte
-    // de nadie, y una vez cerrada la semana ya no se pueden corregir.
-    puedeOperar || puedeCerrar
-      ? obtenerUnidadesConEmpresa().then((unidades) => contarSinUnidadEnSemana(ejecucion.id, unidades))
-      : Promise.resolve([]),
+    puedeOperar ? consultarUnidadesSugeridas(ejecucion.id) : Promise.resolve([]),
+    // Aviso antes del cierre: no van a entrar en el Reporte de nadie, y una vez cerrada la
+    // semana ya no se pueden corregir.
+    puedeOperar || puedeCerrar ? consultarSinUnidadAsignada(ejecucion.id) : Promise.resolve([]),
     // Panel de clasificaciones sugeridas: TODA la semana, no la página
     // (decisión 2026-10-07 — antes se armaba con las filas de la página actual).
     puedeOperar ? agruparSugerenciasClasificacion(ejecucion.id) : Promise.resolve([]),
@@ -265,34 +266,19 @@ export async function obtenerDatosSemana(
     pagina: paginaEfectiva,
     totalPaginas,
     soloSinClasificar,
-    unidadesSugeridas: agruparUnidadesSugeridas(gruposUnidadSugerida),
+    unidadesSugeridas,
     sinUnidadAsignada,
     sugerenciasClasificacion,
     cuentasBancarias,
   };
 }
 
-export type FilaSugerenciaClasificacion = {
-  id: string;
-  fecha: string;
-  concepto: string;
-  bancoYCuenta: string;
-  importe: number;
-  clasificacion: string;
-  chequeIvaAmbiguo: boolean;
-};
-
-export type GrupoSugerenciaClasificacion = {
-  clasificacion: string;
-  // Totales de TODA la semana (no de la muestra).
-  cantidad: number;
-  ambiguas: number;
-  // Muestra para revisar/corregir de a una: hasta MUESTRA_POR_GRUPO filas, las
-  // ambiguas primero (esas solo se confirman de a una).
-  filas: FilaSugerenciaClasificacion[];
-};
-
-const MUESTRA_POR_GRUPO = 50;
+export type {
+  FilaSugerenciaClasificacion,
+  GrupoSugerenciaClasificacion,
+  GrupoUnidadSugerida,
+  ResultadoChequeo,
+} from "@/lib/agregadosEjecucion";
 
 // Sugerencias de clasificación pendientes (sugeridaPorSistema) de TODA la
 // semana, agrupadas por clasificación — mismo criterio que el panel de unidades
@@ -307,13 +293,7 @@ async function agruparSugerenciasClasificacion(
     where: { ejecucionId, sugeridaPorSistema: true },
     _count: true,
   });
-  const porClasificacion = new Map<string, { cantidad: number; ambiguas: number }>();
-  for (const c of conteos) {
-    const g = porClasificacion.get(c.clasificacion) ?? { cantidad: 0, ambiguas: 0 };
-    g.cantidad += c._count;
-    if (c.chequeIvaAmbiguo) g.ambiguas += c._count;
-    porClasificacion.set(c.clasificacion, g);
-  }
+  const porClasificacion = totalizarSugerencias(conteos);
   const grupos = await Promise.all(
     Array.from(porClasificacion.entries()).map(async ([clasificacion, totales]) => {
       const filas = await prisma.movimientoBancario.findMany({
@@ -329,79 +309,43 @@ async function agruparSugerenciasClasificacion(
       };
     })
   );
-  return grupos.sort((a, b) => a.clasificacion.localeCompare(b.clasificacion, "es"));
+  return ordenarGruposSugerencia(grupos);
 }
 
-export type GrupoUnidadSugerida = {
-  // Cuenta normalizada (clave del grupo, lo que se muestra).
-  cuenta: string;
-  // Grafías crudas tal como están en la base que caen en esta cuenta — es lo
-  // que confirmarUnidadesEnLote recibe para su `bancoYCuenta IN (...)`.
-  cuentasCrudas: string[];
-  unidadNegocio: string;
-  cantidad: number;
-};
-
-// Junta por cuenta NORMALIZADA (mismo criterio que proponerUnidadPorCuenta), por si
-// la misma cuenta llegó con dos grafías distintas ("Frances 891" / "FRANCES 891").
-// La clave incluye la unidad: con el mapa de hoy una cuenta siempre sugiere la misma,
-// pero si el mapa cambiara entre dos subidas no se mezclan dos sugerencias distintas
-// bajo un mismo botón "Confirmar".
-function agruparUnidadesSugeridas(
-  grupos: { bancoYCuenta: string; unidadNegocio: string; _count: number }[]
-): GrupoUnidadSugerida[] {
-  const porClave = new Map<string, GrupoUnidadSugerida>();
-  for (const g of grupos) {
-    const cuenta = normalizarCuenta(g.bancoYCuenta);
-    const clave = `${cuenta}|${g.unidadNegocio}`;
-    const existente = porClave.get(clave);
-    if (existente) {
-      existente.cuentasCrudas.push(g.bancoYCuenta);
-      existente.cantidad += g._count;
-    } else {
-      porClave.set(clave, {
-        cuenta,
-        cuentasCrudas: [g.bancoYCuenta],
-        unidadNegocio: g.unidadNegocio,
-        cantidad: g._count,
-      });
-    }
-  }
-  return Array.from(porClave.values()).sort((a, b) => a.cuenta.localeCompare(b.cuenta, "es"));
+// Panel de unidades sugeridas: TODA la semana (sin paginar y sin filtroClasificacion).
+function consultarUnidadesSugeridas(ejecucionId: string) {
+  return prisma.movimientoBancario
+    .groupBy({
+      by: ["bancoYCuenta", "unidadNegocio"],
+      where: { ejecucionId, unidadSugeridaPorSistema: true },
+      _count: true,
+    })
+    .then(agruparUnidadesSugeridas);
 }
 
-export type ResultadoChequeo = {
-  nombre: string;
-  clasificacion: string;
-  neto: number;
-  ok: boolean;
-  // Siempre poblado (conteo real), a diferencia de `lineas` — así la UI puede
-  // mostrar "N líneas" sin tener que mandar el detalle completo cuando el
-  // usuario todavía no lo pidió (colapsado por defecto).
-  cantidad: number;
-  lineas: { id: string; fecha: string; concepto: string; importe: number }[];
-};
-
-// Controles de suma-cero que Macchi ya hace a mano hoy (confirmado 2026-08-27):
-// para estas 3 clasificaciones puntuales, el neto del período tiene que dar $0
-// — si un movimiento de ingreso no encuentra su contraparte de salida (o
-// viceversa), el neto queda desbalanceado y es señal de algo mal cargado o
-// pendiente. No bloquea el cierre, es solo una alerta visual (mismo criterio
-// que la detección de posibles duplicados en subirExtracto). Nombres exactos
-// confirmados con Macchi — "PREST BRIOS Y TC"/"PRESTAMOS MS" quedan afuera de
-// Préstamos a propósito, y "CHEQUES DIFERIDOS"/"CH DIFERIDOS IVA" quedan
-// afuera de cheques de terceros — son categorías reales pero distintas.
-const CHEQUEOS_SUMA_CERO: { nombre: string; clasificacion: string }[] = [
-  { nombre: "Préstamos", clasificacion: "PRESTAMOS" },
-  { nombre: "Transferencias entre bancos", clasificacion: "TRANSF ENTRE BCOS" },
-  { nombre: "Depósito de cheques de terceros", clasificacion: "DEP CH 3°" },
-];
+// Aviso antes del cierre (decisión 2026-10-07): movimientos de TODA la semana
+// cuya unidad no pertenece a ninguna empresa.
+function consultarSinUnidadAsignada(ejecucionId: string) {
+  return obtenerUnidadesConEmpresa().then((unidades) => contarSinUnidadEnSemana(ejecucionId, unidades));
+}
 
 // Mismo filtro por ejecucionId que obtenerDatosSemana (no cruza otras semanas
 // del período) — así el chequeo siempre mira exactamente el mismo conjunto de
 // filas que el usuario ve en pantalla para esa semana, sea o no acumulativo el
 // archivo que se subió. ignorado:false por el mismo motivo que en
 // obtenerDatosSemana: una línea ignorada no debe pesar en ningún cálculo.
+async function chequeosSumaCeroDeEjecucion(ejecucionId: string): Promise<ResultadoChequeo[]> {
+  const resultados: ResultadoChequeo[] = [];
+  for (const def of CHEQUEOS_SUMA_CERO) {
+    const movimientos = await prisma.movimientoBancario.findMany({
+      where: { ejecucionId, clasificacion: def.clasificacion, ignorado: false },
+      orderBy: [{ fecha: "asc" }, { id: "asc" }],
+    });
+    resultados.push(armarChequeo(def, movimientos));
+  }
+  return resultados;
+}
+
 export async function calcularChequeosSumaCero(
   periodo: string,
   numeroSemana: number
@@ -410,32 +354,7 @@ export async function calcularChequeosSumaCero(
   await resolverParaOperar(periodo);
   const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
   if (!ejecucion) return [];
-
-  const resultados: ResultadoChequeo[] = [];
-  for (const { nombre, clasificacion } of CHEQUEOS_SUMA_CERO) {
-    const movimientos = await prisma.movimientoBancario.findMany({
-      where: { ejecucionId: ejecucion.id, clasificacion, ignorado: false },
-      orderBy: [{ fecha: "asc" }, { id: "asc" }],
-    });
-    const neto = movimientos.reduce((acc, m) => acc + Number(m.importe), 0);
-    const ok = Math.abs(neto) < 0.01;
-    resultados.push({
-      nombre,
-      clasificacion,
-      neto,
-      ok,
-      cantidad: movimientos.length,
-      lineas: ok
-        ? []
-        : movimientos.map((m) => ({
-            id: m.id,
-            fecha: m.fecha.toISOString().slice(0, 10),
-            concepto: m.concepto,
-            importe: Number(m.importe),
-          })),
-    });
-  }
-  return resultados;
+  return chequeosSumaCeroDeEjecucion(ejecucion.id);
 }
 
 export type ResultadoLiquidacionAmbigua = {
@@ -1154,6 +1073,47 @@ export async function actualizarMovimiento(
   id: string,
   datos: { clasificacion?: string; unidadNegocio?: string; ignorado?: boolean }
 ) {
+  await aplicarActualizacionMovimiento(periodo, numeroSemana, id, datos);
+  revalidarSemana(periodo, numeroSemana);
+}
+
+export type AgregadosEdicion = {
+  chequeos: ResultadoChequeo[];
+  unidadesSugeridas: GrupoUnidadSugerida[];
+  sinUnidadAsignada: { unidad: string; movimientos: number }[];
+  sugerenciasClasificacion: GrupoSugerenciaClasificacion[];
+};
+
+// Edición de clasificación / unidad desde el <select> de la tabla: misma escritura que
+// actualizarMovimiento, pero SIN revalidatePath — revalidar hace que la respuesta de la acción
+// lleve la pantalla entera re-renderizada (~330 KB por edición). En su lugar devuelve solo lo que
+// cambia al reclasificar y que la fila no puede calcular sola, con las mismas funciones que usa
+// la página (lib/agregadosEjecucion.ts): chequeos de suma cero, sugerencias de clasificación,
+// unidades sugeridas y filas sin unidad de empresa. El Total $ y la cantidad de filas no se
+// devuelven: salen de ignorado/importe, que esta edición no toca (sí dependen de la clasificación
+// cuando la lista está filtrada por "sin clasificar"; ese caso sigue por actualizarMovimiento).
+export async function guardarCampoMovimiento(
+  periodo: string,
+  numeroSemana: number,
+  id: string,
+  datos: { clasificacion?: string; unidadNegocio?: string }
+): Promise<AgregadosEdicion> {
+  const ejecucion = await aplicarActualizacionMovimiento(periodo, numeroSemana, id, datos);
+  const [chequeos, unidadesSugeridas, sinUnidadAsignada, sugerenciasClasificacion] = await Promise.all([
+    chequeosSumaCeroDeEjecucion(ejecucion.id),
+    consultarUnidadesSugeridas(ejecucion.id),
+    consultarSinUnidadAsignada(ejecucion.id),
+    agruparSugerenciasClasificacion(ejecucion.id),
+  ]);
+  return { chequeos, unidadesSugeridas, sinUnidadAsignada, sugerenciasClasificacion };
+}
+
+async function aplicarActualizacionMovimiento(
+  periodo: string,
+  numeroSemana: number,
+  id: string,
+  datos: { clasificacion?: string; unidadNegocio?: string; ignorado?: boolean }
+) {
   await resolverParaOperar(periodo);
   // Hallazgo 2026-09-08: hasta ahora esta acción no chequeaba el estado de la
   // semana — lo único que impedía editar una semana CERRADA era que la
@@ -1202,7 +1162,7 @@ export async function actualizarMovimiento(
       ...(datos.clasificacion !== undefined ? { sugeridaPorSistema: false } : {}),
     },
   });
-  revalidarSemana(periodo, numeroSemana);
+  return ejecucion;
 }
 
 export type ResultadoConfirmarClasificacionesEnLote =

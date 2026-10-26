@@ -6,10 +6,12 @@ import Link from "next/link";
 import {
   subirExtracto,
   actualizarMovimiento,
+  guardarCampoMovimiento,
   eliminarMovimiento,
   cerrarSemana,
   confirmarClasificacionesEnLote,
   confirmarUnidadesEnLote,
+  type AgregadosEdicion,
   type GrupoUnidadSugerida,
   type GrupoSugerenciaClasificacion,
   type ResultadoChequeo,
@@ -113,10 +115,10 @@ export default function PanelImputacion({
   pagina,
   totalPaginas,
   soloSinClasificar,
-  chequeos,
-  unidadesSugeridas,
-  sinUnidadAsignada,
-  sugerenciasClasificacion,
+  chequeos: chequeosIniciales,
+  unidadesSugeridas: unidadesSugeridasIniciales,
+  sinUnidadAsignada: sinUnidadAsignadaIniciales,
+  sugerenciasClasificacion: sugerenciasClasificacionIniciales,
   cuentasBancarias,
 }: Props) {
   const router = useRouter();
@@ -141,6 +143,27 @@ export default function PanelImputacion({
   useEffect(() => {
     setMovimientos(movimientosIniciales);
   }, [movimientosIniciales]);
+
+  // Agregados de los paneles: vienen de la página y, tras reclasificar desde el select de la tabla,
+  // los reemplaza lo que devuelve guardarCampoMovimiento (sin re-renderizar la página). Cualquier
+  // dato nuevo del servidor (router.refresh(), cambio de página) los vuelve a pisar.
+  const [agregados, setAgregados] = useState<AgregadosEdicion>({
+    chequeos: chequeosIniciales,
+    unidadesSugeridas: unidadesSugeridasIniciales,
+    sinUnidadAsignada: sinUnidadAsignadaIniciales,
+    sugerenciasClasificacion: sugerenciasClasificacionIniciales,
+  });
+  const { chequeos, unidadesSugeridas, sinUnidadAsignada, sugerenciasClasificacion } = agregados;
+  useEffect(() => {
+    setAgregados({
+      chequeos: chequeosIniciales,
+      unidadesSugeridas: unidadesSugeridasIniciales,
+      sinUnidadAsignada: sinUnidadAsignadaIniciales,
+      sugerenciasClasificacion: sugerenciasClasificacionIniciales,
+    });
+  }, [chequeosIniciales, unidadesSugeridasIniciales, sinUnidadAsignadaIniciales, sugerenciasClasificacionIniciales]);
+  // Ediciones seguidas: solo vale la respuesta de la última (una anterior puede llegar después).
+  const ultimaEdicionRef = useRef(0);
 
   // Al pasar de página Next lleva al tope la ventana, pero no las cajas con scroll propio, y esta
   // se reconcilia (no se remonta): sin esto la caja de la tabla conserva el scrollTop de la página
@@ -368,8 +391,18 @@ export default function PanelImputacion({
   }
 
   function guardarCampo(id: string, campo: "clasificacion" | "unidadNegocio", valor: string) {
-    startTransition(() => {
-      actualizarMovimiento(periodo, numeroSemana, id, { [campo]: valor });
+    // Con la lista filtrada por "sin clasificar", reclasificar saca la fila del filtro y cambia
+    // el Total, la cantidad y las páginas: ahí hace falta la página recalculada.
+    if (soloSinClasificar && campo === "clasificacion") {
+      startTransition(() => {
+        actualizarMovimiento(periodo, numeroSemana, id, { [campo]: valor });
+      });
+      return;
+    }
+    const edicion = ++ultimaEdicionRef.current;
+    startTransition(async () => {
+      const nuevos = await guardarCampoMovimiento(periodo, numeroSemana, id, { [campo]: valor });
+      if (edicion === ultimaEdicionRef.current) setAgregados(nuevos);
     });
   }
 
