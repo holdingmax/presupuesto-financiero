@@ -4,17 +4,11 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin, hashPassword } from "@/lib/auth";
 import { generarPasswordTemporal } from "@/lib/password";
+import { leerDatosUsuario, type DatosUsuario } from "@/lib/usuarioDatos";
 import type { Rol } from "@prisma/client";
 
 const ROLES_VALIDOS: Rol[] = ["ADMIN", "GERENTE", "FINANZAS"];
 const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-type DatosUsuario = {
-  nombre: string;
-  email: string;
-  rol: string;
-  empresaIds: string[];
-};
 
 // Comunes a alta y edición. No valida unicidad de email acá (depende de si
 // hay que excluir al propio usuario) — eso lo hace cada action llamante.
@@ -28,15 +22,6 @@ function validarCampos(datos: DatosUsuario) {
     errores.rol = "Elegí un rol válido.";
   }
   return errores;
-}
-
-function leerDatos(formData: FormData): DatosUsuario {
-  return {
-    nombre: String(formData.get("nombre") ?? "").trim(),
-    email: String(formData.get("email") ?? "").trim(),
-    rol: String(formData.get("rol") ?? ""),
-    empresaIds: formData.getAll("empresaIds").map(String),
-  };
 }
 
 // Sin empresas asignadas para un rol no-ADMIN: se permite guardar igual,
@@ -72,11 +57,14 @@ export async function crearUsuario(
   formData: FormData
 ): Promise<ResultadoCrear> {
   await requireAdmin();
-  const datos = leerDatos(formData);
+  const datos = leerDatosUsuario(formData);
 
   const errores = validarCampos(datos);
   if (Object.keys(errores).length === 0) {
-    const existe = await prisma.usuario.findUnique({ where: { email: datos.email } });
+    // insensitive: también detecta emails viejos guardados con mayúsculas.
+    const existe = await prisma.usuario.findFirst({
+      where: { email: { equals: datos.email, mode: "insensitive" } },
+    });
     if (existe) errores.email = "Ya existe un usuario con ese email.";
   }
   if (Object.keys(errores).length > 0) {
@@ -115,13 +103,13 @@ export async function actualizarUsuario(
   formData: FormData
 ): Promise<ResultadoActualizar> {
   const admin = await requireAdmin();
-  const datos = leerDatos(formData);
+  const datos = leerDatosUsuario(formData);
   const activo = formData.get("activo") === "on";
 
   const errores = validarCampos(datos);
   if (Object.keys(errores).length === 0) {
     const existe = await prisma.usuario.findFirst({
-      where: { email: datos.email, NOT: { id } },
+      where: { email: { equals: datos.email, mode: "insensitive" }, NOT: { id } },
     });
     if (existe) errores.email = "Ya existe un usuario con ese email.";
   }

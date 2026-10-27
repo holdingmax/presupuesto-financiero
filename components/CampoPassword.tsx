@@ -58,6 +58,9 @@ export default function CampoPassword({
           name={name}
           type={mostrar ? "text" : "password"}
           required={required}
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
           placeholder={placeholder}
           onChange={onChange ? (e) => onChange(e.target.value) : undefined}
           className={`w-full rounded-md border px-3.5 pr-11 outline-none focus:ring-2 focus:ring-marino/15 ${TAMANOS[size]} ${

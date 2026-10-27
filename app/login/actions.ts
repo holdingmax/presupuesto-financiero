@@ -2,7 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { crearSesion, verifyPassword, cerrarSesion } from "@/lib/auth";
+import { crearSesion, cerrarSesion } from "@/lib/auth";
+import { autenticar } from "@/lib/autenticacion";
 
 export type ResultadoLogin = { ok: false; error: string } | { ok: true };
 
@@ -12,23 +13,22 @@ export async function login(
   _estadoPrevio: ResultadoLogin | null,
   formData: FormData
 ): Promise<ResultadoLogin> {
-  const email = String(formData.get("email") ?? "").trim();
+  const email = String(formData.get("email") ?? "");
   const password = String(formData.get("password") ?? "");
 
-  if (!email || !password) {
+  if (!email.trim() || !password) {
     return { ok: false, error: "Ingresá tu email y tu contraseña." };
   }
 
-  const usuario = await prisma.usuario.findUnique({ where: { email } });
-
-  // Mismo mensaje genérico sin importar cuál de estas condiciones falló —
-  // no hay que revelarle a quien intenta entrar cuál fue el problema exacto.
-  if (!usuario || !usuario.activo || !usuario.passwordHash) {
-    return { ok: false, error: ERROR_GENERICO };
-  }
-
-  const passwordValida = await verifyPassword(password, usuario.passwordHash);
-  if (!passwordValida) {
+  // Mismo mensaje genérico sin importar cuál de estas condiciones falló (usuario
+  // inexistente, inactivo, sin contraseña o contraseña incorrecta) — no hay que
+  // revelarle a quien intenta entrar cuál fue el problema exacto. El email se
+  // busca normalizado y sin distinguir mayúsculas (tolera filas viejas guardadas
+  // con mayúsculas).
+  const usuario = await autenticar(email, password, (emailNormalizado) =>
+    prisma.usuario.findFirst({ where: { email: { equals: emailNormalizado, mode: "insensitive" } } })
+  );
+  if (!usuario) {
     return { ok: false, error: ERROR_GENERICO };
   }
 

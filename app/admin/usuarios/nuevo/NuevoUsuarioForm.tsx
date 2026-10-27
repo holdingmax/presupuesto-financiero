@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import Link from "next/link";
 import { crearUsuario, type ResultadoCrear } from "../actions";
 import EmpresasYPermisos from "../EmpresasYPermisos";
+import BotonCopiar from "@/components/BotonCopiar";
 
 type Empresa = { id: string; nombre: string };
 
@@ -21,6 +22,7 @@ export default function NuevoUsuarioForm({ empresas }: { empresas: Empresa[] }) 
         <h1 className="text-3xl font-serif font-semibold tracking-tight mb-4">Usuario creado</h1>
         <p className="text-sm bg-marino-tint text-marino rounded-md px-3 py-2 mb-2">
           Contraseña temporal: <span className="font-mono font-semibold">{estado.passwordTemporal}</span>
+          <BotonCopiar texto={estado.passwordTemporal} />
         </p>
         <p className="text-xs text-ink-muted mb-6">
           Copiala y compartísela por fuera del sistema — no se va a volver a mostrar. El usuario va
@@ -65,6 +67,9 @@ export default function NuevoUsuarioForm({ empresas }: { empresas: Empresa[] }) 
             id="email"
             name="email"
             type="email"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             className={`w-full h-11 rounded-md border bg-paper px-3.5 text-sm outline-none focus:ring-2 focus:ring-marino/15 ${
               erroresCampo.email ? "border-terracota" : "border-line focus:border-marino"
             }`}

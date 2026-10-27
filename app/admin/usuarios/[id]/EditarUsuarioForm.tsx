@@ -4,6 +4,7 @@ import { startTransition, useActionState, useState } from "react";
 import Link from "next/link";
 import { actualizarUsuario, restablecerPassword, type ResultadoActualizar } from "../actions";
 import EmpresasYPermisos, { type PermisosPorEmpresa } from "../EmpresasYPermisos";
+import BotonCopiar from "@/components/BotonCopiar";
 
 type Empresa = { id: string; nombre: string };
 type UsuarioInicial = {
@@ -92,6 +93,9 @@ export default function EditarUsuarioForm({
             id="email"
             name="email"
             type="email"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             defaultValue={usuario.email}
             className={`w-full h-11 rounded-md border bg-paper px-3.5 text-sm outline-none focus:ring-2 focus:ring-marino/15 ${
               erroresCampo.email ? "border-terracota" : "border-line focus:border-marino"
@@ -187,6 +191,7 @@ export default function EditarUsuarioForm({
         {passwordTemporal && (
           <p className="mt-3 text-sm bg-marino-tint text-marino rounded-md px-3 py-2">
             Contraseña temporal: <span className="font-mono font-semibold">{passwordTemporal}</span>
+            <BotonCopiar texto={passwordTemporal} />
             <br />
             <span className="text-xs">Copiala ahora — no se va a volver a mostrar.</span>
           </p>
