@@ -3,7 +3,7 @@ import { requireUsuarioAlDia, esAdminOFinanzas, veTodoEjecucion } from "@/lib/au
 import { logout } from "@/app/login/actions";
 import { prisma } from "@/lib/prisma";
 import { listarEmpresas, slugify } from "@/lib/slug";
-import { PERIODO } from "@/lib/config";
+import { PERIODO_POR_DEFECTO } from "@/lib/config";
 
 // Landing post-login: qué empresas ve depende del usuario. Un ADMIN ve las
 // 13; el resto solo las que tenga asignadas vía UsuarioEmpresa (ver comentario
@@ -37,7 +37,7 @@ export default async function MisEmpresasPage() {
           )}
           {/* Ejecución global (plan §3.4): ADMIN, FINANZAS y quien tiene permiso de operar. */}
           {veTodoEjecucion(usuario) && (
-            <Link href={`/ejecucion/${PERIODO}`} className="underline underline-offset-2 hover:text-ink">
+            <Link href={`/ejecucion/${PERIODO_POR_DEFECTO}`} className="underline underline-offset-2 hover:text-ink">
               Ejecución global
             </Link>
           )}
@@ -78,7 +78,7 @@ export default async function MisEmpresasPage() {
           {empresas.map((empresa) => (
             <Link
               key={empresa.id}
-              href={`/${slugify(empresa.nombre)}/${PERIODO}/presupuesto`}
+              href={`/${slugify(empresa.nombre)}/${PERIODO_POR_DEFECTO}/presupuesto`}
               className="text-sm text-marino transition hover:text-marino-dark hover:underline underline-offset-2"
             >
               {empresa.nombre}

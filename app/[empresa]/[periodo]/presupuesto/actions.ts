@@ -6,7 +6,8 @@ import ExcelJS from "exceljs";
 import type { PresupuestoMensual, Usuario } from "@prisma/client";
 import { resolverEmpresaPorSlug, quitarDiacriticos } from "@/lib/slug";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
-import { requireAccesoEmpresa, puedeRevisarPresupuesto } from "@/lib/auth";
+import { requireAccesoEmpresa, puedeRevisarPresupuesto, esAdminOFinanzas } from "@/lib/auth";
+import { PeriodoNoHabilitadoError, puedeVerPeriodo } from "@/lib/periodosHabilitados";
 import { normalizarClasificacion, esElegibleParaDesglose } from "@/lib/clasificaciones";
 import { parsearImporteArgentino } from "@/lib/numero";
 import { validarMensajePedido, puedePedirCambios } from "@/lib/pedidoCambiosPresupuesto";
@@ -54,6 +55,11 @@ async function resolverEmpresaYPresupuesto(empresaSlug: string, periodo: string)
     throw new Error(`No existe una empresa para "${empresaSlug}".`);
   }
   const usuario = await requireAccesoEmpresa(empresa.id);
+  // Fuera de la lista de períodos habilitados solo entran ADMIN y FINANZAS. Va ANTES de
+  // obtenerOCrearPresupuesto: un período no habilitado no tiene que crear ninguna fila.
+  if (!puedeVerPeriodo(periodo, esAdminOFinanzas(usuario))) {
+    throw new PeriodoNoHabilitadoError(periodo);
+  }
   const presupuesto = await obtenerOCrearPresupuesto(empresa.id, periodo);
   return { empresa, presupuesto, usuario };
 }

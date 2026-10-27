@@ -1,0 +1,86 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { PERIODOS_HABILITADOS, PERIODO_POR_DEFECTO } from "@/lib/config";
+import {
+  PeriodoNoHabilitadoError,
+  enlacesDePeriodos,
+  esPeriodoHabilitado,
+  puedeVerPeriodo,
+} from "@/lib/periodosHabilitados";
+
+test("config: los períodos habilitados son septiembre, octubre y noviembre de 2026", () => {
+  assert.deepEqual([...PERIODOS_HABILITADOS], ["2026-09", "2026-10", "2026-11"]);
+});
+
+test("config: el período por defecto está en la lista", () => {
+  assert.ok(PERIODOS_HABILITADOS.includes(PERIODO_POR_DEFECTO));
+});
+
+test("config: la lista no tiene duplicados, está ordenada y todos son AAAA-MM con mes de 01 a 12", () => {
+  assert.equal(new Set(PERIODOS_HABILITADOS).size, PERIODOS_HABILITADOS.length);
+  assert.deepEqual([...PERIODOS_HABILITADOS], [...PERIODOS_HABILITADOS].sort());
+  for (const p of PERIODOS_HABILITADOS) assert.match(p, /^\d{4}-(0[1-9]|1[0-2])$/, p);
+});
+
+test("esPeriodoHabilitado: acepta cada período de la lista", () => {
+  for (const p of ["2026-09", "2026-10", "2026-11"]) assert.equal(esPeriodoHabilitado(p), true, p);
+});
+
+test("esPeriodoHabilitado: rechaza cualquier otro valor, incluidos meses inválidos y formas raras", () => {
+  for (const p of ["2026-08", "2026-12", "2027-09", "2026-13", "2026-00", "2026-9", "", " 2026-09", "2026-09 ", "septiembre", "2026-09-01"]) {
+    assert.equal(esPeriodoHabilitado(p), false, JSON.stringify(p));
+  }
+});
+
+test("esPeriodoHabilitado: usa la lista que se le pase", () => {
+  assert.equal(esPeriodoHabilitado("2026-08", ["2026-08"]), true);
+  assert.equal(esPeriodoHabilitado("2026-09", ["2026-08"]), false);
+  assert.equal(esPeriodoHabilitado("2026-09", []), false);
+});
+
+test("puedeVerPeriodo: ADMIN y FINANZAS abren cualquier período", () => {
+  for (const p of ["2026-09", "2026-08", "2027-01", "2026-13"]) {
+    assert.equal(puedeVerPeriodo(p, true), true, p);
+  }
+});
+
+test("puedeVerPeriodo: el resto solo abre los habilitados", () => {
+  assert.equal(puedeVerPeriodo("2026-10", false), true);
+  assert.equal(puedeVerPeriodo("2026-08", false), false);
+  assert.equal(puedeVerPeriodo("2026-13", false), false);
+});
+
+test("enlacesDePeriodos: un link por período, en orden, hacia la pantalla de Presupuesto", () => {
+  const enlaces = enlacesDePeriodos("fredy-publicidad", "2026-10");
+  assert.deepEqual(
+    enlaces.map((e) => e.href),
+    [
+      "/fredy-publicidad/2026-09/presupuesto",
+      "/fredy-publicidad/2026-10/presupuesto",
+      "/fredy-publicidad/2026-11/presupuesto",
+    ]
+  );
+});
+
+test("enlacesDePeriodos: marca como activo solo el período actual", () => {
+  const enlaces = enlacesDePeriodos("hwc", "2026-11");
+  assert.deepEqual(
+    enlaces.map((e) => [e.periodo, e.activo]),
+    [
+      ["2026-09", false],
+      ["2026-10", false],
+      ["2026-11", true],
+    ]
+  );
+});
+
+test("enlacesDePeriodos: con un período fuera de la lista (ADMIN o FINANZAS) no marca ninguno", () => {
+  assert.ok(enlacesDePeriodos("hwc", "2026-08").every((e) => !e.activo));
+});
+
+test("PeriodoNoHabilitadoError: es un Error identificable y guarda el período", () => {
+  const error = new PeriodoNoHabilitadoError("2026-08");
+  assert.ok(error instanceof Error);
+  assert.ok(error instanceof PeriodoNoHabilitadoError);
+  assert.equal(error.periodo, "2026-08");
+});

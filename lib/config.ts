@@ -2,12 +2,15 @@
 // resueltos vía lib/slug.ts y lib/presupuesto.ts. EMPRESA_NOMBRE se eliminó porque ya no
 // tiene ningún uso — ninguna pantalla depende de "una sola empresa" en el código.
 //
-// PERIODO se conserva, pero repurposeado: no es más "el período en el que opera la app",
-// sino el período default que usan los links de la portada de login (app/login/page.tsx)
-// para armar /[empresa]/[periodo]/presupuesto de cada una de las 13 empresas. No hay
-// todavía un selector de período por empresa — cuando exista, esta constante debería
-// dejar de usarse ahí también.
-export const PERIODO = "2026-09";
+// Períodos de Presupuesto que puede abrir un usuario que no es ADMIN ni FINANZAS (ver
+// lib/periodosHabilitados.ts). Es el selector de mes de la pantalla de Presupuesto: para
+// habilitar un mes nuevo, agregarlo acá (en orden). Ejecución financiera y Reporte no
+// usan esta lista.
+export const PERIODOS_HABILITADOS: readonly string[] = ["2026-09", "2026-10", "2026-11"];
+
+// Período al que llevan los links de "Mis empresas" (y el aviso de período no habilitado).
+// Tiene que estar en PERIODOS_HABILITADOS (lo controla un test).
+export const PERIODO_POR_DEFECTO = "2026-09";
 
 // Etiqueta del ciclo fiscal que se muestra en la portada de login (app/login/page.tsx).
 //
