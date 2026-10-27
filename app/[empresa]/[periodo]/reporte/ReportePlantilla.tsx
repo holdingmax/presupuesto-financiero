@@ -33,8 +33,8 @@ type Props = {
   empresaSlug: string;
   periodo: string;
   reporte: Reporte;
-  // ADMIN o FINANZAS: ven las etiquetas K, la lista de pendientes y la etiqueta
-  // "carga manual – próximamente". El resto ve "—" donde falta el dato.
+  // ADMIN o FINANZAS y MOSTRAR_PENDIENTES_EN_REPORTE (lib/config.ts): ven las etiquetas K,
+  // sus tooltips y la lista de pendientes.
   verPendientes: boolean;
   // ADMIN o FINANZAS: control de arrastre, marcas de la planilla y link a la carga.
   verControl: boolean;
@@ -222,8 +222,8 @@ function FilaTabla({
   const { fila, celdas } = filaReporte;
   if (fila.tipo === "titulo") {
     return (
-      <tr className="border-t border-line-strong">
-        <td className="sticky left-0 z-10 bg-paper pt-5 pb-1 pr-3 text-xs font-semibold tracking-[0.15em] uppercase">
+      <tr className="border-t border-line-strong bg-[#D6E2F0] font-bold">
+        <td className="sticky left-0 z-10 bg-[#D6E2F0] py-1.5 pr-3 text-xs font-bold tracking-[0.15em] uppercase">
           {fila.texto}
         </td>
         <td colSpan={meses * 4} />
@@ -236,8 +236,8 @@ function FilaTabla({
   const sinPorcentajes = fila.bloque === "DISPONIBILIDADES" || fila.tipo === "capital" || fila.tipo === "disponible";
   const soloP = fila.tipo === "capital" || fila.tipo === "disponible";
   return (
-    <tr className={esTotal ? "border-t border-line-strong font-semibold" : "border-t border-line-hairline"}>
-      <td className="sticky left-0 z-10 bg-paper py-1.5 pr-4 whitespace-nowrap">
+    <tr className={esTotal ? "border-t border-line-strong bg-[#D9D9D9] font-bold" : "border-t border-line-hairline"}>
+      <td className={`sticky left-0 z-10 py-1.5 pr-4 whitespace-nowrap ${esTotal ? "bg-[#D9D9D9]" : "bg-paper"}`}>
         <span title={verPendientes && fila.tipo === "linea" ? fila.nota : undefined}>{fila.texto}</span>
         {fila.tipo === "linea" && (
           <MarcasFila
@@ -327,18 +327,18 @@ function CeldasMes({
   return (
     <>
       <td className={`${claseNumero} border-l border-line-hairline`}>
-        {celda.presupuestado === null ? "—" : importe(celda.presupuestado)}
+        {celda.presupuestado === null ? "" : importe(celda.presupuestado)}
         {esTotal && celda.presupuestoIncompleto && celda.presupuestado !== null && <Asterisco />}
       </td>
       <td className={`${claseNumero} ${realParcial ? "text-ink-muted" : ""}`}>
-        {soloP ? "" : celda.real === null ? "—" : importe(celda.real)}
+        {soloP ? "" : celda.real === null ? "" : importe(celda.real)}
         {esTotal && celda.realIncompleto && celda.real !== null && <Asterisco />}
       </td>
       <td className={claseNumero}>
-        {soloP || sinPorcentajes ? "" : celda.avance === null ? "—" : `${formatearImporte(celda.avance)}%`}
+        {soloP || sinPorcentajes ? "" : celda.avance === null ? "" : `${formatearImporte(celda.avance)}%`}
       </td>
       <td className={claseNumero}>
-        {soloP || sinPorcentajes ? "" : celda.faltaEjecutar === null ? "—" : importe(celda.faltaEjecutar)}
+        {soloP || sinPorcentajes ? "" : celda.faltaEjecutar === null ? "" : importe(celda.faltaEjecutar)}
       </td>
     </>
   );

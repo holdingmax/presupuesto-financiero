@@ -1,5 +1,6 @@
 import type { Usuario } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { MOSTRAR_PENDIENTES_EN_REPORTE } from "@/lib/config";
 import { resolverEmpresaPorSlug } from "@/lib/slug";
 import { requireAccesoEmpresa, AccesoDenegadoError, esAdminOFinanzas, veBloquesReservadosDelReporte } from "@/lib/auth";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
@@ -95,7 +96,8 @@ export default async function ReportePage({ params }: Props) {
         empresaSlug={empresaSlug}
         periodo={periodo}
         unidadesEmpresa={unidadesEmpresa}
-        verPendientes={esAdminOFinanzas(usuario)}
+        verPendientes={esAdminOFinanzas(usuario) && MOSTRAR_PENDIENTES_EN_REPORTE}
+        verControl={esAdminOFinanzas(usuario)}
         verBloquesReservados={veBloquesReservadosDelReporte(usuario)}
       />
     );
@@ -190,6 +192,7 @@ async function ReportePorPlantilla({
   periodo,
   unidadesEmpresa,
   verPendientes,
+  verControl,
   verBloquesReservados,
 }: {
   plantilla: Plantilla;
@@ -199,6 +202,7 @@ async function ReportePorPlantilla({
   periodo: string;
   unidadesEmpresa: string[];
   verPendientes: boolean;
+  verControl: boolean;
   // false = no recibe Disponibilidades ni Cierre (se filtra acá, en el servidor).
   verBloquesReservados: boolean;
 }) {
@@ -225,7 +229,7 @@ async function ReportePorPlantilla({
       periodo={periodo}
       reporte={reporte}
       verPendientes={verPendientes}
-      verControl={verPendientes}
+      verControl={verControl}
       sinUnidades={unidadesEmpresa.length === 0}
       noAsignado={noAsignado.porUnidad.map((n) => ({
         unidad: n.unidad,

@@ -12,6 +12,12 @@ export const PERIODOS_HABILITADOS: readonly string[] = ["2026-09", "2026-10", "2
 // Tiene que estar en PERIODOS_HABILITADOS (lo controla un test).
 export const PERIODO_POR_DEFECTO = "2026-09";
 
+// Reporte por plantilla: muestra las etiquetas K (K1, K7...), sus tooltips y el panel
+// "Pendiente de confirmar con Kike" a ADMIN y FINANZAS. En false se ocultan para todos
+// (la lista sigue en lib/reporte/pendientes.ts); volver a true para reactivarlos. No
+// afecta al control de arrastre ni a las marcas de la planilla (eso es verControl).
+export const MOSTRAR_PENDIENTES_EN_REPORTE = false;
+
 // Etiqueta del ciclo fiscal que se muestra en la portada de login (app/login/page.tsx).
 //
 // PENDIENTE: no está derivada de PERIODO todavía. "3 meses hacia atrás terminando en PERIODO"
