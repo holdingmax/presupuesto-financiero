@@ -10,6 +10,7 @@ import { requireAccesoEmpresa, puedeRevisarPresupuesto, esAdminOFinanzas } from 
 import { PeriodoNoHabilitadoError, puedeVerPeriodo } from "@/lib/periodosHabilitados";
 import { normalizarClasificacion, esElegibleParaDesglose } from "@/lib/clasificaciones";
 import { parsearImporteArgentino } from "@/lib/numero";
+import { extraerImporteCelda } from "@/lib/importeCelda";
 import { validarMensajePedido, puedePedirCambios } from "@/lib/pedidoCambiosPresupuesto";
 import {
   CLASIFICACIONES_PRESUPUESTO_TODAS,
@@ -549,37 +550,6 @@ export async function confirmarVersionFinal(
   return { ok: true };
 }
 
-// Una celda con fórmula viene de ExcelJS como { formula, result, ... } en vez de un número plano.
-function esObjetoConResultadoNumerico(valor: unknown): valor is { result: number } {
-  return (
-    typeof valor === "object" &&
-    valor !== null &&
-    "result" in valor &&
-    typeof (valor as { result: unknown }).result === "number" &&
-    Number.isFinite((valor as { result: number }).result)
-  );
-}
-
-// A diferencia de extraerImporte en ejecucion/actions.ts, acá también se acepta una celda de
-// texto (incluyendo formato argentino con coma decimal, ej. "150.000,50"), en vez de descartar
-// la fila en silencio — ver el comentario sobre rechazo total más abajo.
-function extraerImporte(valorCrudo: unknown): number | null {
-  if (typeof valorCrudo === "number") {
-    return Number.isFinite(valorCrudo) ? valorCrudo : null;
-  }
-  if (esObjetoConResultadoNumerico(valorCrudo)) {
-    return valorCrudo.result;
-  }
-  if (typeof valorCrudo === "string") {
-    const texto = valorCrudo.trim();
-    if (!texto) return null;
-    const normalizado = texto.includes(",") ? texto.replace(/\./g, "").replace(",", ".") : texto;
-    const numero = Number(normalizado);
-    return Number.isFinite(numero) ? numero : null;
-  }
-  return null;
-}
-
 type ResultadoImportarLineas =
   | { ok: true; filasImportadas: number }
   | { ok: false; error: string; erroresPorFila?: { fila: number; error: string }[] };
@@ -661,11 +631,12 @@ export async function subirLineasMasivo(
     // Fila completamente vacía (típico al final de una planilla): se saltea sin error.
     if (!concepto && !detalle && !clasificacion && importeCrudo == null) return;
 
-    const importe = extraerImporte(importeCrudo);
+    const { valor: importe, error: errorImporte } = extraerImporteCelda(importeCrudo);
     const problemas: string[] = [];
     if (!concepto) problemas.push("falta el concepto");
     if (!detalle) problemas.push("falta el detalle");
-    if (importe === null || importe === 0) problemas.push("el importe no es un número válido o es 0");
+    if (errorImporte) problemas.push(errorImporte);
+    else if (importe === null || importe === 0) problemas.push("el importe no es un número válido o es 0");
     if (!clasificacion) problemas.push("falta la clasificación");
     else if (!clasificacionDeLista) problemas.push(`«${clasificacionCruda}» no es una clasificación de la lista`);
 

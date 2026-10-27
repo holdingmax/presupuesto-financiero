@@ -1,8 +1,7 @@
 // Parsea un importe tipeado a mano por un usuario en formato argentino
 // ("1.500.000" = un millón y medio, no 1,5). Distinto del parseo de celdas
-// de archivo (ver extraerImporte en presupuesto/actions.ts): ahí, sin coma,
-// el texto se deja pasar tal cual porque suele venir de una fórmula/celda
-// numérica real donde un punto solo sería decimal. Acá el usuario está
+// de archivo (ver extraerImporteCelda en lib/importeCelda.ts): ahí un texto
+// ambiguo ("150.000", "1,500") se rechaza con error en vez de adivinar. Acá el usuario está
 // tipeando en un <input> de texto, y en este proyecto los importes siempre
 // se muestran/piensan en pesos enteros (ver formatearImporte,
 // maximumFractionDigits: 0) — así que un punto sin coma es SIEMPRE
