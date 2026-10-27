@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { resolverEmpresaPorSlug } from "@/lib/slug";
 import { AccesoDenegadoError, PermisoDenegadoError, requireAccesoEmpresa, requireAdminOFinanzas } from "@/lib/auth";
 import { centavosDeDecimalTexto } from "@/lib/conteoMovimientos";
+import { nombreDePeriodo } from "@/lib/ejecucionSemanas";
 import { armarReporte, camposManuales, periodosHasta, type DatosMes } from "@/lib/reporte/motor";
 import { plantillaDeEmpresa } from "@/lib/reporte/plantillas";
 import { cargarDatosMeses } from "@/lib/reporte/cargarMeses";
@@ -106,7 +107,7 @@ export default async function CargaPage({ params }: Props) {
   return (
     <div className="mx-auto w-full max-w-4xl px-6 py-10">
       <p className="text-xs tracking-[0.15em] text-ink-secondary uppercase">
-        {empresa.nombre} · {periodo}
+        {empresa.nombre} · {nombreDePeriodo(periodo)}
       </p>
       <h1 className="mt-1 text-3xl font-serif font-semibold tracking-tight">Valores del reporte</h1>
       <p className="mt-2 text-sm text-ink-secondary">
