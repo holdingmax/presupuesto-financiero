@@ -400,4 +400,43 @@ export const TEXTOS_MACCHI: Record<string, string[]> = {
     "TOTAL EGRESOS", // A36
     "SALDO INICIAL + INGRESOS - TOTAL EGRESOS", // A37
   ],
+  // `PF - PLATE SILVER - AGOSTO 2026.xlsx`, hoja PRESUPUESTO Y REAL MES A MES, columna A, filas 4 a 41 (sin las filas en blanco). Textos literales, con el espacio de " TOTAL DISPONIBILIDADES" y el "retencio" de la fila 16
+  "plate-silver": [
+    "DISPONIBILIDADES (principios de mes)", // A4
+    "BANCO", // A5
+    "EFECTIVO", // A6
+    "CHEQUES EN CARTERA", // A7
+    " TOTAL DISPONIBILIDADES", // A8
+    "INGRESOS", // A10
+    "Cobranza clientes", // A11
+    "Otras operaciones", // A12
+    "Venta de Propiedades y Equipos", // A13
+    "Cobro de Capital de Préstamos", // A14
+    "Préstamo", // A15
+    "Otro (retencio UI + Collet)", // A16
+    "Otro", // A17
+    "TOTAL INGRESOS", // A18
+    "DISPONIBLE ANTES DE GASTOS", // A19
+    "GASTOS", // A21
+    "Cheques diferidos", // A22
+    "Sueldos", // A23
+    "Impuestos", // A24
+    "Prestamos y tarjetas", // A25
+    "Adicionales", // A26
+    "Expensas", // A27
+    "Gastos Bancarios", // A28
+    "Proveedores", // A29
+    "Proveedores IVA", // A30
+    "Liquidaciones Finales", // A31
+    "Diferencia de cambio - Otros gastos banco", // A32
+    "Otro (reposición de fondo fijo)", // A33
+    "TOTAL GASTOS OPERATIVOS", // A34
+    "Reembolsos de préstamos", // A35
+    "Dividendos", // A36
+    "Otro", // A37
+    "TOTAL GASTOS", // A38
+    "POSICIÓN DE EFECTIVO (fin de mes)", // A39
+    "Capital de trabajo propuesto", // A40
+    "Excedente(+) / Faltante (-)", // A41
+  ],
 };

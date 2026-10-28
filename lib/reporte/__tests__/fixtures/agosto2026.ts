@@ -466,4 +466,51 @@ export const AGOSTO_2026: Record<string, DatosAgosto> = {
     previos: [
     ],
   },
+  // Plate Silver (USD, importes en centavos de dólar): se agregó con el mismo criterio. Banco (W5 = '=+U39') es el
+  // cierre real de julio tipeado: la plantilla no calcula el arrastre. El Real de agosto está vacío salvo Banco y lo
+  // que de él se deriva. Capital de trabajo y Excedente se calculan también en R (X40 = X34, X41 = X8 − X40).
+  "plate-silver": {
+    archivo: "PF - PLATE SILVER - AGOSTO 2026.xlsx",
+    celdaP: "W",
+    filas: [
+      { fila: 4, texto: "DISPONIBILIDADES (principios de mes)", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W4 = None · X4 = None
+      { fila: 5, texto: "BANCO", p: 12030617, r: 12030617, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W5 = '=+U39' · X5 = '=+W5'
+      { fila: 6, texto: "EFECTIVO", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W6 = None · X6 = None
+      { fila: 7, texto: "CHEQUES EN CARTERA", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W7 = None · X7 = None
+      { fila: 8, texto: " TOTAL DISPONIBILIDADES", p: 12030617, r: 12030617, calcP: true, calcR: true, tolP: 1, tolR: 1 }, // W8 = '=+SUM(W4:W7)' · X8 = '=+SUM(X4:X7)'
+      { fila: 10, texto: "INGRESOS", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W10 = None · X10 = None
+      { fila: 11, texto: "Cobranza clientes", p: 11000000, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W11 = '=+'DETALLE DE GASTOS PRESUPUEST_08'!I7' · X11 = None
+      { fila: 12, texto: "Otras operaciones", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W12 = None · X12 = None
+      { fila: 13, texto: "Venta de Propiedades y Equipos", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W13 = None · X13 = None
+      { fila: 14, texto: "Cobro de Capital de Préstamos", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W14 = None · X14 = None
+      { fila: 15, texto: "Préstamo", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W15 = None · X15 = None
+      { fila: 16, texto: "Otro (retencio UI + Collet)", p: -657647, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W16 = '=+U16' · X16 = None
+      { fila: 17, texto: "Otro", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W17 = None · X17 = None
+      { fila: 18, texto: "TOTAL INGRESOS", p: 10342353, r: null, calcP: true, calcR: true, tolP: 0, tolR: 0 }, // W18 = '=SUM(W11:W17)' · X18 = '=SUM(X11:X17)'
+      { fila: 19, texto: "DISPONIBLE ANTES DE GASTOS", p: 22372970, r: 12030617, calcP: true, calcR: true, tolP: 1, tolR: 1 }, // W19 = '=W8+W18' · X19 = '=X8+X18'
+      { fila: 21, texto: "GASTOS", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W21 = None · X21 = None
+      { fila: 22, texto: "Cheques diferidos", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W22 = None · X22 = None
+      { fila: 23, texto: "Sueldos", p: 691908, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W23 = '=+'DETALLE DE GASTOS PRESUPUEST_08'!H52' · X23 = None
+      { fila: 24, texto: "Impuestos", p: 1480000, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W24 = '=-'DETALLE DE GASTOS PRESUPUEST_08'!I20' · X24 = None
+      { fila: 25, texto: "Prestamos y tarjetas", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W25 = None · X25 = None
+      { fila: 26, texto: "Adicionales", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W26 = None · X26 = None
+      { fila: 27, texto: "Expensas", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W27 = None · X27 = None
+      { fila: 28, texto: "Gastos Bancarios", p: 10000, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W28 = 100 · X28 = None
+      { fila: 29, texto: "Proveedores", p: 4719217, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W29 = '=+'DETALLE DE GASTOS PRESUPUEST_08'!I40' · X29 = None
+      { fila: 30, texto: "Proveedores IVA", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W30 = None · X30 = None
+      { fila: 31, texto: "Liquidaciones Finales", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W31 = None · X31 = None
+      { fila: 32, texto: "Diferencia de cambio - Otros gastos banco", p: 726775, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W32 = '=+U17-1.7-1.7' · X32 = None
+      { fila: 33, texto: "Otro (reposición de fondo fijo)", p: 0, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W33 = 0 · X33 = None
+      { fila: 34, texto: "TOTAL GASTOS OPERATIVOS", p: 7627900, r: null, calcP: true, calcR: true, tolP: 2, tolR: 0 }, // W34 = '=SUM(W22:W33)' · X34 = '=SUM(X22:X33)'
+      { fila: 35, texto: "Reembolsos de préstamos", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W35 = None · X35 = None
+      { fila: 36, texto: "Dividendos", p: 3000000, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W36 = 30000 · X36 = None
+      { fila: 37, texto: "Otro", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W37 = None · X37 = None
+      { fila: 38, texto: "TOTAL GASTOS", p: 10627900, r: null, calcP: true, calcR: true, tolP: 2, tolR: 0 }, // W38 = '=SUM(W34:W37)' · X38 = '=SUM(X34:X37)'
+      { fila: 39, texto: "POSICIÓN DE EFECTIVO (fin de mes)", p: 11745071, r: 12030617, calcP: true, calcR: true, tolP: 3, tolR: 1 }, // W39 = '=W19-W38' · X39 = '=X19-X38'
+      { fila: 40, texto: "Capital de trabajo propuesto", p: 7627900, r: null, calcP: true, calcR: true, tolP: 2, tolR: 0 }, // W40 = '=+W34' · X40 = shared
+      { fila: 41, texto: "Excedente(+) / Faltante (-)", p: 4402718, r: 12030617, calcP: true, calcR: true, tolP: 3, tolR: 1 }, // W41 = '=+W8-W40' · X41 = '=+X8-X40'
+    ],
+    previos: [
+    ],
+  },
 };

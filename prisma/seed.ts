@@ -17,7 +17,7 @@ const EMPRESAS = [
   "Radio",
   "HWC",
   "Avianor",
-  "JPS",
+  "Plate Silver",
   "Gold Seguridad",
   "Cielos",
   "Tucson",

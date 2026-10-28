@@ -6,6 +6,7 @@ import { PLANTILLA_FREDY } from "./fredy";
 import { PLANTILLA_HAVANNA } from "./havanna";
 import { PLANTILLA_HWC } from "./hwc";
 import { PLANTILLA_MANTENOR } from "./mantenor";
+import { PLANTILLA_PLATE_SILVER } from "./plateSilver";
 import { PLANTILLA_RADIO } from "./radio";
 
 // Plantilla por SLUG de empresa (lib/slug.ts), no por id: los uuid cambian entre
@@ -13,7 +14,8 @@ import { PLANTILLA_RADIO } from "./radio";
 // los nombres de la base local; los alias de otras bases se agregan a mano (sin
 // match por prefijo: "havanna-peru" no debe tomar la plantilla de Havanna). Avianor tiene
 // plantilla propia (slug confirmado en testing). Empresas sin plantilla (Bradenton, Expensas, Gold
-// Seguridad, JPS) siguen con el Reporte de la Fase 1.
+// Seguridad) siguen con el Reporte de la Fase 1. Plate Silver (en dólares) tiene plantilla propia,
+// sin cartel ni formato de moneda por ahora. JPS ya no es una empresa activa.
 export const PLANTILLAS_POR_SLUG: Record<string, Plantilla> = {
   avianor: PLANTILLA_AVIANOR,
   "conexion-logistica": PLANTILLA_CONEXION,
@@ -24,6 +26,7 @@ export const PLANTILLAS_POR_SLUG: Record<string, Plantilla> = {
   "fredy-publicidad": PLANTILLA_FREDY,
   hwc: PLANTILLA_HWC,
   mantenor: PLANTILLA_MANTENOR,
+  "plate-silver": PLANTILLA_PLATE_SILVER,
 };
 
 export function plantillaDeEmpresa(slug: string): Plantilla | null {

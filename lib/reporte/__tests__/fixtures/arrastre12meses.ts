@@ -93,4 +93,15 @@ export const ARRASTRE_12_MESES: Record<string, MesArrastre[]> = {
     { periodo: "2026-07", celdas: "L8/37", componentes: {"BANCO Y FCI": 25085363988, "DOLARES": 392675000}, totalExcel: 25478038988, cierreReal: 46709803618 },
     { periodo: "2026-08", celdas: "O8/37", componentes: {"BANCO Y FCI": 44950004136, "EFECTIVO": 1759799482}, totalExcel: 46709803618, cierreReal: null },
   ],
+  // Plate Silver (USD, centavos de dólar): enero–agosto de 2026 (el año de la planilla arranca en enero; el Banco de enero es un número tipeado, sin cierre anterior en la hoja). Sin componentes "de ajuste".
+  "plate-silver": [
+    { periodo: "2026-01", celdas: "C8/39", componentes: {"BANCO": 8348319}, totalExcel: 8348319, cierreReal: 9909633 },
+    { periodo: "2026-02", celdas: "F8/39", componentes: {"BANCO": 9909633}, totalExcel: 9909633, cierreReal: 9285522 },
+    { periodo: "2026-03", celdas: "I8/39", componentes: {"BANCO": 9285522}, totalExcel: 9285522, cierreReal: 5622823 },
+    { periodo: "2026-04", celdas: "L8/39", componentes: {"BANCO": 5622823}, totalExcel: 5622823, cierreReal: 10640336 },
+    { periodo: "2026-05", celdas: "O8/39", componentes: {"BANCO": 10640336}, totalExcel: 10640336, cierreReal: 9062996 },
+    { periodo: "2026-06", celdas: "R8/39", componentes: {"BANCO": 9062996}, totalExcel: 9062996, cierreReal: 8237576 },
+    { periodo: "2026-07", celdas: "U8/39", componentes: {"BANCO": 8237576}, totalExcel: 8237576, cierreReal: 12030617 },
+    { periodo: "2026-08", celdas: "X8/39", componentes: {"BANCO": 12030617}, totalExcel: 12030617, cierreReal: 12030617 },
+  ],
 };
