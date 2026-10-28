@@ -56,6 +56,7 @@ export default async function PresupuestoPage({ params }: Props) {
         pedidoCambios={datos.pedidoCambios}
         esRevisor={datos.esRevisor}
         lineasIniciales={datos.lineas}
+        totales={datos.totales}
       />
     </>
   );

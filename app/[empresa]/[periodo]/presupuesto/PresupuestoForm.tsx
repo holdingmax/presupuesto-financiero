@@ -19,6 +19,8 @@ import {
 } from "./clasificacionesPresupuesto";
 import DesglosePanel from "./DesglosePanel";
 import EditarLineaPanel from "./EditarLineaPanel";
+import BarraTotales from "./BarraTotales";
+import type { TotalesPresupuesto } from "@/lib/presupuestoTotales";
 import CampoImporte from "@/components/CampoImporte";
 import { formatearDiaMes, textoTrazabilidad } from "@/lib/fecha";
 import { MAX_MENSAJE_PEDIDO_CAMBIOS } from "@/lib/pedidoCambiosPresupuesto";
@@ -65,6 +67,8 @@ type Props = {
   pedidoCambios: { mensaje: string; fecha: string; por: string | null } | null;
   esRevisor: boolean;
   lineasIniciales: Linea[];
+  // Totales de las líneas guardadas, calculados en el servidor (barra fija).
+  totales: TotalesPresupuesto;
 };
 
 // Sin opción "+ clasificación nueva" (decisión 2026-10-07, pedido de Kike: los
@@ -96,6 +100,7 @@ export default function PresupuestoForm({
   pedidoCambios,
   esRevisor,
   lineasIniciales,
+  totales,
 }: Props) {
   const router = useRouter();
   const { empresa: empresaSlug, periodo: periodoUrl } = useParams<{
@@ -317,8 +322,9 @@ export default function PresupuestoForm({
     ) : null;
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-10">
-      <div className="mb-10 flex items-start justify-between">
+    <div className="mx-auto w-full max-w-3xl px-6 pb-10">
+      <BarraTotales totales={totales} />
+      <div className="mb-10 mt-4 flex items-start justify-between">
         <div>
           <p className="flex items-center gap-2 text-xs tracking-[0.15em] text-ink-secondary uppercase">
             <span className="h-2 w-2 bg-plata" />

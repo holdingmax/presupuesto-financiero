@@ -6,6 +6,7 @@ import ExcelJS from "exceljs";
 import type { PresupuestoMensual, Usuario } from "@prisma/client";
 import { resolverEmpresaPorSlug, quitarDiacriticos } from "@/lib/slug";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
+import { calcularTotalesPresupuesto } from "@/lib/presupuestoTotales";
 import { requireAccesoEmpresa, puedeRevisarPresupuesto, esAdminOFinanzas } from "@/lib/auth";
 import { PeriodoNoHabilitadoError, puedeVerPeriodo } from "@/lib/periodosHabilitados";
 import { normalizarClasificacion, esElegibleParaDesglose } from "@/lib/clasificaciones";
@@ -178,6 +179,8 @@ export async function obtenerDatos(empresaSlug: string, periodo: string) {
         }
       : null,
     esRevisor,
+    // Suma simple de las líneas guardadas, en el servidor: se recalcula en cada refresh.
+    totales: calcularTotalesPresupuesto(lineas.map((l) => ({ clasificacion: l.clasificacion, importe: Number(l.importe) }))),
     lineas: lineas.map((l) => ({
       id: l.id,
       concepto: l.concepto,
