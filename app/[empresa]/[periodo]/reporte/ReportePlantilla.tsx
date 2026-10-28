@@ -3,6 +3,8 @@ import { PENDIENTES } from "@/lib/reporte/pendientes";
 import { formatearImporte } from "@/app/ejecucion/formato";
 import Link from "next/link";
 import BloqueNoAsignado from "./BloqueNoAsignado";
+import { AccionesFlujo, AvisosFlujo, EstadoBadge } from "../FlujoPresupuesto";
+import type { EstadoFlujo } from "@/lib/presupuestoAcceso";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
@@ -38,6 +40,9 @@ type Props = {
   verPendientes: boolean;
   // ADMIN o FINANZAS: control de arrastre, marcas de la planilla y link a la carga.
   verControl: boolean;
+  // Estado del Presupuesto del mes de la URL y botones del flujo; null = no se muestran
+  // (ver mostrarFlujoEnReporte en lib/estadoPresupuesto.ts).
+  flujo: EstadoFlujo | null;
   sinUnidades: boolean;
   noAsignado: { unidad: string; importe: number; movimientos: number }[];
   semanasConNoAsignado: number[];
@@ -50,6 +55,7 @@ export default function ReportePlantilla({
   reporte,
   verPendientes,
   verControl,
+  flujo,
   sinUnidades,
   noAsignado,
   semanasConNoAsignado,
@@ -77,6 +83,23 @@ export default function ReportePlantilla({
           </Link>
         )}
       </div>
+
+      {flujo && (
+        <div className="mb-6">
+          <div className="mb-3 flex items-center gap-2 text-xs text-ink-secondary">
+            <span>Presupuesto de {nombreMes(periodo)}:</span>
+            <EstadoBadge estado={flujo.estado} />
+          </div>
+          <AvisosFlujo
+            estado={flujo.estado}
+            esRevisor={flujo.esRevisor}
+            revisionCompletada={flujo.revisionCompletada}
+            fueModificadoPorRevisor={flujo.fueModificadoPorRevisor}
+            validacion={flujo.validacion}
+            pedidoCambios={flujo.pedidoCambios}
+          />
+        </div>
+      )}
 
       {sinUnidades && (
         <p className="mb-6 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
@@ -118,6 +141,15 @@ export default function ReportePlantilla({
           </tbody>
         </table>
       </div>
+
+      {flujo && (
+        <AccionesFlujo
+          estado={flujo.estado}
+          esRevisor={flujo.esRevisor}
+          revisionCompletada={flujo.revisionCompletada}
+          cantidadLineas={flujo.cantidadLineas}
+        />
+      )}
 
       {verPendientes && reporte.pendientes.length > 0 && (
         <div className="mt-8 rounded-md border border-line-strong bg-paper-raised px-5 py-4">

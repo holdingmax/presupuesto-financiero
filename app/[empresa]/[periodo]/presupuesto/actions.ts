@@ -3,12 +3,14 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import ExcelJS from "exceljs";
-import type { PresupuestoMensual, Usuario } from "@prisma/client";
-import { resolverEmpresaPorSlug, quitarDiacriticos } from "@/lib/slug";
-import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
+import { quitarDiacriticos } from "@/lib/slug";
 import { calcularTotalesPresupuesto } from "@/lib/presupuestoTotales";
-import { requireAccesoEmpresa, puedeRevisarPresupuesto, esAdminOFinanzas } from "@/lib/auth";
-import { PeriodoNoHabilitadoError, puedeVerPeriodo } from "@/lib/periodosHabilitados";
+import { puedeRevisarPresupuesto } from "@/lib/auth";
+import {
+  resolverEmpresaYPresupuesto,
+  autorizarEdicionLinea,
+  marcarComoModificadoSiEnRevision,
+} from "@/lib/presupuestoAcceso";
 import { normalizarClasificacion, esElegibleParaDesglose } from "@/lib/clasificaciones";
 import { parsearImporteArgentino } from "@/lib/numero";
 import { extraerImporteCelda } from "@/lib/importeCelda";
@@ -17,6 +19,13 @@ import {
   CLASIFICACIONES_PRESUPUESTO_TODAS,
   traducirClasificacionPresupuesto,
 } from "./clasificacionesPresupuesto";
+
+// Lo que cambia acá se ve en Presupuesto y también en el Reporte (estado, botones del flujo y
+// el Presupuestado sumado de las líneas): hay que refrescar las dos pantallas.
+function revalidarPresupuesto(empresaSlug: string, periodo: string) {
+  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  revalidatePath(`/${empresaSlug}/${periodo}/reporte`);
+}
 
 // Lista cerrada (decisión 2026-10-07, pedido de Kike: los gerentes no cargan
 // categorías propias). Una línea NUEVA solo puede usar un valor de la lista; una
@@ -44,65 +53,6 @@ const FILA_HEADERS = 1;
 // (no hace nada distinto), pero importa para claves de varias palabras.
 function normalizarEncabezado(texto: string) {
   return quitarDiacriticos(texto).trim().toUpperCase().replace(/\s+/g, " ");
-}
-
-// El layout de [empresa]/[periodo] ya garantiza, al renderizar la página, que
-// el slug matchea una empresa real y que el usuario logueado tiene acceso a
-// ella. Esta resolución (empresa + autorización + usuario) es defensiva para
-// las Server Actions de este archivo, que se invocan directo desde el
-// cliente y no vuelven a pasar por el layout.
-async function resolverEmpresaYPresupuesto(empresaSlug: string, periodo: string) {
-  const empresa = await resolverEmpresaPorSlug(empresaSlug);
-  if (!empresa) {
-    throw new Error(`No existe una empresa para "${empresaSlug}".`);
-  }
-  const usuario = await requireAccesoEmpresa(empresa.id);
-  // Fuera de la lista de períodos habilitados solo entran ADMIN y FINANZAS. Va ANTES de
-  // obtenerOCrearPresupuesto: un período no habilitado no tiene que crear ninguna fila.
-  if (!puedeVerPeriodo(periodo, esAdminOFinanzas(usuario))) {
-    throw new PeriodoNoHabilitadoError(periodo);
-  }
-  const presupuesto = await obtenerOCrearPresupuesto(empresa.id, periodo);
-  return { empresa, presupuesto, usuario };
-}
-
-type ResultadoAutorizacion = { ok: true } | { ok: false; error: string };
-
-// Único punto de autorización para las acciones que mutan líneas de un
-// presupuesto (agregarLinea/editarLinea/eliminarLinea/guardarDesglose/
-// eliminarDesglose/subirLineasMasivo). Depende del estado: en ABIERTO,
-// cualquiera con acceso a la empresa (igual que siempre, ver
-// requireAccesoEmpresa arriba); en EN_REVISION, solo quien tiene
-// puedeRevisarPresupuesto (o ADMIN); en VALIDADO, nadie.
-async function autorizarEdicionLinea(
-  usuario: Usuario,
-  empresaId: string,
-  presupuesto: PresupuestoMensual
-): Promise<ResultadoAutorizacion> {
-  if (presupuesto.estado === "VALIDADO") {
-    return { ok: false, error: "Este presupuesto ya está validado, no se puede editar." };
-  }
-  if (presupuesto.estado === "EN_REVISION" && !(await puedeRevisarPresupuesto(usuario, empresaId))) {
-    return {
-      ok: false,
-      error: "Este presupuesto está en revisión — mientras dure, solo quien lo revisa puede modificarlo.",
-    };
-  }
-  return { ok: true };
-}
-
-// Después de una mutación exitosa hecha por el revisor mientras el
-// presupuesto está EN_REVISION: marca que hubo cambios (aviso mínimo para el
-// gerente, sin detalle línea por línea) y resetea revisionCompletada — si el
-// revisor sigue tocando algo después de haber marcado "Terminé de revisar",
-// tiene que volver a marcarlo. No hace nada en ABIERTO (nada que avisar ni
-// resetear todavía).
-async function marcarComoModificadoSiEnRevision(presupuesto: PresupuestoMensual) {
-  if (presupuesto.estado !== "EN_REVISION") return;
-  await prisma.presupuestoMensual.update({
-    where: { id: presupuesto.id },
-    data: { fueModificadoPorRevisor: true, revisionCompletada: false },
-  });
 }
 
 // Compartida entre agregarLinea y editarLinea: mismas 4 validaciones de
@@ -224,7 +174,7 @@ export async function agregarLinea(
   });
   await marcarComoModificadoSiEnRevision(presupuesto);
 
-  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  revalidarPresupuesto(empresaSlug, periodo);
   return { ok: true };
 }
 
@@ -293,7 +243,7 @@ export async function editarLinea(
   });
   await marcarComoModificadoSiEnRevision(presupuesto);
 
-  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  revalidarPresupuesto(empresaSlug, periodo);
   return { ok: true };
 }
 
@@ -313,7 +263,7 @@ export async function eliminarLinea(
   await prisma.lineaPresupuesto.delete({ where: { id } });
   await marcarComoModificadoSiEnRevision(presupuesto);
 
-  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  revalidarPresupuesto(empresaSlug, periodo);
   return { ok: true };
 }
 
@@ -391,7 +341,7 @@ export async function guardarDesglose(
   ]);
   await marcarComoModificadoSiEnRevision(presupuesto);
 
-  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  revalidarPresupuesto(empresaSlug, periodo);
   return { ok: true };
 }
 
@@ -409,7 +359,7 @@ export async function eliminarDesglose(
   await prisma.lineaPresupuestoDesglose.deleteMany({ where: { lineaPresupuestoId: lineaId } });
   await marcarComoModificadoSiEnRevision(presupuesto);
 
-  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  revalidarPresupuesto(empresaSlug, periodo);
   return { ok: true };
 }
 
@@ -443,7 +393,7 @@ export async function enviarARevision(
     where: { id: presupuesto.id },
     data: { estado: "EN_REVISION" },
   });
-  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  revalidarPresupuesto(empresaSlug, periodo);
   return { ok: true };
 }
 
@@ -467,7 +417,7 @@ export async function marcarRevisionCompletada(
     where: { id: presupuesto.id },
     data: { revisionCompletada: true },
   });
-  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  revalidarPresupuesto(empresaSlug, periodo);
   return { ok: true };
 }
 
@@ -515,7 +465,7 @@ export async function pedirCambios(
     };
   }
 
-  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  revalidarPresupuesto(empresaSlug, periodo);
   return { ok: true };
 }
 
@@ -549,7 +499,7 @@ export async function confirmarVersionFinal(
       error: "El presupuesto cambió mientras lo confirmabas. Recargá la pantalla y revisá su estado.",
     };
   }
-  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  revalidarPresupuesto(empresaSlug, periodo);
   return { ok: true };
 }
 
@@ -669,6 +619,6 @@ export async function subirLineasMasivo(
   });
   await marcarComoModificadoSiEnRevision(presupuesto);
 
-  revalidatePath(`/${empresaSlug}/${periodo}/presupuesto`);
+  revalidarPresupuesto(empresaSlug, periodo);
   return { ok: true, filasImportadas: filas.length };
 }

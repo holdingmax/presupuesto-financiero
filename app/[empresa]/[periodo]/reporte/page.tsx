@@ -2,8 +2,17 @@ import type { Usuario } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { MOSTRAR_PENDIENTES_EN_REPORTE } from "@/lib/config";
 import { resolverEmpresaPorSlug } from "@/lib/slug";
-import { requireAccesoEmpresa, AccesoDenegadoError, esAdminOFinanzas, veBloquesReservadosDelReporte } from "@/lib/auth";
+import {
+  requireAccesoEmpresa,
+  AccesoDenegadoError,
+  esAdminOFinanzas,
+  puedeRevisarPresupuesto,
+  veBloquesReservadosDelReporte,
+} from "@/lib/auth";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
+import { esPeriodoHabilitado } from "@/lib/periodosHabilitados";
+import { cargaEnReporteActiva, mostrarFlujoEnReporte } from "@/lib/estadoPresupuesto";
+import { obtenerEstadoFlujo, type EstadoFlujo } from "@/lib/presupuestoAcceso";
 import {
   obtenerUnidadesConEmpresa,
   calcularRealPorRubro,
@@ -99,6 +108,7 @@ export default async function ReportePage({ params }: Props) {
         verPendientes={esAdminOFinanzas(usuario) && MOSTRAR_PENDIENTES_EN_REPORTE}
         verControl={esAdminOFinanzas(usuario)}
         verBloquesReservados={veBloquesReservadosDelReporte(usuario)}
+        usuario={usuario}
       />
     );
   }
@@ -194,6 +204,7 @@ async function ReportePorPlantilla({
   verPendientes,
   verControl,
   verBloquesReservados,
+  usuario,
 }: {
   plantilla: Plantilla;
   empresaId: string;
@@ -205,7 +216,22 @@ async function ReportePorPlantilla({
   verControl: boolean;
   // false = no recibe Disponibilidades ni Cierre (se filtra acá, en el servidor).
   verBloquesReservados: boolean;
+  usuario: Usuario;
 }) {
+  // Estado y botones del flujo de Presupuesto (Enviar a revisión, Terminé de revisar, Pedir
+  // cambios, Confirmar versión final) para el mes de la URL. ADMIN, FINANZAS y revisores lo
+  // ven siempre; el gerente solo si su empresa está en EMPRESAS_CON_CARGA_EN_REPORTE. Solo
+  // lee: no crea el PresupuestoMensual del mes.
+  const esRevisor = await puedeRevisarPresupuesto(usuario, empresaId);
+  const flujo: EstadoFlujo | null = mostrarFlujoEnReporte({
+    esAdminOFinanzas: esAdminOFinanzas(usuario),
+    esRevisor,
+    cargaActiva: cargaEnReporteActiva(empresaSlug),
+    periodoHabilitado: esPeriodoHabilitado(periodo),
+  })
+    ? await obtenerEstadoFlujo(empresaId, periodo, esRevisor)
+    : null;
+
   // Un mes más de contexto (no se muestra): el control de arrastre y los espejos del mes
   // anterior lo necesitan para el primer mes visible.
   const periodos = periodosHasta(periodo, MESES_VISIBLES + 1);
@@ -230,6 +256,7 @@ async function ReportePorPlantilla({
       reporte={reporte}
       verPendientes={verPendientes}
       verControl={verControl}
+      flujo={flujo}
       sinUnidades={unidadesEmpresa.length === 0}
       noAsignado={noAsignado.porUnidad.map((n) => ({
         unidad: n.unidad,

@@ -1,0 +1,325 @@
+"use client";
+
+import { useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import {
+  enviarARevision,
+  marcarRevisionCompletada,
+  confirmarVersionFinal,
+  pedirCambios,
+} from "./presupuesto/actions";
+import { formatearDiaMes, textoTrazabilidad } from "@/lib/fecha";
+import { MAX_MENSAJE_PEDIDO_CAMBIOS } from "@/lib/pedidoCambiosPresupuesto";
+
+// Estado del presupuesto y botones del flujo (ABIERTO → EN_REVISION → ABIERTO con mensaje →
+// VALIDADO), compartidos por Presupuesto (PresupuestoForm) y el Reporte. Se separan en tres
+// piezas porque en las dos pantallas van en lugares distintos: la etiqueta junto al título, los
+// avisos arriba y los botones abajo. Las reglas de quién puede qué las repite el servidor (ver
+// las acciones de presupuesto/actions.ts); acá solo se muestra u oculta.
+
+export function EstadoBadge({ estado }: { estado: string }) {
+  const validado = estado === "VALIDADO";
+  const enRevision = estado === "EN_REVISION";
+  return (
+    <span
+      className={`text-xs px-2.5 py-1 rounded-md ${
+        validado
+          ? "bg-terracota-tint text-terracota"
+          : enRevision
+            ? "bg-plata/20 text-ink-secondary"
+            : "bg-marino-tint text-marino"
+      }`}
+    >
+      {validado ? "Validado" : enRevision ? "En revisión" : "Abierto"}
+    </span>
+  );
+}
+
+type PropsAvisos = {
+  estado: string;
+  esRevisor: boolean;
+  revisionCompletada: boolean;
+  fueModificadoPorRevisor: boolean;
+  // Trazabilidad: quién confirmó la versión final y cuándo (null si no está validado).
+  validacion: { fecha: string; por: string | null } | null;
+  // Último pedido de cambios del revisor (null si nunca hubo). Solo se muestra en ABIERTO.
+  pedidoCambios: { mensaje: string; fecha: string; por: string | null } | null;
+};
+
+export function AvisosFlujo({
+  estado,
+  esRevisor,
+  revisionCompletada,
+  fueModificadoPorRevisor,
+  validacion,
+  pedidoCambios,
+}: PropsAvisos) {
+  const validado = estado === "VALIDADO";
+  const enRevision = estado === "EN_REVISION";
+  return (
+    <>
+      {estado === "ABIERTO" && pedidoCambios && (
+        <div className="mb-6 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
+          <p className="font-medium">
+            {pedidoCambios.por
+              ? `Pedido de cambios de ${pedidoCambios.por} el ${formatearDiaMes(pedidoCambios.fecha)}`
+              : `Pedido de cambios del ${formatearDiaMes(pedidoCambios.fecha)}`}
+          </p>
+          <p className="mt-1 whitespace-pre-line">{pedidoCambios.mensaje}</p>
+        </div>
+      )}
+
+      {validado && (
+        <p className="mb-6 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
+          Este presupuesto ya fue validado. Cualquier corrección se carga en el período
+          siguiente.
+          {validacion && (
+            <span className="mt-1 block text-xs">
+              {textoTrazabilidad("Validado", validacion.fecha, validacion.por)}.
+            </span>
+          )}
+        </p>
+      )}
+
+      {enRevision && !esRevisor && (
+        <div className="mb-6 space-y-2">
+          <p className="text-sm text-ink-secondary bg-plata/20 rounded-md px-3 py-2">
+            {revisionCompletada
+              ? "La revisión de este presupuesto está terminada. Revisá la versión final y confirmá."
+              : "Este presupuesto está en revisión — no podés editarlo mientras dure."}
+          </p>
+          {fueModificadoPorRevisor && (
+            <p className="text-xs text-ink-muted">Se hicieron cambios en este presupuesto durante la revisión.</p>
+          )}
+        </div>
+      )}
+
+      {enRevision && esRevisor && (
+        <p className="mb-6 text-sm text-ink-secondary bg-plata/20 rounded-md px-3 py-2">
+          Este presupuesto está en revisión — estás editando como revisor.
+        </p>
+      )}
+    </>
+  );
+}
+
+type PropsAcciones = {
+  estado: string;
+  esRevisor: boolean;
+  revisionCompletada: boolean;
+  // Cantidad de líneas guardadas: sin ninguna no se puede enviar a revisión.
+  cantidadLineas: number;
+};
+
+export function AccionesFlujo({ estado, esRevisor, revisionCompletada, cantidadLineas }: PropsAcciones) {
+  const router = useRouter();
+  const { empresa: empresaSlug, periodo: periodoUrl } = useParams<{
+    empresa: string;
+    periodo: string;
+  }>();
+
+  const [errorValidar, setErrorValidar] = useState("");
+  // Panel "Pedir cambios" (solo revisor, solo EN_REVISION). El error se muestra
+  // adentro del panel y no lo cierra, para no perder el texto escrito.
+  const [panelPedidoAbierto, setPanelPedidoAbierto] = useState(false);
+  const [mensajePedido, setMensajePedido] = useState("");
+  const [errorPedido, setErrorPedido] = useState("");
+  const [enviandoPedido, setEnviandoPedido] = useState(false);
+
+  const validado = estado === "VALIDADO";
+  const enRevision = estado === "EN_REVISION";
+
+  async function handleEnviarARevision() {
+    if (!confirm("¿Enviar este presupuesto a revisión? Vos ya no vas a poder seguir editándolo mientras dure.")) {
+      return;
+    }
+    setErrorValidar("");
+    const resultado = await enviarARevision(empresaSlug, periodoUrl);
+    if (!resultado.ok) {
+      setErrorValidar(resultado.error);
+      return;
+    }
+    router.refresh();
+  }
+
+  async function handleTerminarRevision() {
+    setErrorValidar("");
+    const resultado = await marcarRevisionCompletada(empresaSlug, periodoUrl);
+    if (!resultado.ok) {
+      setErrorValidar(resultado.error);
+      return;
+    }
+    router.refresh();
+  }
+
+  function cerrarPanelPedido() {
+    setPanelPedidoAbierto(false);
+    setMensajePedido("");
+    setErrorPedido("");
+  }
+
+  async function handleEnviarPedido() {
+    setEnviandoPedido(true);
+    setErrorPedido("");
+    const resultado = await pedirCambios(empresaSlug, periodoUrl, mensajePedido);
+    setEnviandoPedido(false);
+    if (!resultado.ok) {
+      setErrorPedido(resultado.error);
+      return;
+    }
+    cerrarPanelPedido();
+    router.refresh();
+  }
+
+  async function handleConfirmarVersionFinal() {
+    if (!confirm("¿Confirmar la versión final? Después de esto no se puede editar para atrás.")) {
+      return;
+    }
+    setErrorValidar("");
+    const resultado = await confirmarVersionFinal(empresaSlug, periodoUrl);
+    if (!resultado.ok) {
+      setErrorValidar(resultado.error);
+      return;
+    }
+    router.refresh();
+  }
+
+  // Se muestra al lado de "Terminé de revisar" (y también cuando la revisión ya está
+  // completada: el revisor puede arrepentirse, ver puedePedirCambios).
+  const botonPedirCambios =
+    enRevision && esRevisor ? (
+      <button
+        onClick={() => setPanelPedidoAbierto(true)}
+        disabled={enviandoPedido || panelPedidoAbierto}
+        className="h-14 px-6 rounded-md border border-line-strong text-base font-semibold tracking-wide text-ink transition hover:bg-paper-raised disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Pedir cambios
+      </button>
+    ) : null;
+
+  if (validado) return null;
+
+  return (
+    <div className="mt-10 border-t border-line pt-6">
+      {errorValidar && (
+        <p className="mb-4 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
+          {errorValidar}
+        </p>
+      )}
+
+      {estado === "ABIERTO" && (
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-ink-muted max-w-xs">
+            Una vez que la envíes a revisión, vos ya no vas a poder editarla más. Cualquier
+            corrección la carga quien revisa.
+          </p>
+          <button
+            onClick={handleEnviarARevision}
+            disabled={cantidadLineas === 0}
+            className="h-14 px-6 rounded-md bg-ink text-base font-semibold tracking-wide text-paper shadow-sm transition hover:bg-ink/90 hover:shadow-md active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            Enviar a revisión
+          </button>
+        </div>
+      )}
+
+      {enRevision && esRevisor && !revisionCompletada && (
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-ink-muted max-w-xs">
+            Cuando termines de revisar, marcalo acá — recién ahí se puede confirmar la versión
+            final.
+          </p>
+          <div className="flex items-center gap-3">
+            {botonPedirCambios}
+            <button
+              onClick={handleTerminarRevision}
+              disabled={enviandoPedido}
+              className="h-14 px-6 rounded-md bg-ink text-base font-semibold tracking-wide text-paper shadow-sm transition hover:bg-ink/90 hover:shadow-md active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Terminé de revisar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {enRevision && esRevisor && panelPedidoAbierto && (
+        <div className="mt-6 rounded-md border border-line-strong bg-paper-raised px-4 py-4">
+          <label htmlFor="mensajePedido" className="block text-sm text-ink-secondary mb-1.5">
+            Qué cambios necesitás
+          </label>
+          <textarea
+            id="mensajePedido"
+            value={mensajePedido}
+            onChange={(e) => {
+              setMensajePedido(e.target.value);
+              setErrorPedido("");
+            }}
+            maxLength={MAX_MENSAJE_PEDIDO_CAMBIOS}
+            rows={5}
+            disabled={enviandoPedido}
+            className={`w-full rounded-md border bg-paper px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-marino/15 disabled:opacity-60 ${
+              errorPedido ? "border-terracota" : "border-line focus:border-marino"
+            }`}
+          />
+          <div className="mt-1 flex items-start justify-between gap-4">
+            <p className="text-xs text-ink-muted">
+              El presupuesto vuelve al gerente para que lo corrija. Vas a tener que revisarlo de
+              nuevo cuando lo reenvíe.
+            </p>
+            <span className="tabular shrink-0 text-xs text-ink-muted">
+              {mensajePedido.length}/{MAX_MENSAJE_PEDIDO_CAMBIOS}
+            </span>
+          </div>
+          {errorPedido && (
+            <p className="mt-3 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
+              {errorPedido}
+            </p>
+          )}
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              onClick={handleEnviarPedido}
+              disabled={enviandoPedido}
+              className="h-11 px-5 rounded-md bg-ink text-sm font-semibold text-paper transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {enviandoPedido ? "Enviando..." : "Enviar pedido"}
+            </button>
+            <button
+              onClick={cerrarPanelPedido}
+              disabled={enviandoPedido}
+              className="h-11 px-4 rounded-md border border-line-strong text-sm text-ink-secondary transition hover:bg-paper disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Ojo con esRevisor acá: NO es el mismo gate que el botón de
+          arriba. confirmarVersionFinal no exige ser revisor (cualquiera
+          con acceso puede confirmar una vez revisionCompletada) — a
+          propósito, porque alguien que es gerente Y revisor a la vez de
+          la misma empresa (ej. Kike en Handy Way, o cualquier ADMIN, que
+          siempre pasa puedeRevisarPresupuesto) tiene que poder terminar
+          su propio flujo solo, sin quedar sin botón. Gatearlo con
+          !esRevisor dejaría a esas personas trabadas para siempre. */}
+      {enRevision && revisionCompletada && (
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-ink-muted max-w-xs">
+            Una vez que confirmes, el presupuesto de este mes queda cerrado. Cualquier
+            corrección se carga en el período siguiente.
+          </p>
+          <div className="flex items-center gap-3">
+            {esRevisor && botonPedirCambios}
+            <button
+              onClick={handleConfirmarVersionFinal}
+              disabled={enviandoPedido}
+              className="h-14 px-6 rounded-md bg-ink text-base font-semibold tracking-wide text-paper shadow-sm transition hover:bg-ink/90 hover:shadow-md active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Confirmar versión final
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

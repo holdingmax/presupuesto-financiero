@@ -18,6 +18,12 @@ export const PERIODO_POR_DEFECTO = "2026-09";
 // afecta al control de arrastre ni a las marcas de la planilla (eso es verControl).
 export const MOSTRAR_PENDIENTES_EN_REPORTE = false;
 
+// Interruptor por empresa de la carga del gerente directo en el Reporte (plan: el gerente
+// tipea su Presupuestado en /reporte). Lista de SLUGS de empresa (lib/slug.ts). Vacía = apagado
+// para todas: el gerente sigue cargando en Presupuesto. Para volver atrás con una empresa,
+// sacar su slug de la lista. Ver cargaEnReporteActiva en lib/estadoPresupuesto.ts.
+export const EMPRESAS_CON_CARGA_EN_REPORTE: readonly string[] = [];
+
 // Etiqueta del ciclo fiscal que se muestra en la portada de login (app/login/page.tsx).
 //
 // PENDIENTE: no está derivada de PERIODO todavía. "3 meses hacia atrás terminando en PERIODO"
