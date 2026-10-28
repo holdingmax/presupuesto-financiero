@@ -22,7 +22,7 @@ export const MOSTRAR_PENDIENTES_EN_REPORTE = false;
 // tipea su Presupuestado en /reporte). Lista de SLUGS de empresa (lib/slug.ts). Vacía = apagado
 // para todas: el gerente sigue cargando en Presupuesto. Para volver atrás con una empresa,
 // sacar su slug de la lista. Ver cargaEnReporteActiva en lib/estadoPresupuesto.ts.
-export const EMPRESAS_CON_CARGA_EN_REPORTE: readonly string[] = [];
+export const EMPRESAS_CON_CARGA_EN_REPORTE: readonly string[] = ["brillante"];
 
 // Etiqueta del ciclo fiscal que se muestra en la portada de login (app/login/page.tsx).
 //

@@ -10,6 +10,7 @@ import {
 } from "./presupuesto/actions";
 import { formatearDiaMes, textoTrazabilidad } from "@/lib/fecha";
 import { MAX_MENSAJE_PEDIDO_CAMBIOS } from "@/lib/pedidoCambiosPresupuesto";
+import { useHayCambiosSinGuardar } from "./CargaPresupuestoContexto";
 
 // Estado del presupuesto y botones del flujo (ABIERTO → EN_REVISION → ABIERTO con mensaje →
 // VALIDADO), compartidos por Presupuesto (PresupuestoForm) y el Reporte. Se separan en tres
@@ -126,6 +127,9 @@ export function AccionesFlujo({ estado, esRevisor, revisionCompletada, cantidadL
   const [errorPedido, setErrorPedido] = useState("");
   const [enviandoPedido, setEnviandoPedido] = useState(false);
 
+  // En el Reporte con carga activa: valores tipeados que todavía no se guardaron.
+  const hayCambiosSinGuardar = useHayCambiosSinGuardar();
+
   const validado = estado === "VALIDADO";
   const enRevision = estado === "EN_REVISION";
 
@@ -213,9 +217,12 @@ export function AccionesFlujo({ estado, esRevisor, revisionCompletada, cantidadL
             Una vez que la envíes a revisión, vos ya no vas a poder editarla más. Cualquier
             corrección la carga quien revisa.
           </p>
+          {hayCambiosSinGuardar && (
+            <p className="text-xs text-terracota mr-4">Guardá los cambios antes de enviar a revisión.</p>
+          )}
           <button
             onClick={handleEnviarARevision}
-            disabled={cantidadLineas === 0}
+            disabled={cantidadLineas === 0 || hayCambiosSinGuardar}
             className="h-14 px-6 rounded-md bg-ink text-base font-semibold tracking-wide text-paper shadow-sm transition hover:bg-ink/90 hover:shadow-md active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-30"
           >
             Enviar a revisión

@@ -5,6 +5,9 @@ import Link from "next/link";
 import BloqueNoAsignado from "./BloqueNoAsignado";
 import { AccionesFlujo, AvisosFlujo, EstadoBadge } from "../FlujoPresupuesto";
 import type { EstadoFlujo } from "@/lib/presupuestoAcceso";
+import type { VistaCarga } from "@/lib/reporte/cargaGerente";
+import { BarraGuardarPresupuesto, BloqueSinFila, CeldaPresupuestoEditable, ProveedorCarga } from "./CargaPresupuesto";
+import type { ReactNode } from "react";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
@@ -43,6 +46,9 @@ type Props = {
   // Estado del Presupuesto del mes de la URL y botones del flujo; null = no se muestran
   // (ver mostrarFlujoEnReporte en lib/estadoPresupuesto.ts).
   flujo: EstadoFlujo | null;
+  // Carga del Presupuestado en el Reporte (Etapa 2): celdas editables de la última columna y
+  // bloque "Sin fila". null = el Reporte es de solo lectura, como siempre.
+  carga: VistaCarga | null;
   sinUnidades: boolean;
   noAsignado: { unidad: string; importe: number; movimientos: number }[];
   semanasConNoAsignado: number[];
@@ -56,11 +62,13 @@ export default function ReportePlantilla({
   verPendientes,
   verControl,
   flujo,
+  carga,
   sinUnidades,
   noAsignado,
   semanasConNoAsignado,
 }: Props) {
   const { periodos, sinPresupuesto, sinEjecucion } = reporte;
+  const idsEditables = new Set(carga?.celdas.map((c) => c.id));
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-10">
       <div className="mb-8">
@@ -84,6 +92,7 @@ export default function ReportePlantilla({
         )}
       </div>
 
+      <ConCarga carga={carga} empresaSlug={empresaSlug} periodo={periodo}>
       {flujo && (
         <div className="mb-6">
           <div className="mb-3 flex items-center gap-2 text-xs text-ink-secondary">
@@ -107,6 +116,8 @@ export default function ReportePlantilla({
           administrador las asigna en Administración → Unidades de negocio.
         </p>
       )}
+
+      {carga && <BarraGuardarPresupuesto />}
 
       <div className="overflow-x-auto border-t border-line-strong">
         <table className="w-max min-w-full text-sm">
@@ -136,11 +147,15 @@ export default function ReportePlantilla({
                 reporte={reporte}
                 verPendientes={verPendientes}
                 verControl={verControl}
+                carga={carga}
+                idsEditables={idsEditables}
               />
             ))}
           </tbody>
         </table>
       </div>
+
+      {carga && <BloqueSinFila filas={carga.sinFila} fueraDeLista={carga.fueraDeLista} />}
 
       {flujo && (
         <AccionesFlujo
@@ -150,6 +165,7 @@ export default function ReportePlantilla({
           cantidadLineas={flujo.cantidadLineas}
         />
       )}
+      </ConCarga>
 
       {verPendientes && reporte.pendientes.length > 0 && (
         <div className="mt-8 rounded-md border border-line-strong bg-paper-raised px-5 py-4">
@@ -175,6 +191,27 @@ export default function ReportePlantilla({
   );
 }
 
+// Con carga activa envuelve lo que necesita el estado de las celdas editables; sin carga no
+// agrega nada.
+function ConCarga({
+  carga,
+  empresaSlug,
+  periodo,
+  children,
+}: {
+  carga: VistaCarga | null;
+  empresaSlug: string;
+  periodo: string;
+  children: ReactNode;
+}) {
+  if (!carga) return <>{children}</>;
+  return (
+    <ProveedorCarga empresaSlug={empresaSlug} periodo={periodo} celdas={carga.celdas} huella={carga.huella}>
+      {children}
+    </ProveedorCarga>
+  );
+}
+
 // La fila y, debajo del Total Disponibilidades, el control de arrastre (solo
 // ADMIN/FINANZAS; no es una fila de la planilla).
 function FilaConControl({
@@ -182,17 +219,28 @@ function FilaConControl({
   reporte,
   verPendientes,
   verControl,
+  carga,
+  idsEditables,
 }: {
   filaReporte: FilaReporte;
   reporte: Reporte;
   verPendientes: boolean;
   verControl: boolean;
+  carga: VistaCarga | null;
+  idsEditables: Set<string>;
 }) {
   const meses = reporte.periodos.length;
   const { fila } = filaReporte;
   return (
     <>
-      <FilaTabla filaReporte={filaReporte} meses={meses} verPendientes={verPendientes} verControl={verControl} />
+      <FilaTabla
+        filaReporte={filaReporte}
+        meses={meses}
+        verPendientes={verPendientes}
+        verControl={verControl}
+        carga={carga}
+        idsEditables={idsEditables}
+      />
       {verControl && fila.tipo === "total" && fila.rol === "totalDisponibilidades" && (
         <tr className="bg-paper-cool text-xs italic text-ink-secondary">
           <td className="sticky left-0 z-10 bg-paper-cool py-1 pr-4 whitespace-nowrap">
@@ -245,11 +293,15 @@ function FilaTabla({
   meses,
   verPendientes,
   verControl,
+  carga,
+  idsEditables,
 }: {
   filaReporte: FilaReporte;
   meses: number;
   verPendientes: boolean;
   verControl: boolean;
+  carga: VistaCarga | null;
+  idsEditables: Set<string>;
 }) {
   const { fila, celdas } = filaReporte;
   if (fila.tipo === "titulo") {
@@ -267,6 +319,17 @@ function FilaTabla({
   // Disponible solo tienen P (como la planilla).
   const sinPorcentajes = fila.bloque === "DISPONIBILIDADES" || fila.tipo === "capital" || fila.tipo === "disponible";
   const soloP = fila.tipo === "capital" || fila.tipo === "disponible";
+  // Carga del Presupuestado (Etapa 2): solo la columna P del ÚLTIMO mes (el de la URL). Una fila
+  // de categoría es un input, o muestra por qué no se puede editar desde acá.
+  const idCelda = fila.tipo === "linea" ? `fila|${fila.clave}` : null;
+  const editor =
+    idCelda !== null && idsEditables.has(idCelda) ? (
+      <CeldaPresupuestoEditable id={idCelda} nombre={fila.texto.trim()} />
+    ) : undefined;
+  const motivo =
+    carga && fila.tipo === "linea" && Object.hasOwn(carga.motivosFilas, fila.clave)
+      ? carga.motivosFilas[fila.clave]
+      : undefined;
   return (
     <tr className={esTotal ? "border-t border-line-strong bg-[#D9D9D9] font-bold" : "border-t border-line-hairline"}>
       <td className={`sticky left-0 z-10 py-1.5 pr-4 whitespace-nowrap ${esTotal ? "bg-[#D9D9D9]" : "bg-paper"}`}>
@@ -295,6 +358,8 @@ function FilaTabla({
           realParcial={fila.tipo === "linea" && !!fila.parcial}
           sinPorcentajes={sinPorcentajes}
           soloP={soloP}
+          editor={i === celdas.length - 1 ? editor : undefined}
+          motivo={i === celdas.length - 1 ? motivo : undefined}
         />
       ))}
     </tr>
@@ -348,19 +413,25 @@ function CeldasMes({
   realParcial,
   sinPorcentajes,
   soloP,
+  editor,
+  motivo,
 }: {
   celda: Celda;
   esTotal: boolean;
   realParcial: boolean;
   sinPorcentajes: boolean;
   soloP: boolean;
+  // Carga del Presupuestado: input en lugar del número, o el motivo de solo lectura debajo de él.
+  editor?: ReactNode;
+  motivo?: string;
 }) {
   const claseNumero = "py-1.5 px-3 text-right tabular whitespace-nowrap";
   return (
     <>
       <td className={`${claseNumero} border-l border-line-hairline`}>
-        {celda.presupuestado === null ? "" : importe(celda.presupuestado)}
-        {esTotal && celda.presupuestoIncompleto && celda.presupuestado !== null && <Asterisco />}
+        {editor ?? (celda.presupuestado === null ? "" : importe(celda.presupuestado))}
+        {!editor && esTotal && celda.presupuestoIncompleto && celda.presupuestado !== null && <Asterisco />}
+        {!editor && motivo && <span className="block text-[10px] font-normal text-ink-muted">{motivo}</span>}
       </td>
       <td className={`${claseNumero} ${realParcial ? "text-ink-muted" : ""}`}>
         {soloP ? "" : celda.real === null ? "" : importe(celda.real)}

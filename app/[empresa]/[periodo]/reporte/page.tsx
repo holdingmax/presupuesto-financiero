@@ -11,7 +11,9 @@ import {
 } from "@/lib/auth";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
 import { esPeriodoHabilitado } from "@/lib/periodosHabilitados";
-import { cargaEnReporteActiva, mostrarFlujoEnReporte } from "@/lib/estadoPresupuesto";
+import { cargaEnReporteActiva, mostrarFlujoEnReporte, puedeEditarPresupuestoAhora } from "@/lib/estadoPresupuesto";
+import { planDeCarga, vistaDeCarga, type VistaCarga } from "@/lib/reporte/cargaGerente";
+import { leerLineasParaCarga } from "@/lib/reporte/aplicarCarga";
 import { obtenerEstadoFlujo, type EstadoFlujo } from "@/lib/presupuestoAcceso";
 import {
   obtenerUnidadesConEmpresa,
@@ -232,6 +234,15 @@ async function ReportePorPlantilla({
     ? await obtenerEstadoFlujo(empresaId, periodo, esRevisor)
     : null;
 
+  // Carga del Presupuestado en el Reporte (Etapa 2): solo con el interruptor de la empresa
+  // prendido, el flujo visible (eso ya cubre el período habilitado) y un estado en el que este
+  // usuario puede editar (ABIERTO; EN_REVISION solo el revisor; VALIDADO nadie). Solo lee: el
+  // PresupuestoMensual del mes se crea recién en el primer guardado.
+  let carga: VistaCarga | null = null;
+  if (flujo && cargaEnReporteActiva(empresaSlug) && puedeEditarPresupuestoAhora(flujo.estado, flujo.esRevisor)) {
+    carga = vistaDeCarga(planDeCarga(plantilla, await leerLineasParaCarga(empresaId, periodo)));
+  }
+
   // Un mes más de contexto (no se muestra): el control de arrastre y los espejos del mes
   // anterior lo necesitan para el primer mes visible.
   const periodos = periodosHasta(periodo, MESES_VISIBLES + 1);
@@ -257,6 +268,7 @@ async function ReportePorPlantilla({
       verPendientes={verPendientes}
       verControl={verControl}
       flujo={flujo}
+      carga={carga}
       sinUnidades={unidadesEmpresa.length === 0}
       noAsignado={noAsignado.porUnidad.map((n) => ({
         unidad: n.unidad,

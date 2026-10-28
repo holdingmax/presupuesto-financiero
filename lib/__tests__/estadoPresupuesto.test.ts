@@ -18,13 +18,15 @@ test("puedeEditarPresupuestoAhora: VALIDADO no lo edita nadie, ni el revisor", (
   assert.equal(puedeEditarPresupuestoAhora("VALIDADO", false), false);
 });
 
-test("EMPRESAS_CON_CARGA_EN_REPORTE: entrega el código con el interruptor apagado (lista vacía)", () => {
-  // Si alguien prende una empresa a propósito, actualiza este test junto con la lista.
-  assert.deepEqual([...EMPRESAS_CON_CARGA_EN_REPORTE], []);
+test("cargaEnReporteActiva (lista real de config): true para cada slug que está en la lista, false para uno que no", () => {
+  // No depende de qué empresas estén prendidas: cada slug de la lista da true y uno inventado, false.
+  for (const slug of EMPRESAS_CON_CARGA_EN_REPORTE) {
+    assert.equal(cargaEnReporteActiva(slug), true, slug);
+  }
+  assert.equal(cargaEnReporteActiva("empresa-inventada-fuera-de-la-lista"), false);
 });
 
-test("cargaEnReporteActiva: apagado por defecto y para cualquier empresa que no esté en la lista", () => {
-  assert.equal(cargaEnReporteActiva("brillante"), false);
+test("cargaEnReporteActiva: apagado con la lista vacía y para cualquier empresa que no esté en la lista", () => {
   assert.equal(cargaEnReporteActiva("brillante", []), false);
   assert.equal(cargaEnReporteActiva("hwc", ["brillante"]), false);
 });
