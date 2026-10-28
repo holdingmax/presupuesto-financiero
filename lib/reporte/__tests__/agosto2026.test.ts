@@ -21,6 +21,7 @@ const SLUGS = [
   "fredy-publicidad",
   "hwc",
   "mantenor",
+  "avianor",
 ] as const;
 
 function armar(slug: string) {
@@ -30,6 +31,8 @@ function armar(slug: string) {
   const presupuesto = new Map<string, number>();
   const manP = new Map<string, number>();
   const manR = new Map<string, number>();
+  // Real por clasificación que el Excel ya tiene en agosto (Avianor lo lee de una tabla dinámica de movimientos).
+  const realPorClasificacion = new Map<string, number>();
   const filaPorNumero = new Map<number, string>();
   plantilla.filas.forEach((fila, i) => {
     const e = datos.filas[i];
@@ -48,6 +51,10 @@ function armar(slug: string) {
     if (p.tipo === "categorias" && e.p !== null) presupuesto.set(p.categorias[0], e.p);
     if (p.tipo === "manual" && e.p !== null) manP.set(fila.clave, e.p);
     if (fila.real.tipo === "manual" && e.r !== null) manR.set(fila.clave, e.r);
+    // Neto con signo de banco: el motor multiplica por el signo de la fila.
+    if (fila.real.tipo === "clasificaciones" && e.r !== null && !e.calcR) {
+      realPorClasificacion.set(fila.real.clasificaciones[0], fila.signo * e.r || 0);
+    }
     // Una fila que el Excel presupuesta y la plantilla no sabe de dónde sacar no se puede reproducir.
     if (p.tipo === "ninguna") assert.equal(e.p, null, `${slug}: ${fila.texto} tiene P en el Excel y la plantilla no lo carga`);
   });
@@ -67,10 +74,11 @@ function armar(slug: string) {
   }
   const agosto: DatosMes = {
     periodo: "2026-08",
-    real: new Map(),
+    real: realPorClasificacion,
     presupuesto,
-    // El Real de ingresos y egresos de agosto todavía está vacío en los Excel.
-    semanasCerradas: 0,
+    // El Real de ingresos y egresos de agosto está vacío en los Excel de las 7 empresas; en Avianor ya
+    // tiene los movimientos del mes.
+    semanasCerradas: realPorClasificacion.size > 0 ? 1 : 0,
     // Agosto está en curso (como cuando se armó el Excel): R de los espejos vacío.
     mesCerrado: false,
     manuales: { presupuesto: manP, real: manR },

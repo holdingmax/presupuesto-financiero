@@ -365,4 +365,39 @@ export const TEXTOS_MACCHI: Record<string, string[]> = {
     "CAPITAL DE TRABAJO PROPUESTO (SUELDOS)", // A38
     "DISPONIBLE SI - CAPITAL DE TRABAJO", // A39
   ],
+  // `PF - AVIANOR AGOSTO 2026.xlsx`, hoja PRESUPUESTO MES A MES, columna A, filas 4 a 37 (sin las filas en blanco; Avianor no tiene bloque de componentes de Disponibilidades)
+  "avianor": [
+    "EFECTIVO DISPONIBLE (principios de mes)", // A4
+    "INGRESOS", // A6
+    "Cobranza clientes", // A7
+    "Otras operaciones", // A8
+    "Venta de Propiedades y Equipos", // A9
+    "Cobro de Capital de Préstamos", // A10
+    "Préstamo", // A11
+    "Aporte MS", // A12
+    "Otro", // A13
+    "TOTAL INGRESOS", // A14
+    "DISPONIBLE ANTES DE GASTOS", // A15
+    "EGRESOS", // A17
+    "Cheques diferidos", // A18
+    "Sueldos", // A19
+    "SAC", // A20
+    "Comisiones", // A21
+    "Tarjetas", // A22
+    "Adicionales", // A23
+    "Impuestos", // A24
+    "Expensas", // A25
+    "Expensas - No socios", // A26
+    "Gastos Bancarios", // A27
+    "Proveedores", // A28
+    "Liquidacion Final", // A29
+    "Otro", // A30
+    "TOTAL EGRESOS OPERATIVOS", // A31
+    "Reembolsos de préstamos", // A32
+    "Dividendos", // A33
+    "Cuenta Particular", // A34
+    "Otro", // A35
+    "TOTAL EGRESOS", // A36
+    "SALDO INICIAL + INGRESOS - TOTAL EGRESOS", // A37
+  ],
 };

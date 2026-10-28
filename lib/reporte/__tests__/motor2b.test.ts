@@ -27,6 +27,7 @@ import {
   total,
 } from "@/lib/reporte/plantillas/filas";
 import { esMesCerrado, formatearCentavos, motivoBloqueo, motivoRechazoCambio, parsearCuenta } from "@/lib/reporte/bloqueo";
+import { decimalTextoDeCentavos, centavosDeDecimalTexto } from "@/lib/conteoMovimientos";
 import { CLAVES_MANUALES } from "./fixtures/clavesManuales";
 
 // Plantilla mínima con todas las fuentes de la 2b.
@@ -276,6 +277,47 @@ test("parsearCuenta: importes y cuentas como las SM de Macchi", () => {
   assert.equal(parsearCuenta("abc"), null);
   assert.equal(parsearCuenta("12+"), null);
   assert.equal(parsearCuenta(""), null);
+});
+
+// El Efectivo disponible de Avianor (agosto) es negativo: la carga acepta el importe tal como se
+// tipea ("-24.743.730,39", con "-" común o tipográfico), lo guarda como decimal exacto y al leerlo
+// vuelve el mismo número (ida y vuelta de guardarValoresManuales / leerManuales).
+test("importes negativos: la carga de valores manuales los acepta y los guarda sin perder centavos", () => {
+  for (const texto of ["-24.743.730,39", "−24.743.730,39", "-24743730,39"]) {
+    assert.equal(parsearCuenta(texto)?.centavos, -2474373039, texto);
+  }
+  assert.equal(parsearCuenta("-24.743.730,39")?.nota, null);
+  assert.equal(decimalTextoDeCentavos(-2474373039), "-24743730.39");
+  assert.equal(centavosDeDecimalTexto(decimalTextoDeCentavos(-2474373039)), -2474373039);
+  assert.equal(decimalTextoDeCentavos(-5), "-0.05");
+  assert.equal(formatearCentavos(-2474373039), "-24.743.730,39");
+});
+
+test("Avianor: un Efectivo disponible negativo da un cierre negativo, y sin Efectivo cargado el cierre queda en '—'", () => {
+  const plantilla = PLANTILLAS_POR_SLUG["avianor"];
+  const mes = (efectivo: number | null): DatosMes => ({
+    periodo: "2026-08",
+    real: new Map(),
+    presupuesto: new Map(),
+    semanasCerradas: 0,
+    manuales: { presupuesto: new Map(), real: new Map(efectivo === null ? [] : [["av.dEfectivo", efectivo]]) },
+  });
+  const cierre = (efectivo: number | null) =>
+    armarReporte(plantilla, [mes(efectivo)]).filas.find((f) => f.fila.clave === "av.saldo")!.celdas[0];
+  assert.equal(cierre(-2474373039).presupuestado, -2474373039);
+  // El Real manual no depende de las semanas cerradas (solo el Real por clasificación queda en "—").
+  assert.equal(cierre(-2474373039).real, -2474373039);
+  assert.equal(cierre(null).presupuestado, null);
+});
+
+test("Avianor: no tiene control de arrastre, Capital de trabajo ni Disponible", () => {
+  const plantilla = PLANTILLAS_POR_SLUG["avianor"];
+  const reporte = armarReporte(plantilla, [
+    { periodo: "2026-07", real: new Map(), presupuesto: new Map(), semanasCerradas: 0 },
+    { periodo: "2026-08", real: new Map(), presupuesto: new Map(), semanasCerradas: 0 },
+  ], 1);
+  assert.ok(reporte.arrastre.every((a) => a === null));
+  assert.equal(plantilla.filas.some((f) => f.tipo === "capital" || f.tipo === "disponible"), false);
 });
 
 test("formatearCentavos usa coma decimal", () => {
