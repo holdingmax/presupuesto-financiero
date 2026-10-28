@@ -513,4 +513,52 @@ export const AGOSTO_2026: Record<string, DatosAgosto> = {
     previos: [
     ],
   },
+  // Bradenton (USD, importes en centavos de dólar). Banco y Efectivo (W5/W6) son valores que la planilla toma de la hoja
+  // `Presup 08-2026`: dato de entrada. El Real de agosto está casi vacío (solo Banco, Efectivo y el Capital). Capital de trabajo
+  // es un valor TIPEADO (P 30.000; R 30.001 de agosto a diciembre): dato de entrada, no fórmula. Excedente = X7 − X41.
+  "bradenton": {
+    archivo: "PF - BRADENTON - AGOSTO 2026.xlsx",
+    celdaP: "W",
+    filas: [
+      { fila: 4, texto: "DISPONIBILIDADES (principios de mes)", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W4 = None · X4 = None
+      { fila: 5, texto: "BANCO", p: 2336041, r: 2336041, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W5 = '=+'Presup 08-2026'!B2' · X5 = '=+W5'
+      { fila: 6, texto: "EFECTIVO", p: 293400, r: 293400, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W6 = '=+'Presup 08-2026'!B3' · X6 = '=+W6'
+      { fila: 7, texto: " TOTAL DISPONIBILIDADES", p: 2629441, r: 2629441, calcP: true, calcR: true, tolP: 0, tolR: 0 }, // W7 = '=SUM(W5:W6)' · X7 = '=SUM(X5:X6)'
+      { fila: 9, texto: "INGRESOS", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W9 = None · X9 = None
+      { fila: 10, texto: "Cobranza clientes", p: 10000000, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W10 = '=+'Presup 08-2026'!C7' · X10 = None
+      { fila: 11, texto: "Otras operaciones", p: 800000, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W11 = '=+'Presup 08-2026'!C10' · X11 = None
+      { fila: 12, texto: "Venta de Propiedades y Equipos", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W12 = None · X12 = None
+      { fila: 13, texto: "Cobro de Capital de Préstamos", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W13 = None · X13 = None
+      { fila: 14, texto: "Préstamo", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W14 = None · X14 = None
+      { fila: 15, texto: "Otro (TC mes anterior)", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W15 = None · X15 = None
+      { fila: 16, texto: "Otro", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W16 = None · X16 = None
+      { fila: 17, texto: "TOTAL INGRESOS", p: 10800000, r: null, calcP: true, calcR: true, tolP: 0, tolR: 0 }, // W17 = '=SUM(W10:W16)' · X17 = shared
+      { fila: 18, texto: "DISPONIBLE ANTES DE GASTOS", p: 13429441, r: 2629441, calcP: true, calcR: true, tolP: 0, tolR: 0 }, // W18 = '=W7+W17' · X18 = shared
+      { fila: 20, texto: "GASTOS", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W20 = None · X20 = None
+      { fila: 21, texto: "Cheques diferidos", p: 700000, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W21 = '=-'Presup 08-2026'!B13' · X21 = None
+      { fila: 22, texto: "Sueldos", p: 1100000, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W22 = '=-'Presup 08-2026'!B23' · X22 = None
+      { fila: 23, texto: "Prestamos y tarjetas", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W23 = None · X23 = None
+      { fila: 24, texto: "Adicionales: ", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W24 = None · X24 = None
+      { fila: 25, texto: "Impuestos", p: 470000, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W25 = '=-'Presup 08-2026'!B17' · X25 = None
+      { fila: 26, texto: "Impuesto inmobiliario (Manatee)", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W26 = None · X26 = None
+      { fila: 27, texto: "Expensas", p: 210000, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W27 = '=-'Presup 08-2026'!B24' · X27 = None
+      { fila: 28, texto: "Gastos Bancarios", p: 40000, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W28 = '=-'Presup 08-2026'!B14' · X28 = None
+      { fila: 29, texto: "Proveedoresv(Mercs + Servicios+Mant+ Honorarios)", p: 5938000, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W29 = '=-'Presup 08-2026'!B16-'Presup 08-2026'!B19-'Presup 08-2026'!B20-'Presup 08-2026'!B21-'Presup 08-2026'!B22' · X29 = None
+      { fila: 30, texto: "Proveedores IVA", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W30 = None · X30 = None
+      { fila: 31, texto: "Liquidaciones Finales", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W31 = None · X31 = None
+      { fila: 32, texto: "Juicios", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W32 = None · X32 = None
+      { fila: 33, texto: "Otro: Lottery", p: 2000000, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W33 = '=-'Presup 08-2026'!B18' · X33 = None
+      { fila: 34, texto: "TOTAL GASTOS OPERATIVOS", p: 10458000, r: null, calcP: true, calcR: true, tolP: 0, tolR: 0 }, // W34 = '=SUM(W21:W33)' · X34 = '=SUM(X21:X33)'
+      { fila: 35, texto: "Reembolsos de préstamos", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W35 = None · X35 = None
+      { fila: 36, texto: "Dividendos", p: 0, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W36 = 0 · X36 = '=-'Ejecutado 07-2026'!O15'
+      { fila: 37, texto: "Inversion Food Truck", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W37 = None · X37 = None
+      { fila: 38, texto: "Otro", p: null, r: null, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W38 = None · X38 = None
+      { fila: 39, texto: "TOTAL GASTOS", p: 10458000, r: null, calcP: true, calcR: true, tolP: 0, tolR: 0 }, // W39 = '=SUM(W34:W38)' · X39 = '=SUM(X34:X38)'
+      { fila: 40, texto: "POSICIÓN DE EFECTIVO (fin de mes)", p: 2971441, r: 2629441, calcP: true, calcR: true, tolP: 0, tolR: 0 }, // W40 = '=W18-W39' · X40 = '=X18-X39'
+      { fila: 41, texto: "Capital de trabajo propuesto", p: 3000000, r: 3000100, calcP: false, calcR: false, tolP: 0, tolR: 0 }, // W41 = 30000 · X41 = 30001
+      { fila: 42, texto: "Excedente / Faltante", p: -370559, r: -370659, calcP: true, calcR: true, tolP: 0, tolR: 0 }, // W42 = '=+W7-W41' · X42 = '=+X7-X41'
+    ],
+    previos: [
+    ],
+  },
 };

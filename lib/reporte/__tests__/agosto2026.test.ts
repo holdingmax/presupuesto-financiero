@@ -23,6 +23,7 @@ const SLUGS = [
   "mantenor",
   "avianor",
   "plate-silver",
+  "bradenton",
 ] as const;
 
 function armar(slug: string) {

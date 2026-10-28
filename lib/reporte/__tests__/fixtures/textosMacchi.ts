@@ -439,4 +439,44 @@ export const TEXTOS_MACCHI: Record<string, string[]> = {
     "Capital de trabajo propuesto", // A40
     "Excedente(+) / Faltante (-)", // A41
   ],
+  // `PF - BRADENTON - AGOSTO 2026.xlsx`, hoja PRESUPUESTO MES A MES, columna A, filas 4 a 42 (sin las filas en blanco). Textos literales: " TOTAL DISPONIBILIDADES" con espacio adelante, "Adicionales: " con espacio al final, y los tipeos de "Proveedoresv(…)", "Prestamos y tarjetas" e "Inversion Food Truck"
+  "bradenton": [
+    "DISPONIBILIDADES (principios de mes)", // A4
+    "BANCO", // A5
+    "EFECTIVO", // A6
+    " TOTAL DISPONIBILIDADES", // A7
+    "INGRESOS", // A9
+    "Cobranza clientes", // A10
+    "Otras operaciones", // A11
+    "Venta de Propiedades y Equipos", // A12
+    "Cobro de Capital de Préstamos", // A13
+    "Préstamo", // A14
+    "Otro (TC mes anterior)", // A15
+    "Otro", // A16
+    "TOTAL INGRESOS", // A17
+    "DISPONIBLE ANTES DE GASTOS", // A18
+    "GASTOS", // A20
+    "Cheques diferidos", // A21
+    "Sueldos", // A22
+    "Prestamos y tarjetas", // A23
+    "Adicionales: ", // A24
+    "Impuestos", // A25
+    "Impuesto inmobiliario (Manatee)", // A26
+    "Expensas", // A27
+    "Gastos Bancarios", // A28
+    "Proveedoresv(Mercs + Servicios+Mant+ Honorarios)", // A29
+    "Proveedores IVA", // A30
+    "Liquidaciones Finales", // A31
+    "Juicios", // A32
+    "Otro: Lottery", // A33
+    "TOTAL GASTOS OPERATIVOS", // A34
+    "Reembolsos de préstamos", // A35
+    "Dividendos", // A36
+    "Inversion Food Truck", // A37
+    "Otro", // A38
+    "TOTAL GASTOS", // A39
+    "POSICIÓN DE EFECTIVO (fin de mes)", // A40
+    "Capital de trabajo propuesto", // A41
+    "Excedente / Faltante", // A42
+  ],
 };

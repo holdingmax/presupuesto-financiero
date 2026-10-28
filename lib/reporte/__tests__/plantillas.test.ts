@@ -9,9 +9,10 @@ import { TEXTOS_MACCHI } from "./fixtures/textosMacchi";
 // categoría en dos filas, totales que apuntan a claves existentes y pendientes
 // del catálogo (validarPlantilla), y textos iguales a los de la planilla.
 
-test("hay plantilla para las 7 empresas de formato completo, para Avianor y para Plate Silver", () => {
+test("hay plantilla para las 7 empresas de formato completo, para Avianor, Plate Silver y Bradenton", () => {
   assert.deepEqual(Object.keys(PLANTILLAS_POR_SLUG).sort(), [
     "avianor",
+    "bradenton",
     "brillante",
     "conexion-logistica",
     "conexion-logistica-spp",
