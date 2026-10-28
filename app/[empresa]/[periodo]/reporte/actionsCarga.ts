@@ -13,11 +13,13 @@ const FORMATO_PERIODO = /^\d{4}-\d{2}$/;
 
 export type ResultadoGuardado = ResultadoCarga;
 
-// Guarda el Presupuestado que el gerente tipea en el Reporte (Etapa 2): una LineaPresupuesto
-// por clasificación, para que Presupuesto, la barra de totales y el Reporte sigan de acuerdo.
-// Solo toca LineaPresupuesto: Real, Disponibilidades, Cierre y los valores manuales no se
-// tocan. Las guardas de autorización van acá; las de estado y de qué celda es editable, dentro
-// de la transacción de aplicarCargaPresupuesto (lib/reporte/aplicarCarga.ts).
+// Guarda el Presupuestado que el gerente tipea en el Reporte (Etapas 2 y 3): una LineaPresupuesto
+// por clasificación (para que Presupuesto, la barra de totales y el Reporte sigan de acuerdo) y los
+// valores manuales de Presupuestado de las filas manuales y del Capital de trabajo. Real,
+// Disponibilidades y el resto de Cierre no se tocan: esta acción solo escribe las claves que el
+// servidor calcula como editables. guardarValoresManuales (solo ADMIN/FINANZAS) no se modifica.
+// Las guardas de autorización van acá; las de estado y de qué celda es editable, dentro de la
+// transacción de aplicarCargaPresupuesto (lib/reporte/aplicarCarga.ts).
 export async function guardarPresupuestoDelReporte(
   empresaSlug: string,
   periodo: string,
@@ -47,6 +49,7 @@ export async function guardarPresupuestoDelReporte(
     entradas,
     esAdminOFinanzas: adminOFinanzas,
     esRevisor: await puedeRevisarPresupuesto(usuario, empresa.id),
+    usuarioId: usuario.id,
   });
 
   if (resultado.ok) {

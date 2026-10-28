@@ -12,7 +12,6 @@ import {
   PRESUPUESTO_MANUAL,
   REAL_IGUAL_PRESUPUESTO,
   REAL_MANUAL,
-  SIN_PRESUPUESTO,
   SIN_REAL,
   titulo,
   total,
@@ -47,7 +46,7 @@ const ingresos = [
     parcial: true,
     nota: "Planilla: COBRANZAS de la unidad sin las de Gold Seguridad. Hasta resolver K7 incluye las de Gold.",
   }),
-  ingreso("br.cobranzaChequeDiferido", "Cobranza Cheque Diferido", SIN_REAL, SIN_PRESUPUESTO),
+  ingreso("br.cobranzaChequeDiferido", "Cobranza Cheque Diferido", SIN_REAL, PRESUPUESTO_MANUAL),
   ingreso("br.otrasOperacionesJujuy", "Otras operaciones (MANTENOR JUJUY)", SIN_REAL, PRESUPUESTO_MANUAL, {
     pendiente: "K8",
   }),
@@ -55,7 +54,7 @@ const ingresos = [
     pendiente: "K7",
     nota: "Cobranzas de la razón social Gold Seguridad.",
   }),
-  ingreso("br.cobroIvaInterempresa", "Otro (Cobro IVA interempresa)", SIN_REAL, SIN_PRESUPUESTO),
+  ingreso("br.cobroIvaInterempresa", "Otro (Cobro IVA interempresa)", SIN_REAL, PRESUPUESTO_MANUAL),
   ingreso("br.resultadoFci", "Resultado FCI", REAL_MANUAL, cat("Intereses FCI")),
   ingreso("br.prestamoMs", "Préstamo MS", clasifSentido("creditos", "PRESTAMOS MS"), PRESUPUESTO_MANUAL, {
     pendiente: ["K8", "K13"],
@@ -64,14 +63,14 @@ const ingresos = [
   ingreso("br.reservaIvaAvianor", "Reserva pago IVA avianor", REAL_IGUAL_PRESUPUESTO, PRESUPUESTO_MANUAL, {
     nota: "Espejo de RESERVA PAGO IVA AVIANOR de Disponibilidades; P a mano, R = P.",
   }),
-  ingreso("br.ventaHsAvianor", "Venta HS Vuelos Avianor", SIN_REAL, SIN_PRESUPUESTO),
-  ingreso("br.aporteMsLuque", "Aporte MS - Devolucion Luque", SIN_REAL, SIN_PRESUPUESTO),
-  ingreso("br.diferenciaExpensas", "Diferencia Expensas a Recuperar", SIN_REAL, SIN_PRESUPUESTO),
+  ingreso("br.ventaHsAvianor", "Venta HS Vuelos Avianor", SIN_REAL, PRESUPUESTO_MANUAL),
+  ingreso("br.aporteMsLuque", "Aporte MS - Devolucion Luque", SIN_REAL, PRESUPUESTO_MANUAL),
+  ingreso("br.diferenciaExpensas", "Diferencia Expensas a Recuperar", SIN_REAL, PRESUPUESTO_MANUAL),
   ingreso("br.reservaSac", "Reserva SAC", REAL_IGUAL_PRESUPUESTO, PRESUPUESTO_MANUAL, {
     pendiente: "K10",
     nota: "Espejo de RESERVA AGUINALDO de Disponibilidades en el mes de pago del SAC; P a mano, R = P.",
   }),
-  ingreso("br.retroactivoIpsst", "Retroactivo IPSST", SIN_REAL, SIN_PRESUPUESTO),
+  ingreso("br.retroactivoIpsst", "Retroactivo IPSST", SIN_REAL, PRESUPUESTO_MANUAL),
   ingreso("br.otroMsnt", "Otro (MSNT Av Papa F./Av Siria / Av Sarmiento)", REAL_MANUAL, PRESUPUESTO_MANUAL, {
     nota: "Cobro que entró por Mantenor, tipeado a mano.",
   }),
@@ -119,7 +118,7 @@ const egresos = [
     clasif("LIQ FINAL", "JUICIOS"),
     cat("Liquidación final", "Juicios")
   ),
-  egreso("br.gastosGold", "Gastos Gold Seguridad", SIN_REAL, SIN_PRESUPUESTO),
+  egreso("br.gastosGold", "Gastos Gold Seguridad", SIN_REAL, PRESUPUESTO_MANUAL),
 ];
 
 const deAbajo = [
@@ -127,15 +126,15 @@ const deAbajo = [
     pendiente: ["K12", "K13"],
   }),
   abajo("br.dividendos", "Dividendos", clasif("DIVIDENDOS"), cat("Dividendos"), { pendiente: "K12" }),
-  abajo("br.devolucionMsCamioneta", "Devolcion MS - Aporte Camioneta", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("br.traspasoPrestamoMs", "Traspaso Saldo Prestamo MS - Brillante a Mantenor", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("br.traspasoSaldoInicial", "Traspaso Saldo Inicial Brillante - Mantenor", REAL_MANUAL, SIN_PRESUPUESTO, {
+  abajo("br.devolucionMsCamioneta", "Devolcion MS - Aporte Camioneta", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("br.traspasoPrestamoMs", "Traspaso Saldo Prestamo MS - Brillante a Mantenor", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("br.traspasoSaldoInicial", "Traspaso Saldo Inicial Brillante - Mantenor", REAL_MANUAL, PRESUPUESTO_MANUAL, {
     nota: "Jul-26: 254.780.390 tipeado.",
   }),
-  abajo("br.ajusteCaja", "Ajuste Caja -  A conciliar", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("br.devolucionLuque", "Devolucion Luque - Aporte MS", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("br.aporteBlanqueo", "Aporte para blanqueo", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("br.recuperoGastos", "Recupero Gastos", SIN_REAL, SIN_PRESUPUESTO),
+  abajo("br.ajusteCaja", "Ajuste Caja -  A conciliar", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("br.devolucionLuque", "Devolucion Luque - Aporte MS", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("br.aporteBlanqueo", "Aporte para blanqueo", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("br.recuperoGastos", "Recupero Gastos", SIN_REAL, PRESUPUESTO_MANUAL),
   abajo("br.inversiones", "Inversiones", clasif("INVERSIONES"), cat("INVERSIONES")),
 ];
 

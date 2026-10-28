@@ -6,12 +6,13 @@ import { guardarPresupuestoDelReporte } from "./actionsCarga";
 import { HayCambiosSinGuardarContext } from "../CargaPresupuestoContexto";
 import {
   MAX_ACLARACION,
+  type CapitalVista,
   type CeldaVistaCarga as CeldaVista,
   type EntradaCarga,
   type FilaSinFilaVista,
 } from "@/lib/reporte/cargaGerente";
 
-// Carga del Presupuestado en el Reporte (Etapa 2). El Reporte es un componente de servidor; acá
+// Carga del Presupuestado en el Reporte (Etapas 2 y 3). El Reporte es un componente de servidor; acá
 // vive lo que necesita estado: los valores tipeados de todas las celdas, el botón "Guardar" (UNA
 // sola acción para todo el mes) y el aviso de cambios sin guardar que lee AccionesFlujo.
 
@@ -91,6 +92,9 @@ export function ProveedorCarga({
       clave: c.clave,
       importe: valores[c.id].importe,
       ...(c.requiereAclaracion ? { aclaracion: valores[c.id].aclaracion } : {}),
+      // Filas manuales y Capital: lo que la pantalla mostraba, para que el servidor detecte si
+      // otra persona lo cambió mientras tanto.
+      ...(c.destino === "manual" || c.destino === "capital" ? { base: c.importeInicial } : {}),
     }));
     try {
       const r = await guardarPresupuestoDelReporte(empresaSlug, periodo, entradas);
@@ -173,6 +177,7 @@ export function CeldaPresupuestoEditable({ id, nombre }: { id: string; nombre: s
         aria-label={`Presupuestado: ${nombre}`}
         className={`w-32 ${CLASE_INPUT}`}
       />
+      {celda.leyenda && <span className="text-[10px] font-normal text-ink-muted">{celda.leyenda}</span>}
       {celda.requiereAclaracion && valor.importe.trim() !== "" && (
         <input
           value={valor.aclaracion}
@@ -231,6 +236,29 @@ export function BloqueSinFila({
           </li>
         )}
       </ul>
+    </div>
+  );
+}
+
+// "Capital de trabajo propuesto": la única fila de Cierre que carga el gerente. Va aparte de la
+// tabla (Cierre sigue reservado). Si la plantilla tiene fórmula, un valor tipeado la reemplaza y
+// vacío vuelve a la fórmula; en las demás se tipea a mano.
+export function BloqueCapital({ capital }: { capital: CapitalVista }) {
+  return (
+    <div className="mt-8 rounded-md border border-line-strong bg-paper-raised px-5 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="max-w-xl">
+          <p className="text-sm font-medium">{capital.texto}</p>
+          <p className="mt-1 text-xs text-ink-secondary">
+            {capital.conFormula
+              ? capital.sugerido !== null
+                ? `Si lo dejás vacío se usa la fórmula del reporte: ${capital.sugerido}. Si cargás un valor, reemplaza a la fórmula.`
+                : "Si lo dejás vacío se usa la fórmula del reporte. Si cargás un valor, reemplaza a la fórmula."
+              : "Se carga a mano."}
+          </p>
+        </div>
+        <CeldaPresupuestoEditable id={capital.id} nombre={capital.texto} />
+      </div>
     </div>
   );
 }

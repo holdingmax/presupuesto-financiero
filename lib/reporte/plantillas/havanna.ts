@@ -13,7 +13,6 @@ import {
   PRESUPUESTO_MANUAL,
   REAL_IGUAL_PRESUPUESTO,
   REAL_MANUAL,
-  SIN_PRESUPUESTO,
   SIN_REAL,
   titulo,
   total,
@@ -62,10 +61,10 @@ const ingresos = [
   ingreso("hv.tarjetaNoIngresada", "Otro tarjeta no ingresada", REAL_MANUAL, PRESUPUESTO_MANUAL, {
     nota: "P: 20 % de la cobranza bancaria proyectada (negativo). R: tarjetas no ingresadas (DATOS ADICIONALES).",
   }),
-  ingreso("hv.otrosIngresos", "Otros Ingresos", clasif("IVA"), SIN_PRESUPUESTO, {
+  ingreso("hv.otrosIngresos", "Otros Ingresos", clasif("IVA"), PRESUPUESTO_MANUAL, {
     nota: "Jul-26: la planilla pone acá el IVA neto (+29.885).",
   }),
-  ingreso("hv.recuperoGastosMs", "Recupero Gastos MS ", SIN_REAL, SIN_PRESUPUESTO),
+  ingreso("hv.recuperoGastosMs", "Recupero Gastos MS ", SIN_REAL, PRESUPUESTO_MANUAL),
 ];
 
 const egresos = [
@@ -100,7 +99,7 @@ const egresos = [
 ];
 
 const deAbajo = [
-  abajo("hv.devolucionExpensas", "Devolucion prestamo - Deuda expensas", SIN_REAL, SIN_PRESUPUESTO),
+  abajo("hv.devolucionExpensas", "Devolucion prestamo - Deuda expensas", SIN_REAL, PRESUPUESTO_MANUAL),
   abajo(
     "hv.devolucionPrestamoMs",
     "Devolucion prestamo - Prestamo MS",
@@ -109,10 +108,10 @@ const deAbajo = [
     { pendiente: "K13", nota: "P = DISPONIBLE SI - CAPITAL DE TRABAJO del mes (agosto)." }
   ),
   abajo("hv.dividendos", "Dividendos", clasif("DIVIDENDOS"), cat("Dividendos")),
-  abajo("hv.cuentaParticularMs", "Cuenta Particular MS -  Aporte liquidacion Mundo Cell", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("hv.ajusteCaja", "Ajuste Caja - A conciliar", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("hv.pagosMs", "Pagos solicitados MS", clasif("MS"), SIN_PRESUPUESTO),
-  abajo("hv.retirosMs", "Retiros MS", SIN_REAL, SIN_PRESUPUESTO),
+  abajo("hv.cuentaParticularMs", "Cuenta Particular MS -  Aporte liquidacion Mundo Cell", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("hv.ajusteCaja", "Ajuste Caja - A conciliar", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("hv.pagosMs", "Pagos solicitados MS", clasif("MS"), PRESUPUESTO_MANUAL),
+  abajo("hv.retirosMs", "Retiros MS", SIN_REAL, PRESUPUESTO_MANUAL),
 ];
 
 export const PLANTILLA_HAVANNA: Plantilla = {

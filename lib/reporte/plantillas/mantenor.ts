@@ -12,7 +12,6 @@ import {
   PRESUPUESTO_DISPONIBLE,
   PRESUPUESTO_MANUAL,
   REAL_MANUAL,
-  SIN_PRESUPUESTO,
   SIN_REAL,
   titulo,
   total,
@@ -38,8 +37,8 @@ const ingresos = [
   ingreso("mn.cobranzaMsnt", "Cobranza MSNT Av Papa F./Av Siria / Av Sarmiento", SIN_REAL, PRESUPUESTO_MANUAL, {
     pendiente: "K4",
   }),
-  ingreso("mn.traspasoSaldoInicial", "Traspaso Saldo Inicial Brillante - Mantenor", REAL_MANUAL, SIN_PRESUPUESTO),
-  ingreso("mn.traspasoPrestamoMs", "Traspaso Saldo Prestamo MS - Brillante a Mantenor", REAL_MANUAL, SIN_PRESUPUESTO),
+  ingreso("mn.traspasoSaldoInicial", "Traspaso Saldo Inicial Brillante - Mantenor", REAL_MANUAL, PRESUPUESTO_MANUAL),
+  ingreso("mn.traspasoPrestamoMs", "Traspaso Saldo Prestamo MS - Brillante a Mantenor", REAL_MANUAL, PRESUPUESTO_MANUAL),
   ingreso("mn.resultadoFci", "Resultado FCI", REAL_MANUAL, cat("Intereses FCI")),
   ingreso("mn.prestamoMs", "Préstamo MS", clasifSentido("creditos", "PRESTAMOS MS"), PRESUPUESTO_MANUAL, {
     pendiente: ["K8", "K13"],

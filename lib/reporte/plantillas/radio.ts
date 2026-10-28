@@ -13,7 +13,6 @@ import {
   PRESUPUESTO_MANUAL,
   REAL_IGUAL_PRESUPUESTO,
   REAL_MANUAL,
-  SIN_PRESUPUESTO,
   SIN_REAL,
   titulo,
   total,
@@ -45,9 +44,9 @@ const ingresos = [
     pendiente: "K9",
     nota: "P = menos CHEQUES EN CARTERA DESPUES DEL 15 de Disponibilidades; R = P.",
   }),
-  ingreso("ra.cobroJuicio", "Ingreso - Cobro juicio Municipalidad", SIN_REAL, SIN_PRESUPUESTO),
-  ingreso("ra.devolucionEmbargo", "Devolucion embargo", SIN_REAL, SIN_PRESUPUESTO),
-  ingreso("ra.otroIngreso", "Otro", SIN_REAL, SIN_PRESUPUESTO),
+  ingreso("ra.cobroJuicio", "Ingreso - Cobro juicio Municipalidad", SIN_REAL, PRESUPUESTO_MANUAL),
+  ingreso("ra.devolucionEmbargo", "Devolucion embargo", SIN_REAL, PRESUPUESTO_MANUAL),
+  ingreso("ra.otroIngreso", "Otro", SIN_REAL, PRESUPUESTO_MANUAL),
 ];
 
 const egresos = [
@@ -61,7 +60,7 @@ const egresos = [
     pendiente: "K2",
     nota: "Planilla: reparto de la unidad EXPENSAS.",
   }),
-  egreso("ra.expensasNoSocios", "Expensas - No socios", SIN_REAL, SIN_PRESUPUESTO),
+  egreso("ra.expensasNoSocios", "Expensas - No socios", SIN_REAL, PRESUPUESTO_MANUAL),
   egreso("ra.impuestoAlCheque", "Impuesto al cheque (Gto Brio)", clasif("COM Y GTOS BRIOS"), cat("Gastos bancarios"), {
     nota: "Jul-26: la planilla tipea 1.472.404; COM Y GTOS BRIOS da 1.607.849.",
   }),
@@ -77,8 +76,8 @@ const deAbajo = [
     pendiente: "K13",
   }),
   abajo("ra.dividendos", "Dividendos", clasif("DIVIDENDOS"), cat("Dividendos")),
-  abajo("ra.ajusteCaja", "Ajuste caja - A conciliar", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("ra.otro", "Otro", SIN_REAL, SIN_PRESUPUESTO),
+  abajo("ra.ajusteCaja", "Ajuste caja - A conciliar", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("ra.otro", "Otro", SIN_REAL, PRESUPUESTO_MANUAL),
 ];
 
 export const PLANTILLA_RADIO: Plantilla = {

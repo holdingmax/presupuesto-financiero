@@ -12,7 +12,6 @@ import {
   PRESUPUESTO_MANUAL,
   REAL_IGUAL_PRESUPUESTO,
   REAL_MANUAL,
-  SIN_PRESUPUESTO,
   SIN_REAL,
   titulo,
   total,
@@ -50,13 +49,13 @@ const ingresos = [
   ingreso("fr.reservaCapitalTrabajo", "Reserva Capital de Trabajo", REAL_IGUAL_PRESUPUESTO, PRESUPUESTO_MANUAL, {
     nota: "Espejo de RESERVA CAPITAL DE TRABAJO de Disponibilidades; P a mano, R = P.",
   }),
-  ingreso("fr.aporteBlanqueo", "Aporte para blaqueo otras empresas", SIN_REAL, SIN_PRESUPUESTO),
+  ingreso("fr.aporteBlanqueo", "Aporte para blaqueo otras empresas", SIN_REAL, PRESUPUESTO_MANUAL),
   ingreso("fr.prestamoMs", "Prestamo MS", clasifSentido("creditos", "PRESTAMOS MS"), PRESUPUESTO_MANUAL, {
     pendiente: ["K8", "K13"],
     nota: "Entrada de préstamo MS: créditos de PRESTAMOS MS (sin verificar, K13).",
   }),
-  ingreso("fr.chequesNegociadosIva", "Cheques negociados no ingresados IVA", SIN_REAL, SIN_PRESUPUESTO),
-  ingreso("fr.otroIngreso", "Otro", SIN_REAL, SIN_PRESUPUESTO),
+  ingreso("fr.chequesNegociadosIva", "Cheques negociados no ingresados IVA", SIN_REAL, PRESUPUESTO_MANUAL),
+  ingreso("fr.otroIngreso", "Otro", SIN_REAL, PRESUPUESTO_MANUAL),
 ];
 
 const egresos = [
@@ -75,7 +74,7 @@ const egresos = [
     pendiente: "K2",
     nota: "Planilla: reparto de la unidad EXPENSAS.",
   }),
-  egreso("fr.expensasNoSocios", "Expensas - No socios", SIN_REAL, SIN_PRESUPUESTO),
+  egreso("fr.expensasNoSocios", "Expensas - No socios", SIN_REAL, PRESUPUESTO_MANUAL),
   egreso("fr.impuestoAlCheque", "Impuesto al cheque", clasif("COM Y GTOS BRIOS"), cat("Gastos bancarios")),
   egreso("fr.proveedores", "Proveedores", clasif("PROV Y SERV"), cat("PROV Y SERV")),
   egreso("fr.liqFinal", "Liq final", clasif("LIQ FINAL"), cat("Liquidación final")),
@@ -86,12 +85,12 @@ const deAbajo = [
   abajo("fr.reembolsosPrestamos", "Reembolsos de préstamos", clasifSentido("debitos", "PRESTAMOS MS"), cat("Préstamo MS"), {
     pendiente: "K13",
   }),
-  abajo("fr.blanqueoPropios", "Aporte para blanqueo con fondos propios", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("fr.blanqueoTerceros", "Aporte para blanqueo con fondos de terceros", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("fr.ajusteCaja", "Ajuste Caja - A conciliar", SIN_REAL, SIN_PRESUPUESTO),
+  abajo("fr.blanqueoPropios", "Aporte para blanqueo con fondos propios", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("fr.blanqueoTerceros", "Aporte para blanqueo con fondos de terceros", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("fr.ajusteCaja", "Ajuste Caja - A conciliar", SIN_REAL, PRESUPUESTO_MANUAL),
   abajo("fr.dividendos", "Dividendos", clasif("DIVIDENDOS"), cat("Dividendos")),
   abajo("fr.inversiones", "Inversiones", clasif("INVERSIONES"), cat("INVERSIONES")),
-  abajo("fr.pagosMs", "Pagos solicitados por MS", clasif("MS"), SIN_PRESUPUESTO),
+  abajo("fr.pagosMs", "Pagos solicitados por MS", clasif("MS"), PRESUPUESTO_MANUAL),
 ];
 
 export const PLANTILLA_FREDY: Plantilla = {

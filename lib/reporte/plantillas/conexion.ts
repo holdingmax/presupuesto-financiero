@@ -13,7 +13,6 @@ import {
   PRESUPUESTO_MANUAL,
   REAL_IGUAL_PRESUPUESTO,
   REAL_MANUAL,
-  SIN_PRESUPUESTO,
   SIN_REAL,
   titulo,
   total,
@@ -42,7 +41,7 @@ const ingresos = [
   ingreso("cx.cobranzaContado", "Cobranza Contado", clasif("COBRANZAS"), cat("COBRANZAS"), {
     nota: "Jul-26: COBRANZAS SPP+LOGISTICA 2.317,2M; la planilla tipea 2.311,3M (dif. 5,8M).",
   }),
-  ingreso("cx.cobranzaChequeDiferido", "Cobranza Cheque Diferido", SIN_REAL, SIN_PRESUPUESTO),
+  ingreso("cx.cobranzaChequeDiferido", "Cobranza Cheque Diferido", SIN_REAL, PRESUPUESTO_MANUAL),
   ingreso("cx.otrasOperaciones", "Otras operaciones (VENTA MOTO)", SIN_REAL, PRESUPUESTO_MANUAL, { pendiente: "K8" }),
   ingreso("cx.prestamoMsCiber", "Prestamo MS Ciber", clasifSentido("creditos", "PRESTAMOS MS"), PRESUPUESTO_MANUAL, {
     pendiente: ["K8", "K13"],
@@ -56,12 +55,12 @@ const ingresos = [
     nota: "Espejo de RESERVA AGUINALDO de Disponibilidades en el mes de pago del SAC; P a mano, R = P.",
   }),
   ingreso("cx.prestamo", "Préstamo", SIN_REAL, PRESUPUESTO_MANUAL, { pendiente: "K8" }),
-  ingreso("cx.gastosMsARecuperar", "Gastos MS a recuperar", SIN_REAL, SIN_PRESUPUESTO),
+  ingreso("cx.gastosMsARecuperar", "Gastos MS a recuperar", SIN_REAL, PRESUPUESTO_MANUAL),
   ingreso("cx.chequesDespuesDel10", "Cheques en cartera despues del 10", REAL_IGUAL_PRESUPUESTO, espejoDe("cx.dChequesDespuesDel10"), {
     pendiente: "K9",
     nota: "P = menos CHEQUES EN CARTERA DESPUES DEL 10 de Disponibilidades; R = P.",
   }),
-  ingreso("cx.gastosAvionARecuperar", "Gastos avion a recuperar", SIN_REAL, SIN_PRESUPUESTO),
+  ingreso("cx.gastosAvionARecuperar", "Gastos avion a recuperar", SIN_REAL, PRESUPUESTO_MANUAL),
 ];
 
 const egresos = [
@@ -96,13 +95,13 @@ const egresos = [
     pendiente: "K2",
     nota: "Planilla: reparto de la unidad EXPENSAS.",
   }),
-  egreso("cx.expensasNoSocios", "Expensas - No socios", SIN_REAL, SIN_PRESUPUESTO),
+  egreso("cx.expensasNoSocios", "Expensas - No socios", SIN_REAL, PRESUPUESTO_MANUAL),
   egreso("cx.impuestoAlCheque", "Impuesto al cheque (Gto Brio)", clasif("COM Y GTOS BRIOS"), cat("Gastos bancarios")),
   egreso("cx.proveedores", "Proveedores", clasif("PROV Y SERV"), cat("PROV Y SERV"), {
     nota: "Jul-26: la hoja DETALLE GASTOS REALES suma 3.973.586,86 menos que PROV Y SERV de la Ejecución.",
   }),
-  egreso("cx.peru", "Peru", SIN_REAL, SIN_PRESUPUESTO),
-  egreso("cx.bolivia", "Bolivia", SIN_REAL, SIN_PRESUPUESTO),
+  egreso("cx.peru", "Peru", SIN_REAL, PRESUPUESTO_MANUAL),
+  egreso("cx.bolivia", "Bolivia", SIN_REAL, PRESUPUESTO_MANUAL),
   egreso("cx.proveedoresIva", "Proveedores IVA", REAL_MANUAL, cat("IVA"), { pendiente: "K3" }),
   egreso("cx.liquidacionesFinales", "Liquidaciones Finales", clasif("LIQ FINAL"), cat("Liquidación final")),
   egreso("cx.juicios", "Juicios y requerimientos AFIP", clasif("JUICIOS"), cat("Juicios")),
@@ -112,28 +111,28 @@ const egresos = [
 ];
 
 const deAbajo = [
-  abajo("cx.recuperoGastos", "Recupero Gastos", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("cx.gastosCampo", "Gastos Campo", clasif("CAMPO"), SIN_PRESUPUESTO, {
+  abajo("cx.recuperoGastos", "Recupero Gastos", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("cx.gastosCampo", "Gastos Campo", clasif("CAMPO"), PRESUPUESTO_MANUAL, {
     parcial: true,
     nota: "Planilla: CAMPO + Sueldos y SAC de la unidad CAMPO.",
   }),
-  abajo("cx.gastosJps", "Gastos Jet Parts Solutions a recuperar", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("cx.gastosMs", "Gastos MS", clasif("MS"), SIN_PRESUPUESTO, {
+  abajo("cx.gastosJps", "Gastos Jet Parts Solutions a recuperar", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("cx.gastosMs", "Gastos MS", clasif("MS"), PRESUPUESTO_MANUAL, {
     parcial: true,
     nota: "Jul-26: MS 9.919.918,85 + 13.473.929,75 tipeados sin identificar.",
   }),
-  abajo("cx.aporteBlanqueo", "Aporte para blanqueo", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("cx.expensasHavannaPeru", "Expensas Havanna peru a recuperar", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("cx.expensasAmericanas", "Expensas Empresas Americanas a recuperar", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("cx.ajusteCaja", "Ajuste Caja - A conciliar", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("cx.reintegroExpensas", "Reintegro expensas grupo ", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("cx.dividendosExpensas", "Dividendos - Expensas Havanna Peru y Americanas", REAL_MANUAL, SIN_PRESUPUESTO, {
+  abajo("cx.aporteBlanqueo", "Aporte para blanqueo", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("cx.expensasHavannaPeru", "Expensas Havanna peru a recuperar", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("cx.expensasAmericanas", "Expensas Empresas Americanas a recuperar", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("cx.ajusteCaja", "Ajuste Caja - A conciliar", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("cx.reintegroExpensas", "Reintegro expensas grupo ", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("cx.dividendosExpensas", "Dividendos - Expensas Havanna Peru y Americanas", REAL_MANUAL, PRESUPUESTO_MANUAL, {
     nota: "Jul-26: 28.990.000 tipeado.",
   }),
   abajo("cx.dividendosEfectivo", "Dividendos en efectivo", clasif("DIVIDENDOS"), cat("Dividendos")),
-  abajo("cx.dividendosRecuperoExpensas", "Dividendos - Recupero expensas y prestamos grupo", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("cx.dividendosRecuperoGastos", "Dividendos - Recupero de gastos", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("cx.gastosAvion", "Gastos Avion a recuperar", clasif("AVION"), SIN_PRESUPUESTO, {
+  abajo("cx.dividendosRecuperoExpensas", "Dividendos - Recupero expensas y prestamos grupo", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("cx.dividendosRecuperoGastos", "Dividendos - Recupero de gastos", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("cx.gastosAvion", "Gastos Avion a recuperar", clasif("AVION"), PRESUPUESTO_MANUAL, {
     parcial: true,
     nota: "Planilla: AVION + expensas y tarjetas de Avianor pagadas por Conexión.",
   }),

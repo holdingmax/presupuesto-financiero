@@ -5,16 +5,19 @@ import type { Plantilla } from "@/lib/reporte/motor";
 import { puedeEditarPresupuestoAhora } from "@/lib/estadoPresupuesto";
 import {
   DETALLE_CARGA_DESDE_REPORTE,
+  cambioMientrasEditaba,
   celdaDeEntrada,
+  manualDeEntrada,
   nombreDeEntrada,
   planDeCarga,
   validarAclaracion,
   validarImporteCarga,
   type EntradaCarga,
   type LineaParaCarga,
+  type ValorManualParaCarga,
 } from "@/lib/reporte/cargaGerente";
 
-// Escritura de la carga del Presupuestado en el Reporte (Etapa 2). SIN autorización ni
+// Escritura de la carga del Presupuestado en el Reporte (Etapas 2 y 3). SIN autorización ni
 // next/*: la hace guardarPresupuestoDelReporte (A/reporte/actionsCarga.ts) antes de llamar acá.
 // Está separado para poder probar la concurrencia contra una base de prueba (prisma/scripts/
 // probar-carga-reporte.ts) sin una sesión.
@@ -49,6 +52,27 @@ async function leerLineas(db: Prisma.TransactionClient | typeof prisma, presupue
   }));
 }
 
+// Los ValorManualReporte PRESUPUESTADO del mes (filas manuales y Capital de trabajo), con quién
+// los cargó. Se leen para TODA la empresa y mes: el plan se queda solo con las claves editables.
+// Es independiente del PresupuestoMensual (el valor puede existir sin que el presupuesto exista).
+export async function leerValoresManualesParaCarga(
+  empresaId: string,
+  periodo: string,
+  db: Prisma.TransactionClient | typeof prisma = prisma
+): Promise<ValorManualParaCarga[]> {
+  const valores = await db.valorManualReporte.findMany({
+    where: { empresaId, periodo, columna: "PRESUPUESTADO" },
+    select: { filaClave: true, importe: true, nota: true, updatedAt: true, cargadoPor: { select: { nombre: true } } },
+  });
+  return valores.map((v) => ({
+    filaClave: v.filaClave,
+    centavos: Math.round(Number(v.importe.toFixed(2)) * 100),
+    nota: v.nota,
+    cargadoPor: v.cargadoPor.nombre,
+    actualizadoEn: v.updatedAt,
+  }));
+}
+
 function esClaveUnicaDuplicada(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
@@ -57,6 +81,10 @@ function esClaveUnicaDuplicada(error: unknown): boolean {
 //   - sin línea y valor → la crea (concepto = texto de la fila, detalle "Carga desde el Reporte");
 //   - con línea y valor → actualiza su importe (respeta concepto y detalle);
 //   - vacío o 0 → borra la línea.
+// Las filas manuales y el Capital de trabajo (destinos "manual" y "capital") van a
+// ValorManualReporte, columna PRESUPUESTADO: upsert con el valor, o se borra si queda vacío o 0.
+// Esas entradas traen la `base` (lo que la pantalla mostraba): si el valor guardado cambió desde
+// entonces —lo cargó otra persona— se rechaza TODO el guardado en vez de pisarlo.
 // Todo se valida ANTES de escribir y se escribe en una transacción: o entra todo o nada.
 //
 // Sin duplicados por doble clic ni por dos personas a la vez: la transacción toma un bloqueo de
@@ -71,6 +99,8 @@ export async function aplicarCargaPresupuesto(p: {
   entradas: EntradaCarga[];
   esAdminOFinanzas: boolean;
   esRevisor: boolean;
+  // Quien guarda: queda como `cargadoPorId` de los valores manuales.
+  usuarioId: string;
 }): Promise<ResultadoCarga> {
   const { entradas } = p;
   if (!Array.isArray(entradas) || entradas.length === 0) return { ok: true, creadas: 0, actualizadas: 0, borradas: 0 };
@@ -79,15 +109,23 @@ export async function aplicarCargaPresupuesto(p: {
   // 1) Lo tipeado, validado: no depende de la base.
   const vistos = new Set<string>();
   const importes: (number | null)[] = [];
+  const notas: (string | null)[] = [];
   for (const e of entradas) {
     if (!e || typeof e !== "object" || typeof e.clave !== "string") return { ok: false, error: "Entrada inválida." };
-    if (e.destino !== "fila" && e.destino !== "sinFila") return { ok: false, error: "Entrada inválida." };
+    if (e.destino !== "fila" && e.destino !== "sinFila" && e.destino !== "manual" && e.destino !== "capital") {
+      return { ok: false, error: "Entrada inválida." };
+    }
+    // Sin `base` no se puede saber si el valor cambió mientras se editaba.
+    if ((e.destino === "manual" || e.destino === "capital") && typeof e.base !== "string") {
+      return { ok: false, error: "Entrada inválida." };
+    }
     const k = `${e.destino}|${e.clave}`;
     if (vistos.has(k)) return { ok: false, error: `Campo repetido: ${nombreDeEntrada(p.plantilla, e)}.` };
     vistos.add(k);
     const importe = validarImporteCarga(e.importe, p.esAdminOFinanzas);
     if (!importe.ok) return { ok: false, error: `${nombreDeEntrada(p.plantilla, e)}: ${importe.error}` };
     importes.push(importe.centavos);
+    notas.push(importe.nota);
   }
 
   // 2) El presupuesto del mes se crea en el PRIMER guardado con algo que escribir, no al abrir
@@ -97,7 +135,10 @@ export async function aplicarCargaPresupuesto(p: {
     select: { id: true },
   });
   if (!presupuesto) {
-    if (importes.every((c) => c === null)) return { ok: true, creadas: 0, actualizadas: 0, borradas: 0 };
+    // Sin presupuesto no hay líneas que borrar: todo vacío en categorías es no hacer nada. Los
+    // valores manuales sí pueden existir sin presupuesto, así que con ellos se sigue.
+    const hayManuales = entradas.some((e) => e.destino === "manual" || e.destino === "capital");
+    if (!hayManuales && importes.every((c) => c === null)) return { ok: true, creadas: 0, actualizadas: 0, borradas: 0 };
     try {
       presupuesto = await prisma.presupuestoMensual.create({
         data: { empresaId: p.empresaId, periodo: p.periodo },
@@ -137,14 +178,46 @@ export async function aplicarCargaPresupuesto(p: {
       }
 
       // 4) El plan se recalcula con lo que hay AHORA en la base.
-      const plan = planDeCarga(p.plantilla, await leerLineas(tx, presupuestoId));
+      const plan = planDeCarga(
+        p.plantilla,
+        await leerLineas(tx, presupuestoId),
+        await leerValoresManualesParaCarga(p.empresaId, p.periodo, tx)
+      );
       type Operacion =
         | { tipo: "crear"; concepto: string; detalle: string; centavos: number; clasificacion: string }
         | { tipo: "actualizar"; id: string; centavos: number; detalle?: string }
-        | { tipo: "borrar"; id: string };
+        | { tipo: "borrar"; id: string }
+        | { tipo: "manualGuardar"; clave: string; centavos: number; nota: string | null; existia: boolean }
+        | { tipo: "manualBorrar"; clave: string };
       const operaciones: Operacion[] = [];
       for (let i = 0; i < entradas.length; i++) {
         const e = entradas[i];
+        if (e.destino === "manual" || e.destino === "capital") {
+          const m = manualDeEntrada(plan, e);
+          if (!m) return { ok: false, error: `${nombreDeEntrada(p.plantilla, e)}: no es un campo que se pueda cargar.` };
+          const nuevo = importes[i];
+          // Ya está guardado justo así (típico de un doble clic o un reintento): no hay nada que
+          // hacer ni conflicto que avisar, aunque la pantalla se haya cargado antes.
+          if (nuevo !== null && nuevo === m.valorCentavos && notas[i] === m.nota) continue;
+          if (cambioMientrasEditaba(e.base, m.valorCentavos)) {
+            return {
+              ok: false,
+              error: `${nombreDeEntrada(p.plantilla, e)}: cambió mientras lo editabas (${m.leyenda ?? "ahora está vacío"}). Recargá la pantalla y volvé a cargarlo.`,
+            };
+          }
+          if (nuevo === null) {
+            if (m.valorCentavos !== null) operaciones.push({ tipo: "manualBorrar", clave: e.clave });
+          } else if (nuevo !== m.valorCentavos || notas[i] !== m.nota) {
+            operaciones.push({
+              tipo: "manualGuardar",
+              clave: e.clave,
+              centavos: nuevo,
+              nota: notas[i],
+              existia: m.valorCentavos !== null,
+            });
+          }
+          continue;
+        }
         const celda = celdaDeEntrada(plan, e);
         if (!celda) return { ok: false, error: `${nombreDeEntrada(p.plantilla, e)}: no es un campo que se pueda cargar.` };
         if (celda.modo === "soloLectura") {
@@ -201,9 +274,38 @@ export async function aplicarCargaPresupuesto(p: {
             },
           });
           actualizadas++;
-        } else {
+        } else if (op.tipo === "borrar") {
           await tx.lineaPresupuesto.delete({ where: { id: op.id } });
           borradas++;
+        } else if (op.tipo === "manualBorrar") {
+          await tx.valorManualReporte.deleteMany({
+            where: { empresaId: p.empresaId, periodo: p.periodo, filaClave: op.clave, columna: "PRESUPUESTADO" },
+          });
+          borradas++;
+        } else {
+          const importe = decimalTextoDeCentavos(op.centavos);
+          await tx.valorManualReporte.upsert({
+            where: {
+              empresaId_periodo_filaClave_columna: {
+                empresaId: p.empresaId,
+                periodo: p.periodo,
+                filaClave: op.clave,
+                columna: "PRESUPUESTADO",
+              },
+            },
+            create: {
+              empresaId: p.empresaId,
+              periodo: p.periodo,
+              filaClave: op.clave,
+              columna: "PRESUPUESTADO",
+              importe,
+              nota: op.nota,
+              cargadoPorId: p.usuarioId,
+            },
+            update: { importe, nota: op.nota, cargadoPorId: p.usuarioId },
+          });
+          if (op.existia) actualizadas++;
+          else creadas++;
         }
       }
       // Lo que hace el revisor en EN_REVISION se avisa al gerente y obliga a volver a marcar

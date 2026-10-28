@@ -11,7 +11,6 @@ import {
   PRESUPUESTO_MANUAL,
   REAL_IGUAL_PRESUPUESTO,
   REAL_MANUAL,
-  SIN_PRESUPUESTO,
   SIN_REAL,
   titulo,
   total,
@@ -47,8 +46,8 @@ const ingresos = [
     pendiente: "K10",
     nota: "Espejo de PREVISION SAC de Disponibilidades; P a mano, R = P.",
   }),
-  ingreso("hw.recuperoExpensas", "RECUPERO EXPENSAS", SIN_REAL, SIN_PRESUPUESTO),
-  ingreso("hw.recuperoBlanqueo", "RECUPERO APORTE BLANQUEO", SIN_REAL, SIN_PRESUPUESTO),
+  ingreso("hw.recuperoExpensas", "RECUPERO EXPENSAS", SIN_REAL, PRESUPUESTO_MANUAL),
+  ingreso("hw.recuperoBlanqueo", "RECUPERO APORTE BLANQUEO", SIN_REAL, PRESUPUESTO_MANUAL),
   ingreso("hw.resultadoFci", "RESULTADO FCI", REAL_MANUAL, cat("Intereses FCI")),
 ];
 
@@ -79,9 +78,9 @@ const deAbajo = [
   abajo("hw.dividendos", "Dividendos Entregados", clasif("DIVIDENDOS"), cat("Dividendos")),
   abajo("hw.gastosAvion", "Gastos Avion", clasif("AVION"), PRESUPUESTO_MANUAL),
   abajo("hw.ms", "MS", clasif("MS"), PRESUPUESTO_MANUAL),
-  abajo("hw.ajusteCaja", "Ajuste Caja - A conciliar", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("hw.aporteBlanqueo", "Aporte Blanqueo", SIN_REAL, SIN_PRESUPUESTO),
-  abajo("hw.dividendosPendientes", "Dividendos Pendientes", SIN_REAL, SIN_PRESUPUESTO),
+  abajo("hw.ajusteCaja", "Ajuste Caja - A conciliar", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("hw.aporteBlanqueo", "Aporte Blanqueo", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("hw.dividendosPendientes", "Dividendos Pendientes", SIN_REAL, PRESUPUESTO_MANUAL),
 ];
 
 export const PLANTILLA_HWC: Plantilla = {

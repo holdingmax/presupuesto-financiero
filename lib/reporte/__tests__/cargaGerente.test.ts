@@ -39,15 +39,15 @@ function linea(clasificacion: string, importeCentavos: number, extra: Partial<Li
 
 test("validarImporteCarga: vacío, espacios y 0 borran la línea (centavos null)", () => {
   for (const texto of ["", "   ", "0", "0,00", "0.00", "10-10"]) {
-    assert.deepEqual(validarImporteCarga(texto, false), { ok: true, centavos: null }, JSON.stringify(texto));
+    assert.deepEqual(validarImporteCarga(texto, false), { ok: true, centavos: null, nota: null }, JSON.stringify(texto));
   }
 });
 
 test("validarImporteCarga: importes en formato argentino y cuentas", () => {
-  assert.deepEqual(validarImporteCarga("1.234,56", false), { ok: true, centavos: 123456 });
-  assert.deepEqual(validarImporteCarga("1000", false), { ok: true, centavos: 100000 });
-  assert.deepEqual(validarImporteCarga(" $ 2.500.000 ", false), { ok: true, centavos: 250000000 });
-  assert.deepEqual(validarImporteCarga("100+50", false), { ok: true, centavos: 15000 });
+  assert.deepEqual(validarImporteCarga("1.234,56", false), { ok: true, centavos: 123456, nota: null });
+  assert.deepEqual(validarImporteCarga("1000", false), { ok: true, centavos: 100000, nota: null });
+  assert.deepEqual(validarImporteCarga(" $ 2.500.000 ", false), { ok: true, centavos: 250000000, nota: null });
+  assert.deepEqual(validarImporteCarga("100+50", false), { ok: true, centavos: 15000, nota: "100+50" });
 });
 
 test("validarImporteCarga: el gerente no puede cargar negativos, con el mensaje central", () => {
@@ -58,7 +58,7 @@ test("validarImporteCarga: el gerente no puede cargar negativos, con el mensaje 
 });
 
 test("validarImporteCarga: ADMIN y FINANZAS sí pueden cargar negativos", () => {
-  assert.deepEqual(validarImporteCarga("-500", true), { ok: true, centavos: -50000 });
+  assert.deepEqual(validarImporteCarga("-500", true), { ok: true, centavos: -50000, nota: null });
   assert.equal(permiteNegativos(true), true);
   assert.equal(permiteNegativos(false), false);
 });

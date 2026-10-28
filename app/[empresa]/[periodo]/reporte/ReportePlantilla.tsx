@@ -6,7 +6,13 @@ import BloqueNoAsignado from "./BloqueNoAsignado";
 import { AccionesFlujo, AvisosFlujo, EstadoBadge } from "../FlujoPresupuesto";
 import type { EstadoFlujo } from "@/lib/presupuestoAcceso";
 import type { VistaCarga } from "@/lib/reporte/cargaGerente";
-import { BarraGuardarPresupuesto, BloqueSinFila, CeldaPresupuestoEditable, ProveedorCarga } from "./CargaPresupuesto";
+import {
+  BarraGuardarPresupuesto,
+  BloqueCapital,
+  BloqueSinFila,
+  CeldaPresupuestoEditable,
+  ProveedorCarga,
+} from "./CargaPresupuesto";
 import type { ReactNode } from "react";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -156,6 +162,7 @@ export default function ReportePlantilla({
       </div>
 
       {carga && <BloqueSinFila filas={carga.sinFila} fueraDeLista={carga.fueraDeLista} />}
+      {carga?.capital && <BloqueCapital capital={carga.capital} />}
 
       {flujo && (
         <AccionesFlujo
@@ -321,11 +328,17 @@ function FilaTabla({
   const soloP = fila.tipo === "capital" || fila.tipo === "disponible";
   // Carga del Presupuestado (Etapa 2): solo la columna P del ÚLTIMO mes (el de la URL). Una fila
   // de categoría es un input, o muestra por qué no se puede editar desde acá.
-  const idCelda = fila.tipo === "linea" ? `fila|${fila.clave}` : null;
-  const editor =
-    idCelda !== null && idsEditables.has(idCelda) ? (
-      <CeldaPresupuestoEditable id={idCelda} nombre={fila.texto.trim()} />
-    ) : undefined;
+  // El id es "fila|…" (categoría) o "manual|…" (Presupuestado manual, Etapa 3); el Capital de
+  // trabajo (Cierre) no va en la tabla: tiene su propio bloque.
+  const idCelda =
+    fila.tipo !== "linea"
+      ? null
+      : idsEditables.has(`fila|${fila.clave}`)
+        ? `fila|${fila.clave}`
+        : idsEditables.has(`manual|${fila.clave}`)
+          ? `manual|${fila.clave}`
+          : null;
+  const editor = idCelda !== null ? <CeldaPresupuestoEditable id={idCelda} nombre={fila.texto.trim()} /> : undefined;
   const motivo =
     carga && fila.tipo === "linea" && Object.hasOwn(carga.motivosFilas, fila.clave)
       ? carga.motivosFilas[fila.clave]
