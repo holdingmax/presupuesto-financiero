@@ -1,6 +1,18 @@
 import { nombreParaMostrar } from "@/lib/clasificaciones";
 import { formatearImporte } from "@/app/ejecucion/formato";
 import BloqueNoAsignado from "./BloqueNoAsignado";
+import {
+  CLASE_BORDE_MES,
+  CLASE_CABECERA_COLUMNA,
+  CLASE_CABECERA_CONCEPTO,
+  CLASE_CABECERA_MES,
+  CLASE_CELDA_CONCEPTO,
+  CLASE_CELDA_NUMERO,
+  CLASE_CELDA_TITULO,
+  CLASE_FILA,
+  CLASE_FILA_TITULO,
+  importePesos,
+} from "./estilosReporte";
 
 const MESES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -11,15 +23,6 @@ function formatearPeriodo(periodo: string) {
   const [anio, mes] = periodo.split("-");
   const nombreMes = MESES[Number(mes) - 1] ?? mes;
   return `${nombreMes.charAt(0).toUpperCase()}${nombreMes.slice(1)} ${anio}`;
-}
-
-// El "$" es texto literal antes de formatearImporte(), así que un negativo
-// (posible acá: "Falta ejecutar" da negativo cuando real > presupuestado, un
-// rubro que se pasó del presupuesto) quedaría "$-500" en vez de "-$500" —
-// formatearImporte ya devuelve el "-" incluido vía toLocaleString. Separar
-// el signo del monto absoluto antes de anteponer el "$" evita eso.
-function formatearImporteConSigno(valor: number) {
-  return valor < 0 ? `-$${formatearImporte(Math.abs(valor))}` : `$${formatearImporte(valor)}`;
 }
 
 type FilaReporte = {
@@ -52,7 +55,7 @@ export default function ReportePresupuestoMesAMes({
   semanasConNoAsignado,
 }: Props) {
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-10">
+    <div className="mx-auto w-full max-w-7xl px-6 py-10">
       <div className="mb-10">
         <p className="flex items-center gap-2 text-xs tracking-[0.15em] text-ink-secondary uppercase">
           <span className="h-2 w-2 bg-plata" />
@@ -76,35 +79,38 @@ export default function ReportePresupuestoMesAMes({
       )}
 
       <div className="overflow-x-auto border-t border-line-strong">
-        <table className="w-full min-w-[640px] text-sm">
+        <table className="w-max min-w-full text-sm">
           <thead>
+            <tr className="text-xs text-ink-secondary">
+              <th className="sticky left-0 z-10 bg-paper" />
+              <th colSpan={4} className={CLASE_CABECERA_MES}>
+                {formatearPeriodo(periodo)}
+              </th>
+            </tr>
             <tr className="text-xs text-ink-faint uppercase tracking-wide">
-              <th className="text-left py-2 pr-3 font-medium">Rubro</th>
-              <th className="text-right py-2 px-3 font-medium">Presupuestado</th>
-              <th className="text-right py-2 px-3 font-medium">Real</th>
-              <th className="text-right py-2 px-3 font-medium">% Avance</th>
-              <th className="text-right py-2 pl-3 font-medium">Falta ejecutar</th>
+              <th className={CLASE_CABECERA_CONCEPTO}>Concepto</th>
+              <th className={`${CLASE_CABECERA_COLUMNA} ${CLASE_BORDE_MES}`}>Presupuestado</th>
+              <th className={CLASE_CABECERA_COLUMNA}>Real</th>
+              <th className={CLASE_CABECERA_COLUMNA}>% Avance</th>
+              <th className={CLASE_CABECERA_COLUMNA}>Falta ejecutar</th>
             </tr>
           </thead>
           <tbody>
+            <tr className={CLASE_FILA_TITULO}>
+              <td className={CLASE_CELDA_TITULO}>Egresos</td>
+              <td colSpan={4} />
+            </tr>
             {filas.map((f) => {
               const faltaEjecutar = f.presupuestado - f.real;
+              // Sin presupuesto no hay porcentaje que calcular: celda en blanco.
               const avance = f.presupuestado === 0 ? null : (f.real / f.presupuestado) * 100;
               return (
-                <tr key={f.clasificacion} className="border-t border-line-hairline">
-                  <td className="py-2 pr-3">{nombreParaMostrar(f.clasificacion)}</td>
-                  <td className="py-2 px-3 text-right tabular whitespace-nowrap">
-                    ${formatearImporte(f.presupuestado)}
-                  </td>
-                  <td className="py-2 px-3 text-right tabular whitespace-nowrap">
-                    ${formatearImporte(f.real)}
-                  </td>
-                  <td className="py-2 px-3 text-right tabular whitespace-nowrap">
-                    {avance === null ? "—" : `${formatearImporte(avance)}%`}
-                  </td>
-                  <td className="py-2 pl-3 text-right tabular whitespace-nowrap">
-                    {formatearImporteConSigno(faltaEjecutar)}
-                  </td>
+                <tr key={f.clasificacion} className={CLASE_FILA}>
+                  <td className={CLASE_CELDA_CONCEPTO}>{nombreParaMostrar(f.clasificacion)}</td>
+                  <td className={`${CLASE_CELDA_NUMERO} ${CLASE_BORDE_MES}`}>{importePesos(f.presupuestado)}</td>
+                  <td className={CLASE_CELDA_NUMERO}>{importePesos(f.real)}</td>
+                  <td className={CLASE_CELDA_NUMERO}>{avance === null ? "" : `${formatearImporte(avance)}%`}</td>
+                  <td className={CLASE_CELDA_NUMERO}>{importePesos(faltaEjecutar)}</td>
                 </tr>
               );
             })}
