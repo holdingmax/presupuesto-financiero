@@ -12,7 +12,7 @@ import {
   CeldaPresupuestoEditable,
   ProveedorCarga,
 } from "./CargaPresupuesto";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
@@ -350,8 +350,8 @@ function FilaTabla({
   idsEditables: Set<string>;
   soloLecturaPorMes: boolean[];
   // El Reporte se armó sin acceso completo a los bloques reservados (el gerente): Disponibilidades, si
-  // llega, se muestra como una sola columna «Saldo» de solo lectura (ahí Presupuestado = Real = el saldo
-  // real, y no es un presupuesto que se edite).
+  // llega, se muestra como un solo valor «Saldo», bajo la columna Real y de solo lectura (ahí
+  // Presupuestado = Real = el saldo real, y no es un presupuesto que se edite).
   soloSaldo: boolean;
 }) {
   const { fila, celdas } = filaReporte;
@@ -363,14 +363,13 @@ function FilaTabla({
           {fila.texto}
         </td>
         {enSaldo ? (
+          // «Saldo» queda sobre la columna Real, que es donde se muestra el valor de cada fila del bloque.
           Array.from({ length: meses }, (_, i) => (
-            <td
-              key={i}
-              colSpan={4}
-              className="py-0.5 px-2 text-right text-[10px] font-medium tracking-wide uppercase border-l border-line-hairline"
-            >
-              Saldo
-            </td>
+            <Fragment key={i}>
+              <td className="border-l border-line-hairline" />
+              <td className="py-0.5 px-2 text-right text-[10px] font-medium tracking-wide uppercase">Saldo</td>
+              <td colSpan={2} />
+            </Fragment>
           ))
         ) : (
           <td colSpan={meses * 4} />
@@ -477,18 +476,19 @@ function MarcasFila({
   );
 }
 
-// Disponibilidades para el gerente: un solo valor por mes (el saldo), de solo lectura. Nunca un input, ni
-// % de avance, ni «falta ejecutar», ni marcas de dato parcial (eso es de ADMIN y FINANZAS).
+// Disponibilidades para el gerente: un solo valor por mes (el saldo), de solo lectura, bajo la columna
+// Real (el saldo ES el real; Presupuestado, % y falta quedan vacíos). Nunca un input, ni marcas de dato
+// parcial (eso es de ADMIN y FINANZAS).
 function CeldaSaldo({ celda, atenuado }: { celda: Celda; atenuado: boolean }) {
+  const fondo = atenuado ? " bg-black/[0.06]" : "";
+  const clase = `py-px px-2 text-right tabular whitespace-nowrap${fondo}`;
   return (
-    <td
-      colSpan={4}
-      className={`py-px px-2 text-right tabular whitespace-nowrap border-l border-line-hairline${
-        atenuado ? " bg-black/[0.06]" : ""
-      }`}
-    >
-      {celda.real === null ? "" : importe(celda.real)}
-    </td>
+    <>
+      <td className={`${clase} border-l border-line-hairline`} />
+      <td className={clase}>{celda.real === null ? "" : importe(celda.real)}</td>
+      <td className={clase} />
+      <td className={clase} />
+    </>
   );
 }
 
