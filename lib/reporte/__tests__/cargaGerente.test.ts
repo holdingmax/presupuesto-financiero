@@ -8,7 +8,7 @@ import {
   BLOQUES_CARGABLES,
   DETALLE_CARGA_DESDE_REPORTE,
   MENSAJE_IMPORTE_NEGATIVO,
-  SE_CARGA_EN_PRESUPUESTO,
+  MOTIVO_SE_AJUSTA_EN_PRESUPUESTO,
   categoriasSinFila,
   celdaDeEntrada,
   esFilaDeCategoria,
@@ -114,7 +114,7 @@ test("planCelda: más de una línea → solo lectura con la suma y el motivo", (
   if (c.modo !== "soloLectura") return;
   assert.equal(c.valorCentavos, 350);
   assert.match(c.motivo, /varias líneas/);
-  assert.ok(c.motivo.includes(SE_CARGA_EN_PRESUPUESTO));
+  assert.ok(c.motivo.includes(MOTIVO_SE_AJUSTA_EN_PRESUPUESTO));
 });
 
 test("planCelda: una línea con desglose → solo lectura con el motivo", () => {
@@ -122,7 +122,7 @@ test("planCelda: una línea con desglose → solo lectura con el motivo", () => 
   assert.equal(c.modo, "soloLectura");
   if (c.modo !== "soloLectura") return;
   assert.match(c.motivo, /desglose/);
-  assert.ok(c.motivo.includes(SE_CARGA_EN_PRESUPUESTO));
+  assert.ok(c.motivo.includes(MOTIVO_SE_AJUSTA_EN_PRESUPUESTO));
 });
 
 test("planCelda: fila de 2 categorías, línea en la SEGUNDA → solo lectura con texto, no editable ni muda", () => {
@@ -131,7 +131,7 @@ test("planCelda: fila de 2 categorías, línea en la SEGUNDA → solo lectura co
   if (c.modo !== "soloLectura") return;
   assert.equal(c.valorCentavos, 777);
   assert.match(c.motivo, /Juicios/);
-  assert.ok(c.motivo.includes(SE_CARGA_EN_PRESUPUESTO));
+  assert.ok(c.motivo.includes(MOTIVO_SE_AJUSTA_EN_PRESUPUESTO));
 });
 
 test("planCelda: fila de 2 categorías, línea en la primera → editable (y se actualiza esa línea)", () => {
@@ -257,7 +257,7 @@ test("vistaDeCarga: formatea los valores, informa los motivos y la huella cambia
   const sueldos = a.celdas.find((c) => c.id === idCelda("fila", "br.sueldos"))!;
   assert.equal(sueldos.importeInicial, "1.234,56");
   assert.equal(sueldos.destino, "fila");
-  assert.ok(a.motivosFilas["br.liquidacionesJuicios"].includes(SE_CARGA_EN_PRESUPUESTO));
+  assert.ok(a.motivosFilas["br.liquidacionesJuicios"].includes(MOTIVO_SE_AJUSTA_EN_PRESUPUESTO));
   assert.equal(a.celdas.some((c) => c.id === idCelda("fila", "br.liquidacionesJuicios")), false);
   const vacia = a.celdas.find((c) => c.id === idCelda("fila", "br.proveedores"))!;
   assert.equal(vacia.importeInicial, "");

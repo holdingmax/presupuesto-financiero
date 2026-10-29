@@ -158,3 +158,11 @@ test("avisoPeriodoSoloLectura: hay cartel si y solo si puedeEditarPeriodoComoGer
     }
   }
 });
+
+test("enlacesDePeriodos: con segmento reporte los links van al Reporte; sin segmento, a Presupuesto", () => {
+  assert.deepEqual(
+    enlacesDePeriodos("hwc", "2026-11", undefined, "reporte").map((e) => e.href),
+    ["/hwc/2026-09/reporte", "/hwc/2026-10/reporte", "/hwc/2026-11/reporte"]
+  );
+  assert.ok(enlacesDePeriodos("hwc", "2026-11").every((e) => e.href.endsWith("/presupuesto")));
+});

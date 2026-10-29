@@ -4,6 +4,7 @@ import { logout } from "@/app/login/actions";
 import { prisma } from "@/lib/prisma";
 import { listarEmpresas, slugify } from "@/lib/slug";
 import { PERIODO_POR_DEFECTO } from "@/lib/config";
+import { enlaceDeEmpresa } from "@/lib/navegacionEmpresa";
 
 // Landing post-login: qué empresas ve depende del usuario. Un ADMIN ve las
 // 13; el resto solo las que tenga asignadas vía UsuarioEmpresa (ver comentario
@@ -78,7 +79,7 @@ export default async function MisEmpresasPage() {
           {empresas.map((empresa) => (
             <Link
               key={empresa.id}
-              href={`/${slugify(empresa.nombre)}/${PERIODO_POR_DEFECTO}/presupuesto`}
+              href={enlaceDeEmpresa(esAdminOFinanzas(usuario), slugify(empresa.nombre))}
               className="text-sm text-marino transition hover:text-marino-dark hover:underline underline-offset-2"
             >
               {empresa.nombre}

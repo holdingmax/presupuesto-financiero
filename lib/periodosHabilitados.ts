@@ -70,11 +70,13 @@ export type EnlacePeriodo = { periodo: string; href: string; activo: boolean };
 export function enlacesDePeriodos(
   empresaSlug: string,
   periodoActual: string,
-  habilitados: readonly string[] = PERIODOS_HABILITADOS
+  habilitados: readonly string[] = PERIODOS_HABILITADOS,
+  // Pantalla a la que lleva cada link: Presupuesto (por defecto) o el Reporte.
+  segmento: "presupuesto" | "reporte" = "presupuesto"
 ): EnlacePeriodo[] {
   return habilitados.map((periodo) => ({
     periodo,
-    href: `/${empresaSlug}/${periodo}/presupuesto`,
+    href: `/${empresaSlug}/${periodo}/${segmento}`,
     activo: periodo === periodoActual,
   }));
 }

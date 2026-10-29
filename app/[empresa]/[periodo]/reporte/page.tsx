@@ -28,6 +28,8 @@ import { plantillaDeEmpresa } from "@/lib/reporte/plantillas";
 import ReportePresupuestoMesAMes from "./ReportePresupuestoMesAMes";
 import { cargarDatosMeses } from "@/lib/reporte/cargarMeses";
 import ReportePlantilla from "./ReportePlantilla";
+import PeriodoSelector from "../presupuesto/PeriodoSelector";
+import { ocultaPestanaPresupuesto } from "@/lib/navegacionEmpresa";
 
 type Props = {
   params: Promise<{ empresa: string; periodo: string }>;
@@ -286,6 +288,11 @@ async function ReportePorPlantilla({
   }
 
   return (
+    <>
+      {/* Sin la pestaña Presupuesto el gerente no tiene otro selector de mes (ver lib/navegacionEmpresa.ts). */}
+      {ocultaPestanaPresupuesto(esAdminOFinanzas(usuario), empresaSlug) && (
+        <PeriodoSelector empresaSlug={empresaSlug} periodo={periodo} segmento="reporte" />
+      )}
     <ReportePlantilla
       empresaNombre={empresaNombre}
       empresaSlug={empresaSlug}
@@ -304,5 +311,6 @@ async function ReportePorPlantilla({
       }))}
       semanasConNoAsignado={noAsignado.semanas}
     />
+    </>
   );
 }

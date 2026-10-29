@@ -107,7 +107,10 @@ export type CeldaCarga =
       motivo: string;
     };
 
-export const SE_CARGA_EN_PRESUPUESTO = "se carga en Presupuesto";
+// Motivo que se muestra en lo que el Reporte NO puede cargar (varias líneas, desglose, otra categoría
+// de la fila, clasificación fuera de la lista). Un solo texto para toda la pantalla: si cambia
+// quién lo resuelve, se cambia acá.
+export const MOTIVO_SE_AJUSTA_EN_PRESUPUESTO = "lo ajusta Finanzas en Presupuesto";
 
 // Planifica UNA celda: `categorias` son las clasificaciones de la fila (la primera es donde se
 // guarda una carga nueva) y `lineas` todas las del mes. Una línea cuenta para la fila si su
@@ -130,11 +133,11 @@ export function planCelda(categorias: readonly string[], texto: string, lineas: 
     };
   }
   if (delasFila.length > 1) {
-    return { modo: "soloLectura", valorCentavos: total, motivo: `varias líneas · ${SE_CARGA_EN_PRESUPUESTO}` };
+    return { modo: "soloLectura", valorCentavos: total, motivo: `varias líneas · ${MOTIVO_SE_AJUSTA_EN_PRESUPUESTO}` };
   }
   const linea = delasFila[0];
   if (linea.tieneDesglose) {
-    return { modo: "soloLectura", valorCentavos: total, motivo: `con desglose · ${SE_CARGA_EN_PRESUPUESTO}` };
+    return { modo: "soloLectura", valorCentavos: total, motivo: `con desglose · ${MOTIVO_SE_AJUSTA_EN_PRESUPUESTO}` };
   }
   // Fila de 2 categorías (Liquidación final + Juicios): se guarda en la primera; si la línea
   // está en la otra, no se mueve en silencio.
@@ -142,7 +145,7 @@ export function planCelda(categorias: readonly string[], texto: string, lineas: 
     return {
       modo: "soloLectura",
       valorCentavos: total,
-      motivo: `cargado como ${linea.clasificacion} · ${SE_CARGA_EN_PRESUPUESTO}`,
+      motivo: `cargado como ${linea.clasificacion} · ${MOTIVO_SE_AJUSTA_EN_PRESUPUESTO}`,
     };
   }
   const pideAclaracion = requiereAclaracion(linea.clasificacion);

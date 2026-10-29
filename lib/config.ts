@@ -26,10 +26,30 @@ export const PERIODO_POR_DEFECTO = "2026-09";
 export const MOSTRAR_PENDIENTES_EN_REPORTE = false;
 
 // Interruptor por empresa de la carga del gerente directo en el Reporte (plan: el gerente
-// tipea su Presupuestado en /reporte). Lista de SLUGS de empresa (lib/slug.ts). Vacía = apagado
-// para todas: el gerente sigue cargando en Presupuesto. Para volver atrás con una empresa,
-// sacar su slug de la lista. Ver cargaEnReporteActiva en lib/estadoPresupuesto.ts.
-export const EMPRESAS_CON_CARGA_EN_REPORTE: readonly string[] = ["brillante"];
+// tipea su Presupuestado en /reporte). Lista de SLUGS de empresa (lib/slug.ts). Una empresa fuera
+// de la lista sigue cargando en Presupuesto. Para volver atrás con una empresa, sacar su slug de
+// la lista. Ver cargaEnReporteActiva en lib/estadoPresupuesto.ts.
+//
+// Con la carga activa, el gerente además deja de ver la pestaña Presupuesto (ocultaPestanaPresupuesto
+// en lib/navegacionEmpresa.ts); ADMIN y FINANZAS la conservan. Cada slug tiene que tener plantilla
+// de Reporte (lib/reporte/plantillas): un test lo controla.
+//
+// Primera tanda (Etapa 4): Brillante, Havanna, Radio, Fredy Publicidad, HWC, Mantenor y Conexión
+// (los dos alias de slug: uno es el de testing; el que no exista en una base no hace nada).
+// Quedan FUERA a propósito, para una próxima tanda: Avianor, Plate Silver y Bradenton (Plate Silver
+// y Bradenton son en dólares y el Reporte no rotula la moneda; las tres tienen un bloque «Sin fila»
+// largo). Sumar una empresa es agregar su slug acá. Expensas, Gold Seguridad, Cielos y Tucson no
+// tienen Reporte por plantilla: no se pueden activar.
+export const EMPRESAS_CON_CARGA_EN_REPORTE: readonly string[] = [
+  "brillante",
+  "havanna",
+  "radio",
+  "fredy-publicidad",
+  "hwc",
+  "mantenor",
+  "conexion-logistica",
+  "conexion-logistica-spp",
+];
 
 // Etiqueta del ciclo fiscal que se muestra en la portada de login (app/login/page.tsx).
 //

@@ -12,14 +12,17 @@ const TABS = [
 type Props = {
   empresaSlug: string;
   periodo: string;
+  // El gerente de una empresa que carga en el Reporte no ve la pestaña Presupuesto
+  // (ocultaPestanaPresupuesto, lib/navegacionEmpresa.ts).
+  ocultarPresupuesto?: boolean;
 };
 
-export default function NavTabs({ empresaSlug, periodo }: Props) {
+export default function NavTabs({ empresaSlug, periodo, ocultarPresupuesto = false }: Props) {
   const pathname = usePathname();
 
   return (
     <nav className="flex items-center gap-1 px-6 pb-3 text-sm">
-      {TABS.map((tab) => {
+      {TABS.filter((tab) => !(ocultarPresupuesto && tab.segmento === "presupuesto")).map((tab) => {
         const href = `/${empresaSlug}/${periodo}/${tab.segmento}`;
         const activo = pathname?.startsWith(href) ?? false;
         return (

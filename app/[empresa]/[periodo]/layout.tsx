@@ -2,8 +2,9 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { resolverEmpresaPorSlug } from "@/lib/slug";
-import { requireUsuarioAlDia, puedeAccederEmpresa } from "@/lib/auth";
+import { requireUsuarioAlDia, puedeAccederEmpresa, esAdminOFinanzas } from "@/lib/auth";
 import { logout } from "@/app/login/actions";
+import { ocultaPestanaPresupuesto } from "@/lib/navegacionEmpresa";
 import NavTabs from "./NavTabs";
 
 const FORMATO_PERIODO = /^\d{4}-\d{2}$/;
@@ -67,7 +68,11 @@ export default async function EmpresaPeriodoLayout({ children, params }: Props) 
             </button>
           </form>
         </div>
-        <NavTabs empresaSlug={slugEmpresa} periodo={periodo} />
+        <NavTabs
+          empresaSlug={slugEmpresa}
+          periodo={periodo}
+          ocultarPresupuesto={ocultaPestanaPresupuesto(esAdminOFinanzas(usuario), slugEmpresa)}
+        />
       </div>
       {children}
     </>

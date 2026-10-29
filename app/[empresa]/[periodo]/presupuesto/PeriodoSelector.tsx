@@ -2,13 +2,21 @@ import Link from "next/link";
 import { enlacesDePeriodos } from "@/lib/periodosHabilitados";
 import { nombreDePeriodo } from "@/lib/ejecucionSemanas";
 
-// Selector de mes de la pantalla de Presupuesto (no está en NavTabs: Ejecución financiera y
-// Reporte no lo tienen). Links a los períodos de lib/config.ts, con el actual resaltado.
-export default function PeriodoSelector({ empresaSlug, periodo }: { empresaSlug: string; periodo: string }) {
+// Selector de mes de la pantalla de Presupuesto y, para el gerente que no ve esa pestaña, del Reporte
+// (no está en NavTabs). Links a los períodos de lib/config.ts, con el actual resaltado.
+export default function PeriodoSelector({
+  empresaSlug,
+  periodo,
+  segmento = "presupuesto",
+}: {
+  empresaSlug: string;
+  periodo: string;
+  segmento?: "presupuesto" | "reporte";
+}) {
   return (
-    <nav aria-label="Mes del presupuesto" className="mx-auto flex w-full max-w-3xl items-center gap-1 px-6 pt-6 text-sm">
+    <nav aria-label="Mes" className="mx-auto flex w-full max-w-3xl items-center gap-1 px-6 pt-6 text-sm">
       <span className="mr-2 text-xs uppercase tracking-[0.15em] text-ink-secondary">Mes</span>
-      {enlacesDePeriodos(empresaSlug, periodo).map((enlace) => (
+      {enlacesDePeriodos(empresaSlug, periodo, undefined, segmento).map((enlace) => (
         <Link
           key={enlace.periodo}
           href={enlace.href}

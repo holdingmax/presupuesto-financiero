@@ -6,6 +6,7 @@ import { guardarPresupuestoDelReporte } from "./actionsCarga";
 import { HayCambiosSinGuardarContext } from "../CargaPresupuestoContexto";
 import {
   MAX_ACLARACION,
+  MOTIVO_SE_AJUSTA_EN_PRESUPUESTO,
   type CapitalVista,
   type CeldaVistaCarga as CeldaVista,
   type EntradaCarga,
@@ -230,7 +231,7 @@ export function BloqueSinFila({
             <span className="text-right">
               <span className="tabular">{fueraDeLista.valor}</span>
               <span className="block text-[10px] text-ink-muted">
-                {fueraDeLista.lineas} {fueraDeLista.lineas === 1 ? "línea" : "líneas"} · se carga en Presupuesto
+                {fueraDeLista.lineas} {fueraDeLista.lineas === 1 ? "línea" : "líneas"} · {MOTIVO_SE_AJUSTA_EN_PRESUPUESTO}
               </span>
             </span>
           </li>

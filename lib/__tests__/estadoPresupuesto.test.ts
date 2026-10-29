@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EMPRESAS_CON_CARGA_EN_REPORTE } from "@/lib/config";
+import { PLANTILLAS_POR_SLUG } from "@/lib/reporte/plantillas";
 import { cargaEnReporteActiva, mostrarFlujoEnReporte, puedeEditarPresupuestoAhora } from "@/lib/estadoPresupuesto";
 
 test("puedeEditarPresupuestoAhora: ABIERTO edita cualquiera con acceso, sea o no revisor", () => {
@@ -58,4 +59,19 @@ test("mostrarFlujoEnReporte: el gerente lo ve solo con el interruptor prendido y
 test("mostrarFlujoEnReporte: el revisor lo ve aunque el interruptor esté apagado, pero no fuera de los períodos habilitados", () => {
   assert.equal(mostrarFlujoEnReporte({ ...base, esRevisor: true }), true);
   assert.equal(mostrarFlujoEnReporte({ ...base, esRevisor: true, periodoHabilitado: false }), false);
+});
+
+test("config: cada slug de EMPRESAS_CON_CARGA_EN_REPORTE tiene plantilla de Reporte y no hay repetidos", () => {
+  assert.equal(new Set(EMPRESAS_CON_CARGA_EN_REPORTE).size, EMPRESAS_CON_CARGA_EN_REPORTE.length);
+  for (const slug of EMPRESAS_CON_CARGA_EN_REPORTE) {
+    assert.ok(Object.hasOwn(PLANTILLAS_POR_SLUG, slug), `${slug} no tiene plantilla`);
+    assert.match(slug, /^[a-z0-9]+(-[a-z0-9]+)*$/, `${slug} no es un slug`);
+  }
+});
+
+test("config: primera tanda de la Etapa 4 (Avianor, Plate Silver y Bradenton quedan fuera a propósito)", () => {
+  assert.deepEqual(
+    [...EMPRESAS_CON_CARGA_EN_REPORTE].sort(),
+    ["brillante", "conexion-logistica", "conexion-logistica-spp", "fredy-publicidad", "havanna", "hwc", "mantenor", "radio"]
+  );
 });

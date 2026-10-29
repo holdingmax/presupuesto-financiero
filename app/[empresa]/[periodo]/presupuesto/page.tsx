@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { obtenerDatos } from "./actions";
-import { AccesoDenegadoError } from "@/lib/auth";
+import { AccesoDenegadoError, esAdminOFinanzas, requireUsuarioAlDia } from "@/lib/auth";
+import { ocultaPestanaPresupuesto } from "@/lib/navegacionEmpresa";
 import { PERIODO_POR_DEFECTO } from "@/lib/config";
 import { PeriodoNoHabilitadoError } from "@/lib/periodosHabilitados";
 import { nombreDePeriodo } from "@/lib/ejecucionSemanas";
@@ -13,6 +15,13 @@ type Props = {
 
 export default async function PresupuestoPage({ params }: Props) {
   const { empresa, periodo } = await params;
+
+  // El gerente de una empresa que carga en el Reporte no usa esta pantalla (ni ve su pestaña): si
+  // entra por URL directa va al Reporte del mismo mes. Solo la pantalla: las acciones no cambian.
+  // Va antes del try: redirect() lanza una excepción que no hay que atrapar.
+  if (ocultaPestanaPresupuesto(esAdminOFinanzas(await requireUsuarioAlDia()), empresa)) {
+    redirect(`/${empresa}/${periodo}/reporte`);
+  }
 
   let datos;
   try {
