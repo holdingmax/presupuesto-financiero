@@ -6,11 +6,9 @@ import { guardarPresupuestoDelReporte } from "./actionsCarga";
 import { HayCambiosSinGuardarContext } from "../CargaPresupuestoContexto";
 import {
   MAX_ACLARACION,
-  MOTIVO_SE_AJUSTA_EN_PRESUPUESTO,
   type CapitalVista,
   type CeldaVistaCarga as CeldaVista,
   type EntradaCarga,
-  type FilaSinFilaVista,
 } from "@/lib/reporte/cargaGerente";
 
 // Carga del Presupuestado en el Reporte (Etapas 2 y 3). El Reporte es un componente de servidor; acá
@@ -128,12 +126,12 @@ export function ProveedorCarga({
 export function BarraGuardarPresupuesto() {
   const { guardando, cantidadCambios, mensaje, guardar } = useCarga();
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-3">
+    <div className="mb-2 flex flex-wrap items-center gap-3">
       <button
         type="button"
         onClick={guardar}
         disabled={cantidadCambios === 0 || guardando}
-        className="h-10 rounded-md bg-marino px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-marino-dark disabled:cursor-not-allowed disabled:opacity-40"
+        className="h-8 rounded-md bg-marino px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-marino-dark disabled:cursor-not-allowed disabled:opacity-40"
       >
         {guardando ? "Guardando..." : "Guardar presupuesto"}
       </button>
@@ -159,16 +157,29 @@ function useCarga(): Contexto {
 
 const CLASE_INPUT =
   "h-8 rounded-md border border-line bg-paper px-2 text-right text-sm tabular outline-none focus:border-marino focus:ring-2 focus:ring-marino/15 disabled:opacity-60";
+// Dentro de la tabla del Reporte: una fila de la planilla, no un formulario.
+const CLASE_INPUT_COMPACTO =
+  "h-5 rounded border border-line bg-paper px-1.5 text-right text-[11px] leading-none tabular outline-none focus:border-marino focus:ring-1 focus:ring-marino/30 disabled:opacity-60";
 
 // Input de una celda: va en la columna Presupuestado del último mes. "Otros" lleva además una
 // aclaración obligatoria (se guarda como detalle de la línea).
-export function CeldaPresupuestoEditable({ id, nombre }: { id: string; nombre: string }) {
+// `compacta`: dentro de la tabla (input bajo, y quién cargó el valor va de tooltip en vez de una línea aparte).
+export function CeldaPresupuestoEditable({
+  id,
+  nombre,
+  compacta = false,
+}: {
+  id: string;
+  nombre: string;
+  compacta?: boolean;
+}) {
   const { valores, celdas, guardando, cambiar } = useCarga();
   const celda = celdas.get(id);
   const valor = valores[id];
   if (!celda || !valor) return null;
+  const claseInput = compacta ? CLASE_INPUT_COMPACTO : CLASE_INPUT;
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className={`flex flex-col items-end ${compacta ? "gap-0.5" : "gap-1"}`}>
       <input
         value={valor.importe}
         onChange={(e) => cambiar(id, { importe: e.target.value })}
@@ -176,9 +187,10 @@ export function CeldaPresupuestoEditable({ id, nombre }: { id: string; nombre: s
         placeholder="0"
         disabled={guardando}
         aria-label={`Presupuestado: ${nombre}`}
-        className={`w-32 ${CLASE_INPUT}`}
+        title={compacta ? (celda.leyenda ?? undefined) : undefined}
+        className={`${compacta ? "w-28" : "w-32"} ${claseInput}`}
       />
-      {celda.leyenda && <span className="text-[10px] font-normal text-ink-muted">{celda.leyenda}</span>}
+      {!compacta && celda.leyenda && <span className="text-[10px] font-normal text-ink-muted">{celda.leyenda}</span>}
       {celda.requiereAclaracion && valor.importe.trim() !== "" && (
         <input
           value={valor.aclaracion}
@@ -187,56 +199,9 @@ export function CeldaPresupuestoEditable({ id, nombre }: { id: string; nombre: s
           placeholder="Aclaración (obligatoria)"
           disabled={guardando}
           aria-label={`Aclaración de ${nombre}`}
-          className={`w-44 text-left ${CLASE_INPUT}`}
+          className={`w-44 text-left ${claseInput}`}
         />
       )}
-    </div>
-  );
-}
-
-// "Sin fila en este reporte": categorías de Presupuesto que la plantilla no tiene como fila. Se
-// guardan igual como línea, pero NO entran en los totales del Reporte (sí en la barra de Presupuesto).
-export function BloqueSinFila({
-  filas,
-  fueraDeLista,
-}: {
-  filas: FilaSinFilaVista[];
-  fueraDeLista: { valor: string; lineas: number } | null;
-}) {
-  if (filas.length === 0 && !fueraDeLista) return null;
-  return (
-    <div className="mt-8 rounded-md border border-line-strong bg-paper-raised px-5 py-4">
-      <p className="text-sm font-medium">Sin fila en este reporte</p>
-      <p className="mt-1 text-xs text-ink-secondary">
-        Gastos e ingresos que tu reporte no tiene como fila. Se guardan en tu presupuesto, pero no entran
-        en los totales de la tabla de arriba.
-      </p>
-      <ul className="mt-3 divide-y divide-line-hairline">
-        {filas.map((f) => (
-          <li key={f.id} className="flex flex-wrap items-center justify-between gap-3 py-2 text-sm">
-            <span>{f.texto}</span>
-            {f.soloLectura ? (
-              <span className="text-right">
-                <span className="tabular">{f.soloLectura.valor}</span>
-                <span className="block text-[10px] text-ink-muted">{f.soloLectura.motivo}</span>
-              </span>
-            ) : (
-              <CeldaPresupuestoEditable id={f.id} nombre={f.texto} />
-            )}
-          </li>
-        ))}
-        {fueraDeLista && (
-          <li className="flex flex-wrap items-center justify-between gap-3 py-2 text-sm">
-            <span>Otras clasificaciones (fuera de la lista)</span>
-            <span className="text-right">
-              <span className="tabular">{fueraDeLista.valor}</span>
-              <span className="block text-[10px] text-ink-muted">
-                {fueraDeLista.lineas} {fueraDeLista.lineas === 1 ? "línea" : "líneas"} · {MOTIVO_SE_AJUSTA_EN_PRESUPUESTO}
-              </span>
-            </span>
-          </li>
-        )}
-      </ul>
     </div>
   );
 }
@@ -246,7 +211,7 @@ export function BloqueSinFila({
 // vacío vuelve a la fórmula; en las demás se tipea a mano.
 export function BloqueCapital({ capital }: { capital: CapitalVista }) {
   return (
-    <div className="mt-8 rounded-md border border-line-strong bg-paper-raised px-5 py-4">
+    <div className="mt-3 rounded-md border border-line-strong bg-paper-raised px-4 py-2">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-xl">
           <p className="text-sm font-medium">{capital.texto}</p>

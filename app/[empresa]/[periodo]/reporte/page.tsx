@@ -295,7 +295,7 @@ async function ReportePorPlantilla({
     <>
       {/* Sin la pestaña Presupuesto el gerente no tiene otro selector de mes (ver lib/navegacionEmpresa.ts). */}
       {ocultaPestanaPresupuesto(esAdminOFinanzas(usuario), empresaSlug) && (
-        <PeriodoSelector empresaSlug={empresaSlug} periodo={periodo} segmento="reporte" vista={vista} />
+        <PeriodoSelector empresaSlug={empresaSlug} periodo={periodo} segmento="reporte" vista={vista} compacto />
       )}
       <VistaSelector empresaSlug={empresaSlug} periodo={periodo} vista={vista} />
     <ReportePlantilla

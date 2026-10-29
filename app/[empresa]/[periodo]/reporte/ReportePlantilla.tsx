@@ -9,7 +9,6 @@ import type { VistaCarga } from "@/lib/reporte/cargaGerente";
 import {
   BarraGuardarPresupuesto,
   BloqueCapital,
-  BloqueSinFila,
   CeldaPresupuestoEditable,
   ProveedorCarga,
 } from "./CargaPresupuesto";
@@ -78,24 +77,28 @@ export default function ReportePlantilla({
 }: Props) {
   const { periodos, sinPresupuesto, sinEjecucion } = reporte;
   const idsEditables = new Set(carga?.celdas.map((c) => c.id));
+  // Meses que no se editan desde acá: los anteriores al último, y el último si el mes está en solo
+  // lectura (cartel). Se marcan con la etiqueta «Solo lectura» y el fondo atenuado.
+  const soloLecturaPorMes = periodos.map((_, i) => i < periodos.length - 1 || avisoSoloLectura !== null);
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 py-10">
-      <div className="mb-8">
-        <p className="flex items-center gap-2 text-xs tracking-[0.15em] text-ink-secondary uppercase">
-          <span className="h-2 w-2 bg-plata" />
+    <div className="w-full px-3 py-2">
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <h1 className="text-lg font-serif font-semibold tracking-tight">Presupuesto financiero</h1>
+        <p className="flex items-center gap-2 text-[11px] tracking-[0.12em] text-ink-secondary uppercase">
+          <span className="h-1.5 w-1.5 bg-plata" />
           {empresaNombre} · {nombreMes(periodos[0])}
           {periodos.length > 1 && ` a ${nombreMes(periodos[periodos.length - 1])}`}
         </p>
-        <h1 className="mt-1 text-4xl font-serif font-semibold tracking-tight">Presupuesto financiero</h1>
-        <p className="mt-2 text-sm text-ink-secondary">
-          Presupuestado vs. real ejecutado (semanas cerradas de Ejecución), en pesos. El real suma
-          los movimientos de las unidades de negocio de esta empresa, de cualquier extracto del
-          período. Disponibilidades, Resultado FCI y demás valores tipeados se cargan a mano.
+        <p
+          className="text-[11px] text-ink-secondary"
+          title="El real suma los movimientos de las unidades de negocio de esta empresa, de cualquier extracto del período. Disponibilidades, Resultado FCI y demás valores tipeados se cargan a mano."
+        >
+          Presupuestado vs. real ejecutado (semanas cerradas), en pesos.
         </p>
         {verControl && (
           <Link
             href={`/${empresaSlug}/${periodo}/reporte/carga`}
-            className="mt-3 inline-block rounded-md border border-line-strong px-3 py-1.5 text-sm hover:bg-paper-raised"
+            className="rounded-md border border-line-strong px-2 py-0.5 text-xs hover:bg-paper-raised"
           >
             Cargar valores del mes
           </Link>
@@ -104,14 +107,14 @@ export default function ReportePlantilla({
 
       <ConCarga carga={carga} empresaSlug={empresaSlug} periodo={periodo}>
       {avisoSoloLectura && (
-        <p className="mb-6 rounded-md bg-terracota-tint px-3 py-2 text-sm text-terracota" role="status">
+        <p className="mb-2 rounded-md bg-terracota-tint px-3 py-1 text-xs text-terracota" role="status">
           {avisoSoloLectura}
         </p>
       )}
 
       {flujo && (
-        <div className="mb-6">
-          <div className="mb-3 flex items-center gap-2 text-xs text-ink-secondary">
+        <div className="mb-2">
+          <div className="mb-1 flex items-center gap-2 text-xs text-ink-secondary">
             <span>Presupuesto de {nombreMes(periodo)}:</span>
             <EstadoBadge estado={flujo.estado} />
           </div>
@@ -127,7 +130,7 @@ export default function ReportePlantilla({
       )}
 
       {sinUnidades && (
-        <p className="mb-6 text-sm text-terracota bg-terracota-tint rounded-md px-3 py-2">
+        <p className="mb-2 text-xs text-terracota bg-terracota-tint rounded-md px-3 py-1">
           Esta empresa no tiene unidades de negocio asignadas, así que el real va a dar 0. Un
           administrador las asigna en Administración → Unidades de negocio.
         </p>
@@ -135,23 +138,41 @@ export default function ReportePlantilla({
 
       {carga && <BarraGuardarPresupuesto />}
 
-      <div className="overflow-x-auto border-t border-line-strong">
-        <table className="w-max min-w-full text-sm">
-          <thead>
-            <tr className="text-xs text-ink-secondary">
+      {/* Un solo mes entra sin scroll horizontal: sin contenedor con overflow, el encabezado fijo se pega a la
+          ventana. Con varios meses el contenedor scrollea (en horizontal si la pantalla es angosta) y el
+          encabezado se pega a él. */}
+      <div
+        className={`border-t border-line-strong ${
+          periodos.length === 1 ? "max-w-5xl" : "max-h-[calc(100vh-4rem)] max-w-[1800px] overflow-auto"
+        }`}
+      >
+        <table className="w-full text-[11px] leading-4">
+          <thead className="sticky top-0 z-20 bg-paper">
+            <tr className="text-[11px] text-ink-secondary">
               <th className="sticky left-0 z-10 bg-paper" />
               {periodos.map((p, i) => (
-                <th key={p} colSpan={4} className="pt-2 px-3 text-center font-medium border-l border-line-hairline">
+                <th
+                  key={p}
+                  colSpan={4}
+                  className={`px-2 pt-1 text-center font-medium border-l border-line-hairline ${
+                    soloLecturaPorMes[i] ? "bg-paper-cool" : ""
+                  }`}
+                >
                   {nombreMes(p)}
+                  {soloLecturaPorMes[i] && (
+                    <span className="ml-2 rounded bg-black/10 px-1.5 text-[10px] font-medium text-ink-secondary">
+                      Solo lectura
+                    </span>
+                  )}
                   {sinPresupuesto[i] && <span className="ml-2 font-normal text-ink-muted">· sin presupuesto</span>}
                   {sinEjecucion[i] && <span className="ml-2 font-normal text-ink-muted">· sin ejecución</span>}
                 </th>
               ))}
             </tr>
-            <tr className="text-xs text-ink-faint uppercase tracking-wide">
-              <th className="sticky left-0 z-10 bg-paper text-left py-2 pr-3 font-medium">Concepto</th>
-              {periodos.map((p) => (
-                <ColumnasMes key={p} />
+            <tr className="text-[10px] text-ink-faint uppercase tracking-wide">
+              <th className="sticky left-0 z-10 bg-paper text-left py-1 pr-3 font-medium">Concepto</th>
+              {periodos.map((p, i) => (
+                <ColumnasMes key={p} atenuado={soloLecturaPorMes[i]} />
               ))}
             </tr>
           </thead>
@@ -165,13 +186,13 @@ export default function ReportePlantilla({
                 verControl={verControl}
                 carga={carga}
                 idsEditables={idsEditables}
+                soloLecturaPorMes={soloLecturaPorMes}
               />
             ))}
           </tbody>
         </table>
       </div>
 
-      {carga && <BloqueSinFila filas={carga.sinFila} fueraDeLista={carga.fueraDeLista} />}
       {carga?.capital && <BloqueCapital capital={carga.capital} />}
 
       {flujo && (
@@ -186,7 +207,7 @@ export default function ReportePlantilla({
       </ConCarga>
 
       {verPendientes && reporte.pendientes.length > 0 && (
-        <div className="mt-8 rounded-md border border-line-strong bg-paper-raised px-5 py-4">
+        <div className="mt-4 rounded-md border border-line-strong bg-paper-raised px-5 py-4">
           <p className="text-sm font-medium">Pendiente de confirmar con Kike</p>
           <ul className="mt-2 space-y-1 text-sm">
             {reporte.pendientes.map((k) => (
@@ -239,6 +260,7 @@ function FilaConControl({
   verControl,
   carga,
   idsEditables,
+  soloLecturaPorMes,
 }: {
   filaReporte: FilaReporte;
   reporte: Reporte;
@@ -246,6 +268,7 @@ function FilaConControl({
   verControl: boolean;
   carga: VistaCarga | null;
   idsEditables: Set<string>;
+  soloLecturaPorMes: boolean[];
 }) {
   const meses = reporte.periodos.length;
   const { fila } = filaReporte;
@@ -258,14 +281,15 @@ function FilaConControl({
         verControl={verControl}
         carga={carga}
         idsEditables={idsEditables}
+        soloLecturaPorMes={soloLecturaPorMes}
       />
       {verControl && fila.tipo === "total" && fila.rol === "totalDisponibilidades" && (
         <tr className="bg-paper-cool text-xs italic text-ink-secondary">
-          <td className="sticky left-0 z-10 bg-paper-cool py-1 pr-4 whitespace-nowrap">
+          <td className="sticky left-0 z-10 bg-paper-cool py-px pr-4 whitespace-nowrap">
             Arrastre: diferencia con el cierre anterior
           </td>
           {reporte.arrastre.map((a, i) => (
-            <td key={i} colSpan={4} className="py-1 px-3 text-right border-l border-line-hairline">
+            <td key={i} colSpan={4} className="py-px px-2 text-right border-l border-line-hairline">
               {a === null || a.diferencia === null ? (
                 "—"
               ) : (
@@ -284,13 +308,14 @@ function FilaConControl({
   );
 }
 
-function ColumnasMes() {
+function ColumnasMes({ atenuado }: { atenuado: boolean }) {
+  const fondo = atenuado ? " bg-paper-cool" : "";
   return (
     <>
-      <th className="text-right py-2 px-3 font-medium border-l border-line-hairline">Presupuestado</th>
-      <th className="text-right py-2 px-3 font-medium">Real</th>
-      <th className="text-right py-2 px-3 font-medium">% Avance</th>
-      <th className="text-right py-2 px-3 font-medium">Falta ejecutar</th>
+      <th className={`text-right py-1 px-2 font-medium border-l border-line-hairline${fondo}`}>Presupuestado</th>
+      <th className={`text-right py-1 px-2 font-medium${fondo}`}>Real</th>
+      <th className={`text-right py-1 px-2 font-medium${fondo}`}>% Avance</th>
+      <th className={`text-right py-1 px-2 font-medium${fondo}`}>Falta ejecutar</th>
     </>
   );
 }
@@ -313,6 +338,7 @@ function FilaTabla({
   verControl,
   carga,
   idsEditables,
+  soloLecturaPorMes,
 }: {
   filaReporte: FilaReporte;
   meses: number;
@@ -320,12 +346,13 @@ function FilaTabla({
   verControl: boolean;
   carga: VistaCarga | null;
   idsEditables: Set<string>;
+  soloLecturaPorMes: boolean[];
 }) {
   const { fila, celdas } = filaReporte;
   if (fila.tipo === "titulo") {
     return (
       <tr className="border-t border-line-strong bg-[#D6E2F0] font-bold">
-        <td className="sticky left-0 z-10 bg-[#D6E2F0] py-1.5 pr-3 text-xs font-bold tracking-[0.15em] uppercase">
+        <td className="sticky left-0 z-10 bg-[#D6E2F0] py-0.5 pr-3 text-[11px] font-bold tracking-[0.12em] uppercase">
           {fila.texto}
         </td>
         <td colSpan={meses * 4} />
@@ -349,14 +376,14 @@ function FilaTabla({
         : idsEditables.has(`manual|${fila.clave}`)
           ? `manual|${fila.clave}`
           : null;
-  const editor = idCelda !== null ? <CeldaPresupuestoEditable id={idCelda} nombre={fila.texto.trim()} /> : undefined;
+  const editor = idCelda !== null ? <CeldaPresupuestoEditable id={idCelda} nombre={fila.texto.trim()} compacta /> : undefined;
   const motivo =
     carga && fila.tipo === "linea" && Object.hasOwn(carga.motivosFilas, fila.clave)
       ? carga.motivosFilas[fila.clave]
       : undefined;
   return (
     <tr className={esTotal ? "border-t border-line-strong bg-[#D9D9D9] font-bold" : "border-t border-line-hairline"}>
-      <td className={`sticky left-0 z-10 py-1.5 pr-4 whitespace-nowrap ${esTotal ? "bg-[#D9D9D9]" : "bg-paper"}`}>
+      <td className={`sticky left-0 z-10 py-px pr-3 whitespace-nowrap ${esTotal ? "bg-[#D9D9D9]" : "bg-paper"}`}>
         <span title={verPendientes && fila.tipo === "linea" ? fila.nota : undefined}>{fila.texto}</span>
         {fila.tipo === "linea" && (
           <MarcasFila
@@ -382,6 +409,7 @@ function FilaTabla({
           realParcial={fila.tipo === "linea" && !!fila.parcial}
           sinPorcentajes={sinPorcentajes}
           soloP={soloP}
+          atenuado={soloLecturaPorMes[i]}
           editor={i === celdas.length - 1 ? editor : undefined}
           motivo={i === celdas.length - 1 ? motivo : undefined}
         />
@@ -437,6 +465,7 @@ function CeldasMes({
   realParcial,
   sinPorcentajes,
   soloP,
+  atenuado,
   editor,
   motivo,
 }: {
@@ -445,17 +474,24 @@ function CeldasMes({
   realParcial: boolean;
   sinPorcentajes: boolean;
   soloP: boolean;
+  // Mes en solo lectura: fondo apenas más oscuro (se superpone al de la fila, también en los totales).
+  atenuado: boolean;
   // Carga del Presupuestado: input en lugar del número, o el motivo de solo lectura debajo de él.
   editor?: ReactNode;
   motivo?: string;
 }) {
-  const claseNumero = "py-1.5 px-3 text-right tabular whitespace-nowrap";
+  const claseNumero = `py-px px-2 text-right tabular whitespace-nowrap${atenuado ? " bg-black/[0.06]" : ""}`;
   return (
     <>
       <td className={`${claseNumero} border-l border-line-hairline`}>
         {editor ?? (celda.presupuestado === null ? "" : importe(celda.presupuestado))}
         {!editor && esTotal && celda.presupuestoIncompleto && celda.presupuestado !== null && <Asterisco />}
-        {!editor && motivo && <span className="block text-[10px] font-normal text-ink-muted">{motivo}</span>}
+        {/* Por qué no se edita desde acá: tooltip, para no agrandar la fila. */}
+        {!editor && motivo && (
+          <span title={motivo} aria-label={motivo} className="ml-1 cursor-help text-[10px] font-normal text-ink-muted">
+            ⓘ
+          </span>
+        )}
       </td>
       <td className={`${claseNumero} ${realParcial ? "text-ink-muted" : ""}`}>
         {soloP ? "" : celda.real === null ? "" : importe(celda.real)}
