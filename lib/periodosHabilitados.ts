@@ -72,11 +72,13 @@ export function enlacesDePeriodos(
   periodoActual: string,
   habilitados: readonly string[] = PERIODOS_HABILITADOS,
   // Pantalla a la que lleva cada link: Presupuesto (por defecto) o el Reporte.
-  segmento: "presupuesto" | "reporte" = "presupuesto"
+  segmento: "presupuesto" | "reporte" = "presupuesto",
+  // Vista del Reporte ("actual" | "todo"): se conserva al cambiar de mes. Sin ella, el link queda igual que siempre.
+  vista?: string
 ): EnlacePeriodo[] {
   return habilitados.map((periodo) => ({
     periodo,
-    href: `/${empresaSlug}/${periodo}/${segmento}`,
+    href: `/${empresaSlug}/${periodo}/${segmento}${vista ? `?vista=${vista}` : ""}`,
     activo: periodo === periodoActual,
   }));
 }

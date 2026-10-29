@@ -8,15 +8,18 @@ export default function PeriodoSelector({
   empresaSlug,
   periodo,
   segmento = "presupuesto",
+  vista,
 }: {
   empresaSlug: string;
   periodo: string;
   segmento?: "presupuesto" | "reporte";
+  // Vista del Reporte que se conserva al cambiar de mes.
+  vista?: string;
 }) {
   return (
     <nav aria-label="Mes" className="mx-auto flex w-full max-w-3xl items-center gap-1 px-6 pt-6 text-sm">
       <span className="mr-2 text-xs uppercase tracking-[0.15em] text-ink-secondary">Mes</span>
-      {enlacesDePeriodos(empresaSlug, periodo, undefined, segmento).map((enlace) => (
+      {enlacesDePeriodos(empresaSlug, periodo, undefined, segmento, vista).map((enlace) => (
         <Link
           key={enlace.periodo}
           href={enlace.href}

@@ -30,16 +30,15 @@ import { cargarDatosMeses } from "@/lib/reporte/cargarMeses";
 import ReportePlantilla from "./ReportePlantilla";
 import PeriodoSelector from "../presupuesto/PeriodoSelector";
 import { ocultaPestanaPresupuesto } from "@/lib/navegacionEmpresa";
+import { cantidadDeMeses, resolverVista, type VistaReporte } from "@/lib/reporte/vistaReporte";
+import VistaSelector from "./VistaSelector";
 
 type Props = {
   params: Promise<{ empresa: string; periodo: string }>;
+  searchParams: Promise<{ vista?: string | string[] }>;
 };
 
 const FORMATO_PERIODO = /^\d{4}-\d{2}$/;
-
-// Cuántos meses lado a lado muestra el Reporte por plantilla: los que terminan
-// en el período de la URL. Pregunta 3 del diagnóstico, todavía abierta.
-const MESES_VISIBLES = 3;
 
 // Fase 1 del reporte "PRESUPUESTO MES A MES": solo la sección de Egresos —
 // los rubros que matchean limpio contra LineaPresupuesto/MovimientoBancario
@@ -69,8 +68,9 @@ const RUBROS_EGRESOS = [
   "Liquidación final",
 ] as const;
 
-export default async function ReportePage({ params }: Props) {
+export default async function ReportePage({ params, searchParams }: Props) {
   const { empresa: empresaSlug, periodo } = await params;
+  const { vista: vistaPedida } = await searchParams;
 
   let empresaNombre: string;
   let empresaId: string;
@@ -108,6 +108,7 @@ export default async function ReportePage({ params }: Props) {
         empresaNombre={empresaNombre}
         empresaSlug={empresaSlug}
         periodo={periodo}
+        vista={resolverVista(vistaPedida, esAdminOFinanzas(usuario))}
         unidadesEmpresa={unidadesEmpresa}
         verPendientes={esAdminOFinanzas(usuario) && MOSTRAR_PENDIENTES_EN_REPORTE}
         verControl={esAdminOFinanzas(usuario)}
@@ -204,6 +205,7 @@ async function ReportePorPlantilla({
   empresaNombre,
   empresaSlug,
   periodo,
+  vista,
   unidadesEmpresa,
   verPendientes,
   verControl,
@@ -215,6 +217,8 @@ async function ReportePorPlantilla({
   empresaNombre: string;
   empresaSlug: string;
   periodo: string;
+  // Cuántos meses se muestran (lib/reporte/vistaReporte.ts); el selector de mes elige el último.
+  vista: VistaReporte;
   unidadesEmpresa: string[];
   verPendientes: boolean;
   verControl: boolean;
@@ -244,7 +248,7 @@ async function ReportePorPlantilla({
 
   // Un mes más de contexto (no se muestra): el control de arrastre y los espejos del mes
   // anterior lo necesitan para el primer mes visible.
-  const periodos = periodosHasta(periodo, MESES_VISIBLES + 1);
+  const periodos = periodosHasta(periodo, cantidadDeMeses(vista, periodo, esAdminOFinanzas(usuario)) + 1);
   const clasificaciones = clasificacionesDePlantilla(plantilla);
 
   const unidadesConEmpresa = await obtenerUnidadesConEmpresa();
@@ -291,8 +295,9 @@ async function ReportePorPlantilla({
     <>
       {/* Sin la pestaña Presupuesto el gerente no tiene otro selector de mes (ver lib/navegacionEmpresa.ts). */}
       {ocultaPestanaPresupuesto(esAdminOFinanzas(usuario), empresaSlug) && (
-        <PeriodoSelector empresaSlug={empresaSlug} periodo={periodo} segmento="reporte" />
+        <PeriodoSelector empresaSlug={empresaSlug} periodo={periodo} segmento="reporte" vista={vista} />
       )}
+      <VistaSelector empresaSlug={empresaSlug} periodo={periodo} vista={vista} />
     <ReportePlantilla
       empresaNombre={empresaNombre}
       empresaSlug={empresaSlug}

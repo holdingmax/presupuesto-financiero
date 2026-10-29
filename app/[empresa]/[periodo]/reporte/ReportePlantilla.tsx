@@ -83,7 +83,8 @@ export default function ReportePlantilla({
       <div className="mb-8">
         <p className="flex items-center gap-2 text-xs tracking-[0.15em] text-ink-secondary uppercase">
           <span className="h-2 w-2 bg-plata" />
-          {empresaNombre} · {nombreMes(periodos[0])} a {nombreMes(periodos[periodos.length - 1])}
+          {empresaNombre} · {nombreMes(periodos[0])}
+          {periodos.length > 1 && ` a ${nombreMes(periodos[periodos.length - 1])}`}
         </p>
         <h1 className="mt-1 text-4xl font-serif font-semibold tracking-tight">Presupuesto financiero</h1>
         <p className="mt-2 text-sm text-ink-secondary">
