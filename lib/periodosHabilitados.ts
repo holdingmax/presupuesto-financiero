@@ -1,4 +1,5 @@
 import { PERIODOS_HABILITADOS, PERIODO_EN_CARGA_GERENTE } from "@/lib/config";
+import { nombreDePeriodo } from "@/lib/ejecucionSemanas";
 
 // Períodos de Presupuesto habilitados para quien no es ADMIN ni FINANZAS. Puras (sin Prisma
 // ni next/*) para poder probarlas; las usan presupuesto/page.tsx, resolverEmpresaYPresupuesto
@@ -30,9 +31,28 @@ export function puedeEditarPeriodoComoGerente(
   return esAdminOFinanzas || periodo === enCarga;
 }
 
-// Mensaje cuando un gerente intenta editar un período que no es el de carga.
+// "2026-11" → "Noviembre 2026". Un texto que no es AAAA-MM se devuelve tal cual.
+export function nombreLegibleDePeriodo(periodo: string): string {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periodo)) return periodo;
+  const nombre = nombreDePeriodo(periodo);
+  return `${nombre.charAt(0).toUpperCase()}${nombre.slice(1)}`;
+}
+
+// Mensaje cuando un gerente intenta editar un período que no es el de carga (lo devuelve el servidor).
 export function mensajePeriodoSoloLectura(enCarga: string = PERIODO_EN_CARGA_GERENTE): string {
-  return `Solo se puede cargar el mes en curso (${enCarga}). Los demás meses se ven en solo lectura.`;
+  return `Solo se puede cargar el mes en curso (${nombreLegibleDePeriodo(enCarga)}). Los demás meses se ven en solo lectura.`;
+}
+
+// Cartel de las pantallas (Presupuesto y Reporte): null = el período es editable para este usuario;
+// un texto = solo lectura. Un único valor hace de flag y de mensaje, y sale de la misma regla que
+// usa el servidor (puedeEditarPeriodoComoGerente), así que no pueden divergir.
+export function avisoPeriodoSoloLectura(
+  periodo: string,
+  esAdminOFinanzas: boolean,
+  enCarga: string = PERIODO_EN_CARGA_GERENTE
+): string | null {
+  if (puedeEditarPeriodoComoGerente(periodo, esAdminOFinanzas, enCarga)) return null;
+  return `Solo se puede cargar el mes en curso (${nombreLegibleDePeriodo(enCarga)}). Este mes está en solo lectura.`;
 }
 
 // Lo lanza resolverEmpresaYPresupuesto; presupuesto/page.tsx lo atrapa y muestra el aviso.

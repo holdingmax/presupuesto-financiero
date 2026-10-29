@@ -5,7 +5,9 @@ import {
   PeriodoNoHabilitadoError,
   enlacesDePeriodos,
   esPeriodoHabilitado,
+  avisoPeriodoSoloLectura,
   mensajePeriodoSoloLectura,
+  nombreLegibleDePeriodo,
   puedeEditarPeriodoComoGerente,
   puedeVerPeriodo,
 } from "@/lib/periodosHabilitados";
@@ -111,7 +113,48 @@ test("puedeEditarPeriodoComoGerente: usa el período que se le pase", () => {
   assert.equal(puedeEditarPeriodoComoGerente("2026-11", true, "2026-12"), true);
 });
 
-test("mensajePeriodoSoloLectura: nombra el mes en curso", () => {
-  assert.match(mensajePeriodoSoloLectura(), /2026-11/);
-  assert.match(mensajePeriodoSoloLectura("2026-12"), /2026-12/);
+test("mensajePeriodoSoloLectura: nombra el mes en curso en formato legible", () => {
+  assert.match(mensajePeriodoSoloLectura(), /Noviembre 2026/);
+  assert.match(mensajePeriodoSoloLectura("2026-12"), /Diciembre 2026/);
+  assert.doesNotMatch(mensajePeriodoSoloLectura(), /2026-11/);
+});
+
+test("nombreLegibleDePeriodo: mes con mayúscula y año; un texto inválido vuelve tal cual", () => {
+  assert.equal(nombreLegibleDePeriodo("2026-11"), "Noviembre 2026");
+  assert.equal(nombreLegibleDePeriodo("2026-01"), "Enero 2026");
+  assert.equal(nombreLegibleDePeriodo("2026-12"), "Diciembre 2026");
+  for (const p of ["2026-13", "2026-00", "2026-9", "abc", ""]) assert.equal(nombreLegibleDePeriodo(p), p);
+});
+
+test("avisoPeriodoSoloLectura: ADMIN y FINANZAS nunca ven el cartel", () => {
+  for (const p of ["2026-09", "2026-10", "2026-11", "2026-12", "2027-01"]) {
+    assert.equal(avisoPeriodoSoloLectura(p, true), null, p);
+  }
+});
+
+test("avisoPeriodoSoloLectura: el gerente no ve cartel en el mes en curso", () => {
+  assert.equal(avisoPeriodoSoloLectura("2026-11", false), null);
+});
+
+test("avisoPeriodoSoloLectura: el gerente ve el texto exacto en cualquier otro mes, con el mes EN CURSO nombrado", () => {
+  const esperado = "Solo se puede cargar el mes en curso (Noviembre 2026). Este mes está en solo lectura.";
+  for (const p of ["2026-09", "2026-10", "2026-12", "2026-08"]) {
+    assert.equal(avisoPeriodoSoloLectura(p, false), esperado, p);
+  }
+  assert.equal(
+    avisoPeriodoSoloLectura("2026-11", false, "2026-12"),
+    "Solo se puede cargar el mes en curso (Diciembre 2026). Este mes está en solo lectura."
+  );
+});
+
+test("avisoPeriodoSoloLectura: hay cartel si y solo si puedeEditarPeriodoComoGerente es false (UI y servidor no divergen)", () => {
+  for (const p of ["2026-08", "2026-09", "2026-10", "2026-11", "2026-12", "2027-11", "2026-1", " 2026-11", ""]) {
+    for (const adminOFinanzas of [true, false]) {
+      assert.equal(
+        avisoPeriodoSoloLectura(p, adminOFinanzas) === null,
+        puedeEditarPeriodoComoGerente(p, adminOFinanzas),
+        `${JSON.stringify(p)} admin=${adminOFinanzas}`
+      );
+    }
+  }
 });

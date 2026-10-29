@@ -110,9 +110,18 @@ type PropsAcciones = {
   revisionCompletada: boolean;
   // Cantidad de líneas guardadas: sin ninguna no se puede enviar a revisión.
   cantidadLineas: number;
+  // Mes en solo lectura para el gerente: no se muestra "Enviar a revisión". Las acciones del revisor y
+  // "Confirmar versión final" no cambian.
+  ocultarEnviarARevision?: boolean;
 };
 
-export function AccionesFlujo({ estado, esRevisor, revisionCompletada, cantidadLineas }: PropsAcciones) {
+export function AccionesFlujo({
+  estado,
+  esRevisor,
+  revisionCompletada,
+  cantidadLineas,
+  ocultarEnviarARevision = false,
+}: PropsAcciones) {
   const router = useRouter();
   const { empresa: empresaSlug, periodo: periodoUrl } = useParams<{
     empresa: string;
@@ -202,6 +211,8 @@ export function AccionesFlujo({ estado, esRevisor, revisionCompletada, cantidadL
     ) : null;
 
   if (validado) return null;
+  // ABIERTO solo tiene ese botón: sin él no queda nada que mostrar.
+  if (estado === "ABIERTO" && ocultarEnviarARevision) return null;
 
   return (
     <div className="mt-10 border-t border-line pt-6">

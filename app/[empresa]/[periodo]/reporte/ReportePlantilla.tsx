@@ -55,6 +55,8 @@ type Props = {
   // Carga del Presupuestado en el Reporte (Etapa 2): celdas editables de la última columna y
   // bloque "Sin fila". null = el Reporte es de solo lectura, como siempre.
   carga: VistaCarga | null;
+  // Cartel de mes en solo lectura para el gerente (null = sin cartel). Ver avisoPeriodoSoloLectura.
+  avisoSoloLectura: string | null;
   sinUnidades: boolean;
   noAsignado: { unidad: string; importe: number; movimientos: number }[];
   semanasConNoAsignado: number[];
@@ -69,6 +71,7 @@ export default function ReportePlantilla({
   verControl,
   flujo,
   carga,
+  avisoSoloLectura,
   sinUnidades,
   noAsignado,
   semanasConNoAsignado,
@@ -99,6 +102,12 @@ export default function ReportePlantilla({
       </div>
 
       <ConCarga carga={carga} empresaSlug={empresaSlug} periodo={periodo}>
+      {avisoSoloLectura && (
+        <p className="mb-6 rounded-md bg-terracota-tint px-3 py-2 text-sm text-terracota" role="status">
+          {avisoSoloLectura}
+        </p>
+      )}
+
       {flujo && (
         <div className="mb-6">
           <div className="mb-3 flex items-center gap-2 text-xs text-ink-secondary">
@@ -170,6 +179,7 @@ export default function ReportePlantilla({
           esRevisor={flujo.esRevisor}
           revisionCompletada={flujo.revisionCompletada}
           cantidadLineas={flujo.cantidadLineas}
+          ocultarEnviarARevision={avisoSoloLectura !== null}
         />
       )}
       </ConCarga>

@@ -5,7 +5,12 @@ import { revalidatePath } from "next/cache";
 import ExcelJS from "exceljs";
 import { quitarDiacriticos } from "@/lib/slug";
 import { calcularTotalesPresupuesto } from "@/lib/presupuestoTotales";
-import { puedeRevisarPresupuesto } from "@/lib/auth";
+import { puedeRevisarPresupuesto, esAdminOFinanzas } from "@/lib/auth";
+import {
+  avisoPeriodoSoloLectura,
+  mensajePeriodoSoloLectura,
+  puedeEditarPeriodoComoGerente,
+} from "@/lib/periodosHabilitados";
 import {
   resolverEmpresaYPresupuesto,
   autorizarEdicionLinea,
@@ -129,6 +134,8 @@ export async function obtenerDatos(empresaSlug: string, periodo: string) {
         }
       : null,
     esRevisor,
+    // null = editable; un texto = el gerente ve este mes en solo lectura (lib/periodosHabilitados.ts).
+    avisoSoloLectura: avisoPeriodoSoloLectura(presupuesto.periodo, esAdminOFinanzas(usuario)),
     // Suma simple de las líneas guardadas, en el servidor: se recalcula en cada refresh.
     totales: calcularTotalesPresupuesto(lineas.map((l) => ({ clasificacion: l.clasificacion, importe: Number(l.importe) }))),
     lineas: lineas.map((l) => ({
@@ -376,8 +383,12 @@ export async function enviarARevision(
   empresaSlug: string,
   periodo: string
 ): Promise<ResultadoTransicionEstado> {
-  const { presupuesto } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
+  const { presupuesto, usuario } = await resolverEmpresaYPresupuesto(empresaSlug, periodo);
 
+  // El gerente solo envía a revisión el mes en curso de carga (ADMIN y FINANZAS, cualquiera).
+  if (!puedeEditarPeriodoComoGerente(periodo, esAdminOFinanzas(usuario))) {
+    return { ok: false, error: mensajePeriodoSoloLectura() };
+  }
   if (presupuesto.estado !== "ABIERTO") {
     return { ok: false, error: "Este presupuesto ya fue enviado a revisión." };
   }

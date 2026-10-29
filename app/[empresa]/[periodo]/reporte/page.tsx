@@ -10,7 +10,7 @@ import {
   veBloquesReservadosDelReporte,
 } from "@/lib/auth";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
-import { esPeriodoHabilitado } from "@/lib/periodosHabilitados";
+import { avisoPeriodoSoloLectura, esPeriodoHabilitado } from "@/lib/periodosHabilitados";
 import { cargaEnReporteActiva, mostrarFlujoEnReporte, puedeEditarPresupuestoAhora } from "@/lib/estadoPresupuesto";
 import { capitalSugerido, planDeCarga, vistaDeCarga, type VistaCarga } from "@/lib/reporte/cargaGerente";
 import { leerLineasParaCarga, leerValoresManualesParaCarga } from "@/lib/reporte/aplicarCarga";
@@ -234,6 +234,12 @@ async function ReportePorPlantilla({
     ? await obtenerEstadoFlujo(empresaId, periodo, esRevisor)
     : null;
 
+  // Cartel de solo lectura: solo con la carga activa para la empresa (sin ella el Reporte ya es de
+  // solo lectura para el gerente y el cartel confundiría). null = editable o sin cartel.
+  const avisoSoloLectura = cargaEnReporteActiva(empresaSlug)
+    ? avisoPeriodoSoloLectura(periodo, esAdminOFinanzas(usuario))
+    : null;
+
   // Un mes más de contexto (no se muestra): el control de arrastre y los espejos del mes
   // anterior lo necesitan para el primer mes visible.
   const periodos = periodosHasta(periodo, MESES_VISIBLES + 1);
@@ -255,7 +261,12 @@ async function ReportePorPlantilla({
   // usuario puede editar (ABIERTO; EN_REVISION solo el revisor; VALIDADO nadie). Solo lee: el
   // PresupuestoMensual del mes se crea recién en el primer guardado.
   let carga: VistaCarga | null = null;
-  if (flujo && cargaEnReporteActiva(empresaSlug) && puedeEditarPresupuestoAhora(flujo.estado, flujo.esRevisor)) {
+  if (
+    flujo &&
+    avisoSoloLectura === null &&
+    cargaEnReporteActiva(empresaSlug) &&
+    puedeEditarPresupuestoAhora(flujo.estado, flujo.esRevisor)
+  ) {
     const [lineas, valoresManuales] = await Promise.all([
       leerLineasParaCarga(empresaId, periodo),
       leerValoresManualesParaCarga(empresaId, periodo),
@@ -284,6 +295,7 @@ async function ReportePorPlantilla({
       verControl={verControl}
       flujo={flujo}
       carga={carga}
+      avisoSoloLectura={avisoSoloLectura}
       sinUnidades={unidadesEmpresa.length === 0}
       noAsignado={noAsignado.porUnidad.map((n) => ({
         unidad: n.unidad,

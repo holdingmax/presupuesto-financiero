@@ -59,6 +59,8 @@ type Props = {
   // Último pedido de cambios del revisor (null si nunca hubo). Solo se muestra en ABIERTO.
   pedidoCambios: { mensaje: string; fecha: string; por: string | null } | null;
   esRevisor: boolean;
+  // Cartel de solo lectura (null = editable). Ver avisoPeriodoSoloLectura en lib/periodosHabilitados.ts.
+  avisoSoloLectura: string | null;
   lineasIniciales: Linea[];
   // Totales de las líneas guardadas, calculados en el servidor (barra fija).
   totales: TotalesPresupuesto;
@@ -92,6 +94,7 @@ export default function PresupuestoForm({
   validacion,
   pedidoCambios,
   esRevisor,
+  avisoSoloLectura,
   lineasIniciales,
   totales,
 }: Props) {
@@ -144,7 +147,7 @@ export default function PresupuestoForm({
   // regla en autorizarEdicionLinea, ver lib/presupuestoAcceso.ts): en ABIERTO,
   // cualquiera con acceso (como siempre); en EN_REVISION, solo el revisor; en
   // VALIDADO, nadie.
-  const puedeEditarAhora = puedeEditarPresupuestoAhora(estado as EstadoPresupuesto, esRevisor);
+  const puedeEditarAhora = puedeEditarPresupuestoAhora(estado as EstadoPresupuesto, esRevisor) && avisoSoloLectura === null;
   const ayudaClasificacion = clasificacion ? obtenerAyudaClasificacion(clasificacion) : null;
   const lineas = lineasIniciales.filter((l) => !eliminando.has(l.id));
   const totalCargado = lineas.reduce((acc, l) => acc + l.importe, 0);
@@ -252,6 +255,12 @@ export default function PresupuestoForm({
         </div>
         <EstadoBadge estado={estado} />
       </div>
+
+      {avisoSoloLectura && (
+        <p className="mb-6 rounded-md bg-terracota-tint px-3 py-2 text-sm text-terracota" role="status">
+          {avisoSoloLectura}
+        </p>
+      )}
 
       <AvisosFlujo
         estado={estado}
@@ -622,6 +631,7 @@ export default function PresupuestoForm({
         esRevisor={esRevisor}
         revisionCompletada={revisionCompletada}
         cantidadLineas={lineas.length}
+        ocultarEnviarARevision={avisoSoloLectura !== null}
       />
     </div>
   );
