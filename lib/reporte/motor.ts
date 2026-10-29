@@ -25,9 +25,58 @@ export function esBloqueReservado(bloque: Bloque): boolean {
   return BLOQUES_RESERVADOS.includes(bloque);
 }
 
-// Claves de las filas que ve quien no tiene acceso a los bloques reservados.
+// Qué bloques reservados ve quien NO es ADMIN ni FINANZAS (el gerente), cada uno con su interruptor
+// (lib/config.ts). Cierre depende de Disponibilidades: el Saldo y el Disponible se calculan con el total
+// de Disponibilidades, así que mostrarlos sin ese bloque no protegería nada. El motor lo aplica solo
+// (cierre sin disponibilidades = cierre apagado), además del test de configuración.
+export type VisibilidadReservados = { disponibilidades: boolean; cierre: boolean };
+
+export const SIN_BLOQUES_RESERVADOS: VisibilidadReservados = { disponibilidades: false, cierre: false };
+
+// true = todo (ADMIN y FINANZAS); false = nada; un objeto = solo esos bloques.
+export type AccesoReservados = boolean | VisibilidadReservados;
+
+export function visibilidadDeAcceso(acceso: AccesoReservados): VisibilidadReservados {
+  if (acceso === true) return { disponibilidades: true, cierre: true };
+  if (acceso === false) return SIN_BLOQUES_RESERVADOS;
+  return { disponibilidades: acceso.disponibilidades, cierre: acceso.cierre && acceso.disponibilidades };
+}
+
+// De las filas de Cierre, las únicas que puede ver el gerente cuando su interruptor está prendido: el
+// Saldo (rol "saldo"), el Capital de trabajo (fila de tipo capital o, en Bradenton, la línea tipeada de
+// Cierre) y el Disponible. «Disponible antes de gastos» y las demás NO: no se pidieron.
+export function esFilaDeCierreVisibleParaGerente(fila: Fila): boolean {
+  if (fila.bloque !== "CIERRE") return false;
+  switch (fila.tipo) {
+    case "capital":
+    case "disponible":
+      return true;
+    case "total":
+      return fila.rol === "saldo";
+    case "linea":
+      return fila.presupuesto.tipo === "manual";
+    case "titulo":
+      return false;
+  }
+}
+
+// Filas cuyos valores puede leer y calcular quien tiene este acceso: todas las de bloques no reservados
+// más las de cada bloque reservado que ve. (Una fila calculable no es necesariamente una fila visible:
+// ver esFilaDeCierreVisibleParaGerente.)
+export function clavesCalculables(plantilla: Plantilla, acceso: AccesoReservados): Set<string> {
+  const v = visibilidadDeAcceso(acceso);
+  return new Set(plantilla.filas.filter((f) => bloqueCalculable(f.bloque, v)).map((f) => f.clave));
+}
+
+function bloqueCalculable(bloque: Bloque, v: VisibilidadReservados): boolean {
+  if (bloque === "DISPONIBILIDADES") return v.disponibilidades;
+  if (bloque === "CIERRE") return v.cierre;
+  return true;
+}
+
+// Claves de las filas que ve quien no tiene acceso a ningún bloque reservado.
 export function clavesVisibles(plantilla: Plantilla): Set<string> {
-  return new Set(plantilla.filas.filter((f) => !esBloqueReservado(f.bloque)).map((f) => f.clave));
+  return clavesCalculables(plantilla, false);
 }
 
 export type Sentido = "creditos" | "debitos";
@@ -194,15 +243,19 @@ export type Reporte = {
   pendientes: CodigoPendiente[];
   // Uno por mes; null si la plantilla no tiene Disponibilidades (o si quien mira no las ve).
   arrastre: (ControlArrastre | null)[];
-  // true si se armó sin los bloques reservados: Disponibilidades y Cierre no están, y las
-  // celdas que dependen de ellos (ej. "Cheques en cartera despues del 10") quedan en null.
+  // true si se armó sin acceso completo a los bloques reservados (puede ver alguno, ver
+  // `visibilidad`): lo que no ve no está, y las celdas que dependen de ello (ej. "Cheques en
+  // cartera despues del 10") quedan en null.
   sinBloquesReservados: boolean;
 };
 
 export type OpcionesReporte = {
+  // true (o sin definir) = ADMIN y FINANZAS: todo, incluido el control de arrastre.
   // false = quien mira NO ve Disponibilidades ni Cierre: esas filas no se calculan (no se
   // lee ni su valor manual) ni se devuelven, y todo lo que depende de ellas queda en null.
-  verBloquesReservados?: boolean;
+  // Un objeto = el gerente con interruptores prendidos: solo los bloques que ve (el arrastre
+  // nunca se calcula para él).
+  verBloquesReservados?: AccesoReservados;
 };
 
 // Clave para emparejar una clasificación (de Ejecución o de Presupuesto) con la
@@ -278,7 +331,9 @@ export function armarReporte(
   mesesDeContexto = 0,
   opciones: OpcionesReporte = {}
 ): Reporte {
-  const verReservado = opciones.verBloquesReservados ?? true;
+  const acceso = opciones.verBloquesReservados ?? true;
+  const verTodo = acceso === true;
+  const visibilidad = visibilidadDeAcceso(acceso);
   const filaPorClave = new Map(plantilla.filas.map((f) => [f.clave, f]));
   const filaDisponible = plantilla.filas.find((f): f is FilaDisponible => f.tipo === "disponible");
 
@@ -323,7 +378,7 @@ export function armarReporte(
     const fila = filaPorClave.get(clave);
     if (!fila) throw new Error(`La plantilla no tiene la fila "${clave}".`);
     // Bloque reservado sin permiso: ni se calcula ni se lee su valor manual.
-    if (!verReservado && esBloqueReservado(fila.bloque)) {
+    if (!bloqueCalculable(fila.bloque, visibilidad)) {
       const oculto: Valor = { v: null, inc: false, oculto: true };
       memo.set(k, oculto);
       return oculto;
@@ -434,8 +489,14 @@ export function armarReporte(
     }
   }
 
-  // Sin permiso, las filas de los bloques reservados ni siquiera se recorren.
-  const filasAMostrar = verReservado ? plantilla.filas : plantilla.filas.filter((f) => !esBloqueReservado(f.bloque));
+  // Sin permiso, las filas de los bloques reservados ni siquiera se recorren. Con permiso parcial, de
+  // Cierre solo se devuelven las filas pedidas (el resto se calcula, porque el Saldo depende de ellas,
+  // pero no se devuelve).
+  const filasAMostrar = verTodo
+    ? plantilla.filas
+    : plantilla.filas.filter(
+        (f) => bloqueCalculable(f.bloque, visibilidad) && (f.bloque !== "CIERRE" || esFilaDeCierreVisibleParaGerente(f))
+      );
   const filas: FilaReporte[] = filasAMostrar.map((fila) => {
     if (fila.tipo === "titulo") return { fila, celdas: [] };
     const conPorcentajes = fila.bloque !== "DISPONIBILIDADES" && fila.tipo !== "capital" && fila.tipo !== "disponible";
@@ -455,7 +516,7 @@ export function armarReporte(
   const filaTotalDisp = plantilla.filas.find((f) => f.tipo === "total" && f.rol === "totalDisponibilidades");
   const filaSaldo = plantilla.filas.find((f) => f.tipo === "total" && f.rol === "saldo");
   const arrastre = meses.map((_, i): ControlArrastre | null => {
-    if (!verReservado || !filaTotalDisp || !filaSaldo) return null;
+    if (!verTodo || !filaTotalDisp || !filaSaldo) return null;
     const cierreRealAnterior = i > 0 ? valor(filaSaldo.clave, i - 1, "R").v : null;
     let ajustes = 0;
     for (const f of plantilla.filas) {
@@ -484,7 +545,7 @@ export function armarReporte(
     filas: filas.map((f) => ({ fila: f.fila, celdas: f.celdas.slice(desde) })),
     pendientes,
     arrastre: arrastre.slice(desde),
-    sinBloquesReservados: !verReservado,
+    sinBloquesReservados: !verTodo,
   };
 }
 

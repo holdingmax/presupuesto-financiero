@@ -31,6 +31,7 @@ import ReportePlantilla from "./ReportePlantilla";
 import PeriodoSelector from "../presupuesto/PeriodoSelector";
 import { ocultaPestanaPresupuesto } from "@/lib/navegacionEmpresa";
 import { cantidadDeMeses, resolverVista, type VistaReporte } from "@/lib/reporte/vistaReporte";
+import { accesoReservadosDelReporte } from "@/lib/reporte/visibilidad";
 import VistaSelector from "./VistaSelector";
 
 type Props = {
@@ -252,15 +253,18 @@ async function ReportePorPlantilla({
   const clasificaciones = clasificacionesDePlantilla(plantilla);
 
   const unidadesConEmpresa = await obtenerUnidadesConEmpresa();
+  // Qué bloques reservados llegan a este usuario: todo (ADMIN/FINANZAS), nada, o lo que prendan los
+  // interruptores de su empresa (hoy ninguno: lib/config.ts).
+  const acceso = accesoReservadosDelReporte(verBloquesReservados, empresaSlug);
   const [meses, noAsignado] = await Promise.all([
-    cargarDatosMeses(empresaId, unidadesEmpresa, plantilla, periodos, verBloquesReservados),
+    cargarDatosMeses(empresaId, unidadesEmpresa, plantilla, periodos, acceso),
     // Mismo bloque de control que la Fase 1, para el mes de la URL (de todo el holding:
     // solo ADMIN y FINANZAS).
     verBloquesReservados
       ? calcularNoAsignadoDelPeriodo(periodo, clasificaciones, unidadesConEmpresa)
       : Promise.resolve({ porUnidad: [] as NoAsignado[], semanas: [] as number[] }),
   ]);
-  const reporte = armarReporte(plantilla, meses, 1, { verBloquesReservados });
+  const reporte = armarReporte(plantilla, meses, 1, { verBloquesReservados: acceso });
 
   // Carga del Presupuestado en el Reporte (Etapas 2 y 3): solo con el interruptor de la empresa
   // prendido, el flujo visible (eso ya cubre el período habilitado) y un estado en el que este

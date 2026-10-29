@@ -51,6 +51,18 @@ export const EMPRESAS_CON_CARGA_EN_REPORTE: readonly string[] = [
   "conexion-logistica-spp",
 ];
 
+// Interruptores del gerente en el Reporte (Etapa 5 B): qué bloques reservados ve, en SOLO LECTURA. Listas
+// de SLUGS de empresa (lib/slug.ts), una por bloque; vacía = nadie los ve (como hasta ahora). ADMIN y
+// FINANZAS los ven siempre y no dependen de esto. Ver accesoReservadosDelReporte en lib/reporte/visibilidad.ts.
+//
+// Disponibilidades: los componentes (Banco y FCI, Efectivo, Cheques…) y su total. OJO: ahí el «Presupuestado» es
+// el saldo real del banco.
+export const EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE: readonly string[] = [];
+// Cierre: Saldo, Capital de trabajo y Disponible (NO «Disponible antes de gastos»). Se calculan con el total de
+// Disponibilidades: una empresa solo puede estar acá si también está en la lista de arriba (lo controla un
+// test, y el motor lo aplica igual: sin Disponibilidades, no hay Cierre).
+export const EMPRESAS_QUE_VEN_CIERRE_EN_REPORTE: readonly string[] = [];
+
 // Etiqueta del ciclo fiscal que se muestra en la portada de login (app/login/page.tsx).
 //
 // PENDIENTE: no está derivada de PERIODO todavía. "3 meses hacia atrás terminando en PERIODO"
