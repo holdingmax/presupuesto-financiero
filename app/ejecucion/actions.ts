@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { quitarDiacriticos } from "@/lib/slug";
 import {
@@ -24,8 +25,11 @@ import {
   requireOperadorEjecucionGlobal,
   requireVerEjecucionGlobal,
   requireCierreEjecucion,
+  requireCargaMadreEjecucion,
   puedeOperarEjecucionGlobal,
   puedeCerrarEjecucion,
+  puedeCargarMadreEjecucion,
+  veSubidaDeEjecucion,
   veTodoEjecucion,
 } from "@/lib/auth";
 import { FILAS_POR_PAGINA, mapearMovimiento, vistaDeLaSemana } from "@/lib/ejecucionVista";
@@ -50,12 +54,22 @@ import {
 import { aCentavos, centavosADecimal } from "@/lib/prorrateo";
 import { leerArchivoSubido } from "@/lib/extractos/archivo";
 import {
-  MENSAJE_MADRE_POR_SCRIPT,
+  mensajeUsarOpcionMadre,
   verificarCantidadFilas,
+  verificarCantidadFilasMadre,
   verificarCuentaElegida,
   verificarTamanoArchivo,
+  verificarTamanoMadre,
 } from "@/lib/extractos/limites";
 import { type FilaMadre } from "@/lib/extractos/madre";
+import {
+  OPCION_ARCHIVO_MADRE,
+  cuentasCargadasPorOtroCamino,
+  esClasificacionExplicita,
+  resumirMadre,
+  type ResumenMadre,
+} from "@/lib/extractos/madreWeb";
+import { crearExclusionMutua } from "@/lib/exclusionMutua";
 import {
   analizarContinuidad,
   avisosDeContinuidad,
@@ -241,6 +255,8 @@ export async function obtenerDatosSemana(
       : null,
     puedeOperar,
     puedeCerrar,
+    puedeCargarMadre: puedeCargarMadreEjecucion(usuario),
+    veSubida: veSubidaDeEjecucion(usuario),
     clasificacionesDisponibles: await clasificacionesPromise,
     // Columna Saldo: ADMIN, FINANZAS y quien opera (hoy: Kike, Flavia y los administradores). Se
     // decide acá, en el servidor: para el resto la clave `saldo` no existe en lo que viaja.
@@ -672,14 +688,17 @@ export async function subirExtracto(
     return { ok: false, error: "El archivo tiene que ser un .xlsx, .xls o .csv." };
   }
 
-  // Cuenta elegida en el selector (obligatoria: el archivo madre no se sube por la web).
+  // Cuenta elegida en el selector (obligatoria acá: el archivo madre va por subirMadre).
   const cuentaElegida = String(formData.get("cuenta") ?? "").trim();
+  if (cuentaElegida === OPCION_ARCHIVO_MADRE) {
+    return { ok: false, error: "El archivo madre se carga con su propia acción (subirMadre), no con la de un extracto de banco." };
+  }
 
   await resolverParaOperar(periodo);
 
   // Frenos de memoria (lib/extractos/limites.ts), ANTES de leer el archivo con ExcelJS: la madre
   // real (16.521 filas) superó los 512 MB de Render. Mismo tope para todos los roles; sin cuenta
-  // elegida solo podría ser la madre, que se carga por script.
+  // elegida podría ser una madre subida por el camino equivocado (se le indica cuál es el suyo).
   const frenoCuenta = verificarCuentaElegida(cuentaElegida);
   if (!frenoCuenta.ok) return { ok: false, error: frenoCuenta.error };
   const frenoTamano = verificarTamanoArchivo(archivo.size);
@@ -705,10 +724,10 @@ export async function subirExtracto(
   let continuidadSaldo: ResultadoContinuidadSaldo[];
   let resumenCrudo: { banco: string; cuenta: string; cuentaVerificada: boolean } | null = null;
 
-  // El archivo madre no se sube por la web para nadie (lo lee lib/extractos/madre.ts, que usa el
-  // script de carga): se detecta por contenido y se rechaza siempre.
+  // Una madre (se detecta por contenido) no entra por el camino del extracto de un banco: tiene su
+  // propia acción y sus propios topes (subirMadre), con la opción "Archivo madre" del selector.
   if (leido.tipo === "madre") {
-    return { ok: false, error: MENSAJE_MADRE_POR_SCRIPT };
+    return { ok: false, error: `Este archivo es un archivo madre, no el extracto de una cuenta. ${mensajeUsarOpcionMadre()}` };
   } else {
     const { lectura } = leido;
     const frenoFilas = verificarCantidadFilas(lectura.filas.length);
@@ -1047,6 +1066,389 @@ export async function subirExtracto(
     // Ejecución global: la semana se ve desde la pestaña de cualquier empresa.
     revalidarSemana(periodo, numeroSemana);
   }
+  return resultado;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Archivo madre por la web (solo ADMIN y FINANZAS; planillas de uso diario, topes en
+// lib/extractos/limites.ts). Respeta las columnas del archivo (clasificación, unidad, cuenta) tal
+// como las lee lib/extractos/madre.ts; el histórico sigue por prisma/scripts/cargar-madre-historial.ts.
+// ---------------------------------------------------------------------------------------------
+
+// Resumen que ve la persona antes de cargar (no se escribió nada).
+export type VistaPreviaMadre = {
+  filas: number;
+  cuentasDelArchivo: number;
+  desde: string;
+  hasta: string;
+  nuevas: number;
+  yaCargadas: number;
+  posiblesDuplicados: number;
+  // Cuentas que parecen cargadas por el otro camino (extracto crudo): se OMITEN, no se cargan.
+  cuentasOmitidas: { cuenta: string; filas: number }[];
+  // Sobre las filas que se van a cargar.
+  resumen: ResumenMadre;
+  avisos: string[];
+  repartoPorPeriodo: { periodo: string; filas: number }[];
+};
+
+type ResultadoMadre =
+  | (Extract<ResultadoImportar, { ok: true }> & { cuentasOmitidas: { cuenta: string; filas: number }[] })
+  | { ok: false; error: string }
+  | { ok: false; requiereSeleccionHoja: true; hojas: string[] }
+  | { ok: false; requiereVistaPreviaMadre: true; vista: VistaPreviaMadre };
+
+type OpcionesMadre = {
+  hoja?: string;
+  // true solo en el reenvío después de la vista previa.
+  confirmarVistaPrevia?: boolean;
+  // true cuando la persona confirmó las clasificaciones nuevas que mostró la vista previa. El
+  // servidor lo exige si el archivo trae alguna.
+  confirmoClasificacionesNuevas?: boolean;
+};
+
+type FilaConClaveMadre = {
+  fila: FilaAImportar;
+  importeCentavos: number;
+  saldoCentavos: number | null;
+  clave: string;
+  cuenta: string;
+  claveFIC: string;
+};
+
+type DbLectura = typeof prisma | Prisma.TransactionClient;
+
+// Una sola carga de madre a la vez por instancia: la lectura cuesta ~13,5 KB de memoria por fila y
+// el servidor de testing tiene 512 MB (ver lib/extractos/limites.ts).
+const cargaDeMadre = crearExclusionMutua();
+
+function armarFilasConClaveMadre(filas: FilaMadre[]): FilaConClaveMadre[] {
+  return filas.map((fila) => {
+    const importeCentavos = centavosDeNumero(fila.importe);
+    const saldoCentavos = fila.saldo === null ? null : centavosDeNumero(fila.saldo);
+    return {
+      fila,
+      importeCentavos,
+      saldoCentavos,
+      clave: claveMovimiento({
+        fecha: fila.fecha,
+        importeCentavos,
+        bancoYCuenta: fila.bancoYCuenta,
+        concepto: fila.concepto,
+        nroReferencia: fila.nroReferencia,
+        saldoCentavos,
+      }),
+      cuenta: normalizarCuenta(fila.bancoYCuenta),
+      claveFIC: claveFechaImporteCuenta(fila.fecha, importeCentavos, fila.bancoYCuenta),
+    };
+  });
+}
+
+// Qué se cargaría: lo ya cargado se reconoce CONTANDO (N − M, igual que el extracto crudo y el
+// script), las cuentas cargadas por el otro camino se omiten, y cada mes va a la semana abierta
+// del suyo. Solo lee: lo usan la vista previa (cliente normal, sin locks) y la carga (dentro de la
+// transacción con los locks tomados).
+async function calcularCargaMadre(db: DbLectura, filasConClave: FilaConClaveMadre[], periodoDeLaSemana: string) {
+  let minimo = Infinity;
+  let maximo = -Infinity;
+  for (const f of filasConClave) {
+    const t = f.fila.fecha.getTime();
+    if (t < minimo) minimo = t;
+    if (t > maximo) maximo = t;
+  }
+  const desde = new Date(minimo);
+  const hasta = new Date(maximo);
+  const cuentasDelArchivo = Array.from(new Set(filasConClave.map((f) => f.cuenta)));
+
+  const existentes = await db.$queryRaw<FilaClaveDb[]>`
+    SELECT mb.fecha, mb.importe::text AS importe, mb."bancoYCuenta", mb.concepto,
+           mb."nroReferencia", mb.saldo::text AS saldo
+    FROM "MovimientoBancario" mb
+    WHERE mb.fecha >= ${desde.toISOString().slice(0, 10)}::date
+      AND mb.fecha < (${hasta.toISOString().slice(0, 10)}::date + 1)
+      AND regexp_replace(upper(trim(mb."bancoYCuenta")), '[[:space:]]+', ' ', 'g') = ANY(${cuentasDelArchivo}::text[])
+  `;
+  const existentesCotejo = existentes.map((m) => ({
+    cuenta: normalizarCuenta(m.bancoYCuenta),
+    clave: claveDeFilaDb(m),
+    claveFIC: claveFechaImporteCuenta(m.fecha, centavosDeDecimalTexto(m.importe), m.bancoYCuenta),
+  }));
+
+  const omitidas = cuentasCargadasPorOtroCamino(filasConClave, existentesCotejo);
+  const aCargar = filasConClave.filter((f) => !omitidas.has(f.cuenta));
+  const cuentasOmitidas = [...omitidas].map((cuenta) => {
+    const delArchivo = filasConClave.filter((f) => f.cuenta === cuenta);
+    return { cuenta: delArchivo[0].fila.bancoYCuenta, filas: delArchivo.length };
+  });
+
+  const { nuevas, cantidadYaCargadas } = separarNuevas(
+    aCargar,
+    (f) => f.clave,
+    contarPorClave(existentesCotejo.map((e) => e.clave))
+  );
+  const yaVistos = new Set(existentesCotejo.map((e) => e.claveFIC));
+  const casiDuplicados: PosibleDuplicado[] = nuevas
+    .filter((n) => yaVistos.has(n.claveFIC))
+    .map((n) => ({
+      fila: n.fila.numeroFila,
+      fecha: n.fila.fecha.toISOString().slice(0, 10),
+      importe: n.fila.importe,
+      bancoYCuenta: n.fila.bancoYCuenta,
+      concepto: n.fila.concepto,
+    }));
+
+  const periodosNuevas = new Set(nuevas.map((n) => periodoDeFecha(n.fila.fecha)));
+  const otrosPeriodos = Array.from(periodosNuevas).filter((p) => p !== periodoDeLaSemana);
+  const semanasDeOtros =
+    otrosPeriodos.length === 0
+      ? []
+      : await db.ejecucionSemanal.findMany({
+          where: { periodo: { in: otrosPeriodos } },
+          select: { periodo: true, estado: true },
+        });
+  const semanasPorPeriodo = new Map<string, EstadoSemanaDelPeriodo[]>();
+  for (const s of semanasDeOtros) {
+    semanasPorPeriodo.set(s.periodo, [...(semanasPorPeriodo.get(s.periodo) ?? []), s.estado]);
+  }
+  const destinos = resolverDestinos(periodoDeLaSemana, periodosNuevas, semanasPorPeriodo);
+  const repartoNuevas = repartoPorPeriodo(nuevas.map((n) => n.fila.fecha));
+  const bloqueados = destinos
+    .filter((d) => d.tipo === "bloqueado")
+    .map((d) => ({ periodo: d.periodo, filas: repartoNuevas.find((r) => r.periodo === d.periodo)?.filas ?? 0 }));
+
+  return { desde, hasta, cuentasDelArchivo, nuevas, cantidadYaCargadas, casiDuplicados, cuentasOmitidas, destinos, repartoNuevas, bloqueados };
+}
+
+function avisosMadre(resumen: ResumenMadre, cuentasOmitidas: { cuenta: string; filas: number }[]): string[] {
+  const avisos: string[] = [];
+  if (cuentasOmitidas.length > 0) {
+    avisos.push(
+      `Se omitieron ${cuentasOmitidas.length === 1 ? "la cuenta" : "las cuentas"} ${cuentasOmitidas
+        .map((c) => `${c.cuenta} (${c.filas} filas)`)
+        .join(", ")}: ya tienen movimientos en esas fechas cargados por otro camino (extracto de banco) y cargarlos de nuevo los duplicaría.`
+    );
+  }
+  if (resumen.filasSinBanco > 0) {
+    avisos.push(
+      `${resumen.filasSinBanco} filas no traen banco ni cuenta y se cargan como "(sin banco)": revisá que no estén ya cargadas con su cuenta.`
+    );
+  }
+  if (resumen.cuentasFueraDelCatalogo.length > 0) {
+    avisos.push(
+      `Cuentas que no están en Administración → Cuentas bancarias: ${resumen.cuentasFueraDelCatalogo.join(", ")}.`
+    );
+  }
+  return avisos;
+}
+
+export async function subirMadre(
+  periodo: string,
+  numeroSemana: number,
+  formData: FormData,
+  opciones: OpcionesMadre = {}
+): Promise<ResultadoMadre> {
+  const archivo = formData.get("archivo");
+  if (!(archivo instanceof File) || archivo.size === 0) {
+    return { ok: false, error: "Elegí un archivo antes de subir." };
+  }
+  if (!/\.xlsx$/i.test(archivo.name)) {
+    return { ok: false, error: "El archivo madre tiene que ser un .xlsx." };
+  }
+  if (!FORMATO_PERIODO.test(periodo)) {
+    throw new Error(`"${periodo}" no es un período válido (AAAA-MM).`);
+  }
+  await requireCargaMadreEjecucion();
+
+  // Antes de leer nada (ExcelJS carga el archivo entero en memoria).
+  const frenoTamano = verificarTamanoMadre(archivo.size);
+  if (!frenoTamano.ok) return { ok: false, error: frenoTamano.error };
+
+  const ejecucion = await obtenerEjecucionPorSemana(periodo, numeroSemana);
+  if (!ejecucion) return { ok: false, error: `No encontré la semana ${numeroSemana}.` };
+  if (ejecucion.estado === "CERRADA") {
+    return { ok: false, error: "La semana ya está cerrada, no se pueden subir más movimientos." };
+  }
+
+  const liberar = cargaDeMadre.intentar();
+  if (!liberar) {
+    return { ok: false, error: "Hay otra carga de archivo madre en curso. Esperá a que termine y volvé a intentar." };
+  }
+  try {
+    return await procesarMadre(periodo, numeroSemana, ejecucion, archivo, opciones);
+  } finally {
+    liberar();
+  }
+}
+
+async function procesarMadre(
+  periodo: string,
+  numeroSemana: number,
+  ejecucion: { id: string; periodo: string; numeroSemana: number },
+  archivo: File,
+  { hoja: hojaElegida, confirmarVistaPrevia = false, confirmoClasificacionesNuevas = false }: OpcionesMadre
+): Promise<ResultadoMadre> {
+  const leido = await leerArchivoSubido(new Uint8Array(await archivo.arrayBuffer()), hojaElegida);
+  if (leido.tipo === "error") return { ok: false, error: leido.error };
+  if (leido.tipo === "seleccionHoja") return { ok: false, requiereSeleccionHoja: true, hojas: leido.hojas };
+  if (leido.tipo === "crudo") {
+    return {
+      ok: false,
+      error: "Este archivo es el extracto de un banco, no un archivo madre. Elegí la cuenta del extracto en el selector.",
+    };
+  }
+  if (leido.filas.length === 0) return { ok: false, error: "No encontré ninguna fila con datos para importar." };
+  const frenoFilas = verificarCantidadFilasMadre(leido.filas.length);
+  if (!frenoFilas.ok) return { ok: false, error: frenoFilas.error };
+
+  const [cuentasDelCatalogo, clasificaciones] = await Promise.all([
+    prisma.cuentaBancaria.findMany({ select: { nombre: true } }),
+    calcularClasificacionesDisponibles(),
+  ]);
+  const conocidas = { cuentasDelCatalogo: cuentasDelCatalogo.map((c) => c.nombre), clasificaciones };
+  const filasConClave = armarFilasConClaveMadre(leido.filas);
+  const periodosDelArchivo = ordenarPeriodos(leido.filas.map((f) => periodoDeFecha(f.fecha)));
+  const hoja = hojaElegida;
+
+  // Nada nuevo para cargar: se informa directo, sin vista previa ni escritura.
+  const sinNovedades = (c: Awaited<ReturnType<typeof calcularCargaMadre>>) => ({
+    ok: true as const,
+    filasNuevas: 0,
+    filasYaCargadas: c.cantidadYaCargadas,
+    posiblesDuplicados: [],
+    cantidadPosiblesDuplicados: 0,
+    continuidadSaldo: [],
+    liquidacionesAmbiguas: [],
+    avisos: avisosMadre(resumirMadre([], conocidas), c.cuentasOmitidas),
+    hoja,
+    repartoPorPeriodo: [],
+    cuentasOmitidas: c.cuentasOmitidas,
+  });
+
+  // Primero se muestra qué se va a cargar: nada se escribe todavía, ni se toman locks.
+  if (!confirmarVistaPrevia) {
+    const c = await calcularCargaMadre(prisma, filasConClave, ejecucion.periodo);
+    if (c.bloqueados.length > 0) return { ok: false, error: mensajeMesesCerrados(c.bloqueados) };
+    if (c.nuevas.length === 0) return sinNovedades(c);
+    const resumen = resumirMadre(c.nuevas.map((n) => n.fila), conocidas);
+    return {
+      ok: false,
+      requiereVistaPreviaMadre: true,
+      vista: {
+        filas: leido.filas.length,
+        cuentasDelArchivo: c.cuentasDelArchivo.length,
+        desde: c.desde.toISOString().slice(0, 10),
+        hasta: c.hasta.toISOString().slice(0, 10),
+        nuevas: c.nuevas.length,
+        yaCargadas: c.cantidadYaCargadas,
+        posiblesDuplicados: c.casiDuplicados.length,
+        cuentasOmitidas: c.cuentasOmitidas,
+        resumen,
+        avisos: avisosMadre(resumen, c.cuentasOmitidas),
+        repartoPorPeriodo: c.repartoNuevas,
+      },
+    };
+  }
+
+  // Misma garantía que el extracto crudo: todo lo que decide qué se carga y la carga misma, dentro
+  // de UNA transacción con locks (primero los de cada cuenta, ordenados, y después los de cada
+  // período: siempre el mismo orden, sin deadlock). El lock de cuenta es el mismo que toma
+  // subirExtracto, así que una carga de madre y una de extracto de esa cuenta no se pisan.
+  const resultado = await prisma.$transaction(
+    async (tx) => {
+      const cuentas = Array.from(new Set(filasConClave.map((f) => f.cuenta))).sort();
+      for (const cuenta of cuentas) {
+        await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${"ejecucion:cuenta:" + cuenta}))`;
+      }
+      for (const p of ordenarPeriodos([ejecucion.periodo, ...periodosDelArchivo])) {
+        await bloquearPeriodo(tx, p);
+      }
+
+      const vigente = await tx.ejecucionSemanal.findUnique({ where: { id: ejecucion.id }, select: { estado: true } });
+      if (!vigente || vigente.estado === "CERRADA") {
+        return { ok: false as const, error: "La semana ya está cerrada, no se pueden subir más movimientos." };
+      }
+
+      const c = await calcularCargaMadre(tx, filasConClave, ejecucion.periodo);
+      if (c.bloqueados.length > 0) return { ok: false as const, error: mensajeMesesCerrados(c.bloqueados) };
+      if (c.nuevas.length === 0) return sinNovedades(c);
+
+      const resumen = resumirMadre(c.nuevas.map((n) => n.fila), conocidas);
+      if (resumen.clasificacionesNuevas.length > 0 && !confirmoClasificacionesNuevas) {
+        return {
+          ok: false as const,
+          error: "El archivo trae clasificaciones que no están en la lista: confirmalas en la vista previa antes de cargar. No se cargó nada.",
+        };
+      }
+
+      // Los cruces con las planillas de referencia NO pisan lo que el archivo trae explícito (en la
+      // web; el script no cambia): solo corren sobre las filas sin clasificación propia.
+      const sinClasificacionPropia = c.nuevas.map((n) => n.fila).filter((f) => !esClasificacionExplicita(f));
+      const liquidacionesAmbiguas =
+        sinClasificacionPropia.length > 0 ? await aplicarCruceLiquidacionFinal(sinClasificacionPropia) : [];
+      if (sinClasificacionPropia.length > 0) await aplicarCruceChequeIva(sinClasificacionPropia);
+
+      const semanaDeCadaPeriodo = new Map<string, { id: string; numeroSemana: number }>();
+      for (const d of c.destinos) {
+        semanaDeCadaPeriodo.set(
+          d.periodo,
+          d.tipo === "actual" ? ejecucion : await obtenerOCrearAbiertaEnTx(tx, d.periodo)
+        );
+      }
+
+      // Por lotes y verificando el conteo (como el script): si no cierra, se deshace todo.
+      const LOTE = 1000;
+      for (const [p, semana] of semanaDeCadaPeriodo) {
+        const delMes = c.nuevas.filter((n) => periodoDeFecha(n.fila.fecha) === p);
+        const antes = await tx.movimientoBancario.count({ where: { ejecucionId: semana.id } });
+        for (let i = 0; i < delMes.length; i += LOTE) {
+          await tx.movimientoBancario.createMany({
+            data: delMes.slice(i, i + LOTE).map(({ fila, importeCentavos, saldoCentavos }) => ({
+              ejecucionId: semana.id,
+              fecha: fila.fecha,
+              nroReferencia: fila.nroReferencia,
+              causal: fila.causal,
+              concepto: fila.concepto,
+              importe: decimalTextoDeCentavos(importeCentavos),
+              saldo: saldoCentavos === null ? null : decimalTextoDeCentavos(saldoCentavos),
+              bancoYCuenta: fila.bancoYCuenta,
+              clasificacion: fila.clasificacion,
+              clasificacion2: fila.clasificacion2,
+              unidadNegocio: fila.unidadNegocio,
+              detalle: fila.detalle,
+              detalle2: fila.detalle2,
+              sugeridaPorSistema: fila.sugeridaPorSistema,
+              chequeIvaAmbiguo: fila.chequeIvaAmbiguo,
+              unidadSugeridaPorSistema: fila.unidadSugeridaPorSistema,
+            })),
+          });
+        }
+        const despues = await tx.movimientoBancario.count({ where: { ejecucionId: semana.id } });
+        if (despues - antes !== delMes.length) {
+          throw new Error(`Se esperaban ${delMes.length} filas nuevas en ${p} y la semana sumó ${despues - antes}. No se cargó nada.`);
+        }
+      }
+
+      return {
+        ok: true as const,
+        filasNuevas: c.nuevas.length,
+        filasYaCargadas: c.cantidadYaCargadas,
+        posiblesDuplicados: c.casiDuplicados.slice(0, MAX_POSIBLES_DUPLICADOS),
+        cantidadPosiblesDuplicados: c.casiDuplicados.length,
+        continuidadSaldo: [],
+        liquidacionesAmbiguas,
+        avisos: avisosMadre(resumen, c.cuentasOmitidas),
+        hoja,
+        repartoPorPeriodo: c.repartoNuevas.map((r) => ({
+          ...r,
+          numeroSemana: semanaDeCadaPeriodo.get(r.periodo)!.numeroSemana,
+        })),
+        cuentasOmitidas: c.cuentasOmitidas,
+      };
+    },
+    { maxWait: 10_000, timeout: 120_000 }
+  );
+
+  if (resultado.ok && resultado.filasNuevas > 0) revalidarSemana(periodo, numeroSemana);
   return resultado;
 }
 

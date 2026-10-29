@@ -5,6 +5,8 @@ import {
   puedeCerrarEjecucion,
   veTodoEjecucion,
   veBloquesReservadosDelReporte,
+  puedeCargarMadreEjecucion,
+  veSubidaDeEjecucion,
 } from "@/lib/permisosEjecucion";
 
 // Permisos de Ejecución global (plan §3.3, D-3 y D-4).
@@ -52,3 +54,23 @@ test("bloques reservados del Reporte (Disponibilidades y Cierre): solo ADMIN y F
   assert.equal(veBloquesReservadosDelReporte(gerenteQueOpera), false);
   assert.equal(veBloquesReservadosDelReporte(gerente), false);
 });
+
+test("cargar archivo madre por la web: solo ADMIN y FINANZAS; operar (Flavia) no alcanza, y FINANZAS no necesita operar", () => {
+  assert.equal(puedeCargarMadreEjecucion(admin), true);
+  assert.equal(puedeCargarMadreEjecucion(finanzasSinPermiso), true);
+  assert.equal(puedeCargarMadreEjecucion(finanzasQueOpera), true);
+  assert.equal(puedeCargarMadreEjecucion(gerenteQueOpera), false);
+  assert.equal(puedeCargarMadreEjecucion(gerente), false);
+});
+
+test("panel de subida: lo ve quien opera o quien puede cargar la madre (FINANZAS sin operaEjecucion incluido), sin darle por eso permiso de operar", () => {
+  assert.equal(veSubidaDeEjecucion(admin), true);
+  assert.equal(veSubidaDeEjecucion(finanzasSinPermiso), true);
+  assert.equal(veSubidaDeEjecucion(finanzasQueOpera), true);
+  assert.equal(veSubidaDeEjecucion(gerenteQueOpera), true); // Flavia: opera
+  assert.equal(veSubidaDeEjecucion(gerente), false);
+  // Ver el panel no es operar: FINANZAS sin el flag sigue sin poder subir extractos de banco.
+  assert.equal(puedeOperarEjecucionGlobal(finanzasSinPermiso), false);
+  assert.equal(puedeCargarMadreEjecucion(finanzasSinPermiso), true);
+});
+

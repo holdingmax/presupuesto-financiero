@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   subirExtracto,
+  subirMadre,
   actualizarMovimiento,
   guardarCampoMovimiento,
   eliminarMovimiento,
@@ -19,13 +20,15 @@ import {
   type ResultadoLiquidacionAmbigua,
   type PosibleDuplicado,
   type VistaPreviaExtracto,
+  type VistaPreviaMadre,
   type FilaSinUnidad,
 } from "./actions";
 import TablaMovimientos from "./TablaMovimientos";
 import Paginacion from "./Paginacion";
 import BarraFiltros from "./BarraFiltros";
 import { nombreDePeriodo } from "@/lib/ejecucionSemanas";
-import { verificarTamanoArchivo } from "@/lib/extractos/limites";
+import { MAX_FILAS_MADRE, MAX_BYTES_MADRE, verificarTamanoArchivo, verificarTamanoMadre } from "@/lib/extractos/limites";
+import { OPCION_ARCHIVO_MADRE } from "@/lib/extractos/madreWeb";
 import PanelChequeos from "./PanelChequeos";
 import PanelSugerenciasPendientes from "./PanelSugerenciasPendientes";
 import PanelUnidadesSugeridas, { claveGrupo } from "./PanelUnidadesSugeridas";
@@ -109,6 +112,11 @@ type Props = {
   sugerenciasClasificacion: GrupoSugerenciaClasificacion[];
   // Cuentas activas de la empresa, para el selector del extracto crudo.
   cuentasBancarias: { nombre: string; banco: string }[];
+  // ADMIN y FINANZAS: ven la opción "Archivo madre" del selector (el servidor lo exige igual).
+  puedeCargarMadre: boolean;
+  // Sin esto (FINANZAS sin operaEjecucion) el panel muestra la subida de madre, pero la tabla queda
+  // de solo lectura y no hay extractos de banco: el servidor lo exige igual.
+  puedeOperar: boolean;
 };
 
 export default function PanelImputacion({
@@ -130,6 +138,8 @@ export default function PanelImputacion({
   sinUnidadAsignada: sinUnidadAsignadaIniciales,
   sugerenciasClasificacion: sugerenciasClasificacionIniciales,
   cuentasBancarias,
+  puedeCargarMadre,
+  puedeOperar,
 }: Props) {
   const router = useRouter();
   const { periodo } = useParams<{ periodo: string }>();
@@ -193,6 +203,11 @@ export default function PanelImputacion({
   // archivo madre no se sube por la web).
   const [cuenta, setCuenta] = useState("");
   const faltaElegirCuenta = cuenta === "";
+  const esMadre = cuenta === OPCION_ARCHIVO_MADRE;
+  // Resumen de un archivo madre antes de cargarlo: mientras está visible no se cargó nada.
+  const [vistaMadre, setVistaMadre] = useState<{ vista: VistaPreviaMadre; archivo: File; hoja?: string } | null>(null);
+  // Tilde obligatorio si el archivo trae clasificaciones que no están en la lista.
+  const [confirmoClasifNuevas, setConfirmoClasifNuevas] = useState(false);
   // Resumen de un extracto crudo antes de cargarlo: mientras está visible no se cargó nada.
   const [vistaPrevia, setVistaPrevia] = useState<{
     vista: VistaPreviaExtracto;
@@ -229,14 +244,16 @@ export default function PanelImputacion({
     archivo: File,
     hoja?: string,
     confirmarPrevia = false,
-    confirmoLaCuenta = false
+    confirmoLaCuenta = false,
+    confirmoNuevas = false
   ) {
     // Mismo tope y mensaje que el servidor (lib/extractos/limites.ts), pero sin viajar: si Next corta
     // el pedido por bodySizeLimit, la pantalla solo vería el mensaje genérico de "no respondió".
-    const frenoTamano = verificarTamanoArchivo(archivo.size);
+    const frenoTamano = esMadre ? verificarTamanoMadre(archivo.size) : verificarTamanoArchivo(archivo.size);
     if (!frenoTamano.ok) {
       setMensajeExito("");
       setVistaPrevia(null);
+      setVistaMadre(null);
       setErrorSubida(frenoTamano.error);
       return;
     }
@@ -250,7 +267,9 @@ export default function PanelImputacion({
     setHojasDisponibles([]);
     setArchivoAmbiguo(null);
     setVistaPrevia(null);
+    setVistaMadre(null);
     setConfirmoCuenta(false);
+    setConfirmoClasifNuevas(false);
     setAvisosSubida([]);
 
     const formData = new FormData();
@@ -259,13 +278,19 @@ export default function PanelImputacion({
 
     // Si la Server Action lanza (timeout, servidor reiniciado, red), sin este try/catch/finally
     // la pantalla quedaba en "Subiendo..." para siempre y el botón deshabilitado.
-    let resultado: Awaited<ReturnType<typeof subirExtracto>>;
+    let resultado: Awaited<ReturnType<typeof subirExtracto>> | Awaited<ReturnType<typeof subirMadre>>;
     try {
-      resultado = await subirExtracto(periodo, numeroSemana, formData, {
-        hoja,
-        confirmarVistaPrevia: confirmarPrevia,
-        confirmoCuenta: confirmoLaCuenta,
-      });
+      resultado = esMadre
+        ? await subirMadre(periodo, numeroSemana, formData, {
+            hoja,
+            confirmarVistaPrevia: confirmarPrevia,
+            confirmoClasificacionesNuevas: confirmoNuevas,
+          })
+        : await subirExtracto(periodo, numeroSemana, formData, {
+            hoja,
+            confirmarVistaPrevia: confirmarPrevia,
+            confirmoCuenta: confirmoLaCuenta,
+          });
     } catch {
       setErrorSubida(
         "No se pudo completar la subida: el servidor no respondió o se interrumpió. No se confirmó ninguna carga; revisá la semana antes de reintentar (si el archivo es muy grande, puede haber quedado sin cargar)."
@@ -285,7 +310,11 @@ export default function PanelImputacion({
         setVistaPrevia({ vista: resultado.vista, archivo, hoja });
         return;
       }
-      if (resultado.cuentaSugerida) setCuenta(resultado.cuentaSugerida);
+      if ("requiereVistaPreviaMadre" in resultado) {
+        setVistaMadre({ vista: resultado.vista, archivo, hoja });
+        return;
+      }
+      if ("cuentaSugerida" in resultado && resultado.cuentaSugerida) setCuenta(resultado.cuentaSugerida);
       setErrorSubida(resultado.error);
       return;
     }
@@ -571,6 +600,8 @@ export default function PanelImputacion({
             Extracto de un banco tal cual se descarga (Macro, Galicia, BBVA Francés, Nación,
             Santander, Santiago del Estero: .xls, .xlsx o .csv, hasta 1 MB y 1.000 filas). Primero
             elegí la cuenta.
+            {puedeCargarMadre &&
+              ` Para un archivo madre (varias cuentas, con su clasificación y unidad) elegí «Archivo madre»: .xlsx, hasta ${MAX_FILAS_MADRE.toLocaleString("es-AR")} filas y ${Math.round(MAX_BYTES_MADRE / 1024)} KB; el histórico se carga por script.`}
           </p>
           <div className="mb-3 flex items-center gap-3">
             <label htmlFor="cuenta-extracto" className="text-xs text-ink-secondary whitespace-nowrap">
@@ -584,13 +615,16 @@ export default function PanelImputacion({
                 // Una vista previa ya armada era de la cuenta anterior: se descarta, así el tilde y
                 // "Confirmar y cargar" nunca quedan referidos a otra cuenta que la elegida.
                 setVistaPrevia(null);
+                setVistaMadre(null);
                 setConfirmoCuenta(false);
+                setConfirmoClasifNuevas(false);
               }}
               className="h-9 px-2 rounded-md border border-line bg-paper text-sm text-ink focus:outline-none focus:border-marino"
             >
               <option value="" disabled>
                 Elegí la cuenta…
               </option>
+              {puedeCargarMadre && <option value={OPCION_ARCHIVO_MADRE}>Archivo madre (trae varias cuentas)</option>}
               {cuentasBancarias.map((c) => (
                 <option key={c.nombre} value={c.nombre}>
                   {c.nombre}
@@ -610,7 +644,7 @@ export default function PanelImputacion({
               disabled={subiendo || faltaElegirCuenta}
               className="h-10 px-4 rounded-md bg-marino text-white text-sm font-medium hover:bg-marino-dark active:scale-[0.99] transition disabled:opacity-50 whitespace-nowrap"
             >
-              {subiendo ? "Subiendo..." : "Subir extracto"}
+              {subiendo ? "Subiendo..." : esMadre ? "Subir archivo madre" : "Subir extracto"}
             </button>
           </div>
           {hojasDisponibles.length > 0 && (
@@ -644,6 +678,92 @@ export default function PanelImputacion({
               {mensajeExito}
             </p>
           )}
+          {vistaMadre && (() => {
+            const v = vistaMadre.vista;
+            const r = v.resumen;
+            const nuevasSinConfirmar = r.clasificacionesNuevas.length > 0 && !confirmoClasifNuevas;
+            return (
+              <div className="mt-3 text-sm bg-marino-tint text-marino rounded-md px-3 py-3">
+                <p className="font-medium">Todavía no se cargó nada: revisá el resumen del archivo madre.</p>
+                <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-xs tabular">
+                  <dt>Filas del archivo</dt>
+                  <dd>
+                    {v.filas} ({v.nuevas} nuevas, {v.yaCargadas} ya cargadas
+                    {v.cuentasOmitidas.length > 0 ? `, ${v.cuentasOmitidas.reduce((a, c) => a + c.filas, 0)} de cuentas omitidas` : ""})
+                  </dd>
+                  <dt>Cuentas</dt>
+                  <dd>{v.cuentasDelArchivo} en el archivo; las filas nuevas son de {r.cuentas.length}</dd>
+                  <dt>Fechas</dt>
+                  <dd>{v.desde} a {v.hasta}</dd>
+                  <dt>Reparto por mes</dt>
+                  <dd>
+                    {v.repartoPorPeriodo
+                      .map((p) => `${nombreDePeriodo(p.periodo)}: ${p.filas === 1 ? "1 fila" : `${p.filas} filas`}`)
+                      .join("; ")}{" "}
+                    (cada fila va a la semana abierta de su mes)
+                  </dd>
+                  <dt>Parecidas a ya cargadas</dt>
+                  <dd>{v.posiblesDuplicados} (misma cuenta, fecha e importe; se cargan igual)</dd>
+                  <dt>Sin clasificar</dt>
+                  <dd>{r.sinClasificar}</dd>
+                  <dt>Sin unidad asignada</dt>
+                  <dd>{r.sinUnidad}</dd>
+                </dl>
+                {v.avisos.length > 0 && (
+                  <ul className="mt-2 list-disc pl-5 text-xs">
+                    {v.avisos.map((a) => (
+                      <li key={a}>{a}</li>
+                    ))}
+                  </ul>
+                )}
+                {r.clasificacionesNuevas.length > 0 && (
+                  <div className="mt-3 rounded-md border border-terracota bg-terracota-tint px-3 py-2 text-terracota">
+                    <p className="text-xs font-medium">
+                      Clasificaciones que no están en la lista ni se usan todavía (¿error de tipeo?): se van a crear tal cual vienen.
+                    </p>
+                    <ul className="mt-1 list-disc pl-5 text-xs">
+                      {r.clasificacionesNuevas.map((c) => (
+                        <li key={c.nombre}>
+                          {c.nombre}: {c.cantidad === 1 ? "1 fila" : `${c.cantidad} filas`}
+                        </li>
+                      ))}
+                    </ul>
+                    <label className="mt-2 flex cursor-pointer items-start gap-2 text-xs font-medium">
+                      <input
+                        type="checkbox"
+                        checked={confirmoClasifNuevas}
+                        disabled={subiendo}
+                        onChange={(e) => setConfirmoClasifNuevas(e.target.checked)}
+                        className="mt-0.5 accent-terracota"
+                      />
+                      Confirmo estas clasificaciones nuevas
+                    </label>
+                  </div>
+                )}
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    disabled={subiendo || nuevasSinConfirmar}
+                    onClick={() => enviarArchivo(vistaMadre.archivo, vistaMadre.hoja, true, false, confirmoClasifNuevas)}
+                    className="h-8 px-3 rounded-md bg-marino text-white text-xs font-medium hover:bg-marino-dark active:scale-[0.99] transition disabled:opacity-50"
+                  >
+                    Confirmar y cargar ({v.nuevas} movimientos)
+                  </button>
+                  <button
+                    type="button"
+                    disabled={subiendo}
+                    onClick={() => {
+                      setVistaMadre(null);
+                      if (fileInputRef.current) fileInputRef.current.value = "";
+                    }}
+                    className="h-8 px-3 rounded-md border border-marino text-marino text-xs font-medium hover:bg-paper transition disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
           {vistaPrevia && (() => {
             // El cuadro rojo de cuenta no verificable ya dice lo mismo que ese aviso: no se repite.
             const avisosVistaPrevia = vistaPrevia.vista.cuentaVerificada
@@ -957,7 +1077,7 @@ export default function PanelImputacion({
                 movimientos={movimientos}
                 numeroSemana={numeroSemana}
                 mostrarSaldo={verSaldo}
-                deshabilitado={cerrada}
+                deshabilitado={cerrada || !puedeOperar}
                 clasificacionesDisponibles={clasificacionesDisponibles}
                 onCambiarClasificacion={(id, valor) => {
                   actualizarCampoLocal(id, "clasificacion", valor);

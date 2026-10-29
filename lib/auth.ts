@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "@/lib/prisma";
 import type { Usuario } from "@prisma/client";
-import { puedeOperarEjecucionGlobal, puedeCerrarEjecucion, veTodoEjecucion } from "@/lib/permisosEjecucion";
+import { puedeOperarEjecucionGlobal, puedeCerrarEjecucion, puedeCargarMadreEjecucion, veTodoEjecucion } from "@/lib/permisosEjecucion";
 
 export { hashPassword, verifyPassword } from "@/lib/password";
 
@@ -131,6 +131,8 @@ export const requireAccesoEmpresa = cache(async (empresaId: string): Promise<Usu
 export {
   puedeOperarEjecucionGlobal,
   puedeCerrarEjecucion,
+  puedeCargarMadreEjecucion,
+  veSubidaDeEjecucion,
   veTodoEjecucion,
   veBloquesReservadosDelReporte,
 } from "@/lib/permisosEjecucion";
@@ -160,6 +162,16 @@ export const requireCierreEjecucion = cache(async (): Promise<Usuario> => {
   const usuario = await requireUsuario();
   if (!puedeCerrarEjecucion(usuario)) {
     throw new AccesoDenegadoError("Solo Finanzas y los administradores pueden cerrar una semana.");
+  }
+  return usuario;
+});
+
+// Cargar un archivo madre por la web: solo FINANZAS y ADMIN (la madre trae la clasificación y la
+// unidad ya hechas, así que se salta el circuito de confirmación).
+export const requireCargaMadreEjecucion = cache(async (): Promise<Usuario> => {
+  const usuario = await requireUsuario();
+  if (!puedeCargarMadreEjecucion(usuario)) {
+    throw new AccesoDenegadoError("Solo Finanzas y los administradores pueden cargar un archivo madre.");
   }
   return usuario;
 });

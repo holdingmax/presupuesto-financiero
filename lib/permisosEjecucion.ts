@@ -30,3 +30,18 @@ export function veTodoEjecucion(usuario: ConPermisoDeOperar): boolean {
 export function veBloquesReservadosDelReporte(usuario: ConRol): boolean {
   return puedeCerrarEjecucion(usuario);
 }
+
+// Cargar un archivo madre por la web (trae clasificación y unidad ya hechas, así que se salta el
+// circuito de confirmación): solo ADMIN y FINANZAS. No depende de operaEjecucion; el servidor lo
+// exige aparte, y la pantalla solo muestra la opción a quien puede operar y además cumple esto.
+export function puedeCargarMadreEjecucion(usuario: ConRol): boolean {
+  return usuario.rol === "ADMIN" || usuario.rol === "FINANZAS";
+}
+
+// Quién ve el panel de subida de una semana abierta: quien opera (todo el panel) o quien puede
+// cargar la madre (FINANZAS sin operaEjecucion entra, pero solo para eso). Solo decide si se
+// MUESTRA el panel: lo que se puede hacer adentro lo sigue decidiendo cada permiso por separado
+// (subir extractos de banco, editar, ignorar… siguen exigiendo operaEjecucion en el servidor).
+export function veSubidaDeEjecucion(usuario: ConPermisoDeOperar): boolean {
+  return puedeOperarEjecucionGlobal(usuario) || puedeCargarMadreEjecucion(usuario);
+}

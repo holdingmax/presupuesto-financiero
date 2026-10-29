@@ -94,7 +94,7 @@ export default async function EjecucionGlobalSemanaPage({ params, searchParams }
     </div>
   );
 
-  if (datos.estado === "ABIERTA" && datos.puedeOperar) {
+  if (datos.estado === "ABIERTA" && datos.veSubida) {
     const chequeos = await calcularChequeosSumaCero(periodo, numeroSemana);
     return (
       <>
@@ -119,6 +119,8 @@ export default async function EjecucionGlobalSemanaPage({ params, searchParams }
           sinUnidadAsignada={datos.sinUnidadAsignada}
           sugerenciasClasificacion={datos.sugerenciasClasificacion}
           cuentasBancarias={datos.cuentasBancarias}
+          puedeCargarMadre={datos.puedeCargarMadre}
+          puedeOperar={datos.puedeOperar}
         />
       </>
     );
