@@ -282,6 +282,7 @@ function FilaConControl({
         carga={carga}
         idsEditables={idsEditables}
         soloLecturaPorMes={soloLecturaPorMes}
+        soloSaldo={reporte.sinBloquesReservados}
       />
       {verControl && fila.tipo === "total" && fila.rol === "totalDisponibilidades" && (
         <tr className="bg-paper-cool text-xs italic text-ink-secondary">
@@ -339,6 +340,7 @@ function FilaTabla({
   carga,
   idsEditables,
   soloLecturaPorMes,
+  soloSaldo,
 }: {
   filaReporte: FilaReporte;
   meses: number;
@@ -347,15 +349,32 @@ function FilaTabla({
   carga: VistaCarga | null;
   idsEditables: Set<string>;
   soloLecturaPorMes: boolean[];
+  // El Reporte se armó sin acceso completo a los bloques reservados (el gerente): Disponibilidades, si
+  // llega, se muestra como una sola columna «Saldo» de solo lectura (ahí Presupuestado = Real = el saldo
+  // real, y no es un presupuesto que se edite).
+  soloSaldo: boolean;
 }) {
   const { fila, celdas } = filaReporte;
+  const enSaldo = soloSaldo && fila.bloque === "DISPONIBILIDADES";
   if (fila.tipo === "titulo") {
     return (
       <tr className="border-t border-line-strong bg-[#D6E2F0] font-bold">
         <td className="sticky left-0 z-10 bg-[#D6E2F0] py-0.5 pr-3 text-[11px] font-bold tracking-[0.12em] uppercase">
           {fila.texto}
         </td>
-        <td colSpan={meses * 4} />
+        {enSaldo ? (
+          Array.from({ length: meses }, (_, i) => (
+            <td
+              key={i}
+              colSpan={4}
+              className="py-0.5 px-2 text-right text-[10px] font-medium tracking-wide uppercase border-l border-line-hairline"
+            >
+              Saldo
+            </td>
+          ))
+        ) : (
+          <td colSpan={meses * 4} />
+        )}
       </tr>
     );
   }
@@ -401,19 +420,23 @@ function FilaTabla({
             </span>
           ))}
       </td>
-      {celdas.map((c, i) => (
-        <CeldasMes
-          key={i}
-          celda={c}
-          esTotal={esTotal}
-          realParcial={fila.tipo === "linea" && !!fila.parcial}
-          sinPorcentajes={sinPorcentajes}
-          soloP={soloP}
-          atenuado={soloLecturaPorMes[i]}
-          editor={i === celdas.length - 1 ? editor : undefined}
-          motivo={i === celdas.length - 1 ? motivo : undefined}
-        />
-      ))}
+      {celdas.map((c, i) =>
+        enSaldo ? (
+          <CeldaSaldo key={i} celda={c} atenuado={soloLecturaPorMes[i]} />
+        ) : (
+          <CeldasMes
+            key={i}
+            celda={c}
+            esTotal={esTotal}
+            realParcial={fila.tipo === "linea" && !!fila.parcial}
+            sinPorcentajes={sinPorcentajes}
+            soloP={soloP}
+            atenuado={soloLecturaPorMes[i]}
+            editor={i === celdas.length - 1 ? editor : undefined}
+            motivo={i === celdas.length - 1 ? motivo : undefined}
+          />
+        )
+      )}
     </tr>
   );
 }
@@ -442,12 +465,30 @@ function MarcasFila({
           no suma en el total (como la planilla)
         </span>
       )}
+      {/* TODO(K14): «Recupero aporte blanqueo» no suma en el total de la planilla de agosto (julio sí): pregunta
+          K14 pendiente con Kike. Hasta que la conteste, el gerente solo ve «no suma», sin explicación. */}
+      {!verControl && fila.excluidaDelTotal && conValor && <span className="ml-2 text-[11px] text-ink-muted">no suma</span>}
       {fila.parcial && (
         <span title={AYUDA_PARCIAL_FILA} className="ml-2 text-[11px] text-ink-muted">
           parcial
         </span>
       )}
     </>
+  );
+}
+
+// Disponibilidades para el gerente: un solo valor por mes (el saldo), de solo lectura. Nunca un input, ni
+// % de avance, ni «falta ejecutar», ni marcas de dato parcial (eso es de ADMIN y FINANZAS).
+function CeldaSaldo({ celda, atenuado }: { celda: Celda; atenuado: boolean }) {
+  return (
+    <td
+      colSpan={4}
+      className={`py-px px-2 text-right tabular whitespace-nowrap border-l border-line-hairline${
+        atenuado ? " bg-black/[0.06]" : ""
+      }`}
+    >
+      {celda.real === null ? "" : importe(celda.real)}
+    </td>
   );
 }
 

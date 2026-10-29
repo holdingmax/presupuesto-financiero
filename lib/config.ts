@@ -57,7 +57,11 @@ export const EMPRESAS_CON_CARGA_EN_REPORTE: readonly string[] = [
 //
 // Disponibilidades: los componentes (Banco y FCI, Efectivo, Cheques…) y su total. OJO: ahí el «Presupuestado» es
 // el saldo real del banco.
-export const EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE: readonly string[] = [];
+//
+// Primera tanda: solo Brillante. Conexión y Radio quedan fuera hasta que Kike confirme el efecto sobre
+// «Cheques en cartera despues del 10/15» y TOTAL INGRESOS (son espejos de Disponibilidades: hoy vacíos para el
+// gerente, al prender este interruptor pasarían a mostrarse). Sumar una empresa es agregar su slug acá.
+export const EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE: readonly string[] = ["brillante"];
 // Cierre: Saldo, Capital de trabajo y Disponible (NO «Disponible antes de gastos»). Se calculan con el total de
 // Disponibilidades: una empresa solo puede estar acá si también está en la lista de arriba (lo controla un
 // test, y el motor lo aplica igual: sin Disponibilidades, no hay Cierre).
