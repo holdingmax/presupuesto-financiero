@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { decimalTextoDeCentavos } from "@/lib/conteoMovimientos";
 import type { Plantilla } from "@/lib/reporte/motor";
 import { puedeEditarPresupuestoAhora } from "@/lib/estadoPresupuesto";
+import { mensajePeriodoSoloLectura, puedeEditarPeriodoComoGerente } from "@/lib/periodosHabilitados";
 import {
   DETALLE_CARGA_DESDE_REPORTE,
   cambioMientrasEditaba,
@@ -101,8 +102,16 @@ export async function aplicarCargaPresupuesto(p: {
   esRevisor: boolean;
   // Quien guarda: queda como `cargadoPorId` de los valores manuales.
   usuarioId: string;
+  // Período que el gerente puede editar. Por defecto, el de lib/config.ts; solo lo cambia el script
+  // de prueba (que trabaja en un período de mentira).
+  periodoEnCarga?: string;
 }): Promise<ResultadoCarga> {
   const { entradas } = p;
+  // Antes de leer o crear nada: el gerente solo escribe en el mes en curso de carga. Acá además de
+  // actionsCarga porque esta es la única función que escribe (y la que prueba el script de carga).
+  if (!puedeEditarPeriodoComoGerente(p.periodo, p.esAdminOFinanzas, p.periodoEnCarga)) {
+    return { ok: false, error: mensajePeriodoSoloLectura() };
+  }
   if (!Array.isArray(entradas) || entradas.length === 0) return { ok: true, creadas: 0, actualizadas: 0, borradas: 0 };
   if (entradas.length > MAX_ENTRADAS) return { ok: false, error: "Demasiados cambios en un solo guardado." };
 

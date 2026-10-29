@@ -8,6 +8,13 @@
 // usan esta lista.
 export const PERIODOS_HABILITADOS: readonly string[] = ["2026-09", "2026-10", "2026-11"];
 
+// Único período que el gerente (quien no es ADMIN ni FINANZAS) puede EDITAR: el mes en curso de
+// carga. Los demás de PERIODOS_HABILITADOS los puede abrir, pero en solo lectura. Se aplica en el
+// servidor (carga desde el Reporte y edición de líneas de Presupuesto). Hay que rotarlo a mano
+// cada mes; tiene que estar en PERIODOS_HABILITADOS (lo controla un test). Ver
+// puedeEditarPeriodoComoGerente en lib/periodosHabilitados.ts.
+export const PERIODO_EN_CARGA_GERENTE = "2026-11";
+
 // Período al que llevan los links de "Mis empresas" (y el aviso de período no habilitado).
 // Tiene que estar en PERIODOS_HABILITADOS (lo controla un test).
 export const PERIODO_POR_DEFECTO = "2026-09";

@@ -3,7 +3,12 @@ import type { EstadoPresupuesto, PresupuestoMensual, Usuario } from "@prisma/cli
 import { resolverEmpresaPorSlug } from "@/lib/slug";
 import { obtenerOCrearPresupuesto } from "@/lib/presupuesto";
 import { requireAccesoEmpresa, puedeRevisarPresupuesto, esAdminOFinanzas } from "@/lib/auth";
-import { PeriodoNoHabilitadoError, puedeVerPeriodo } from "@/lib/periodosHabilitados";
+import {
+  PeriodoNoHabilitadoError,
+  mensajePeriodoSoloLectura,
+  puedeEditarPeriodoComoGerente,
+  puedeVerPeriodo,
+} from "@/lib/periodosHabilitados";
 import { puedeEditarPresupuestoAhora } from "@/lib/estadoPresupuesto";
 
 // Piezas del servidor compartidas por las Server Actions de Presupuesto
@@ -38,12 +43,17 @@ export type ResultadoAutorizacion = { ok: true } | { ok: false; error: string };
 // cualquiera con acceso a la empresa (igual que siempre, ver
 // requireAccesoEmpresa arriba); en EN_REVISION, solo quien tiene
 // puedeRevisarPresupuesto (o ADMIN); en VALIDADO, nadie. La regla pura vive en
-// puedeEditarPresupuestoAhora (lib/estadoPresupuesto.ts); acá solo se eligen los mensajes.
+// puedeEditarPresupuestoAhora (lib/estadoPresupuesto.ts); acá solo se eligen los mensajes. Antes del
+// estado va el período (puedeEditarPeriodoComoGerente).
 export async function autorizarEdicionLinea(
   usuario: Usuario,
   empresaId: string,
   presupuesto: PresupuestoMensual
 ): Promise<ResultadoAutorizacion> {
+  // Primero el período: el gerente solo edita el mes en curso de carga (ADMIN y FINANZAS, todos).
+  if (!puedeEditarPeriodoComoGerente(presupuesto.periodo, esAdminOFinanzas(usuario))) {
+    return { ok: false, error: mensajePeriodoSoloLectura() };
+  }
   if (presupuesto.estado === "VALIDADO") {
     return { ok: false, error: "Este presupuesto ya está validado, no se puede editar." };
   }

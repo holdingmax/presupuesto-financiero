@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { resolverEmpresaPorSlug } from "@/lib/slug";
 import { requireAccesoEmpresa, puedeRevisarPresupuesto, esAdminOFinanzas } from "@/lib/auth";
-import { puedeVerPeriodo } from "@/lib/periodosHabilitados";
+import { mensajePeriodoSoloLectura, puedeEditarPeriodoComoGerente, puedeVerPeriodo } from "@/lib/periodosHabilitados";
 import { cargaEnReporteActiva } from "@/lib/estadoPresupuesto";
 import { plantillaDeEmpresa } from "@/lib/reporte/plantillas";
 import { aplicarCargaPresupuesto, type ResultadoCarga } from "@/lib/reporte/aplicarCarga";
@@ -34,6 +34,10 @@ export async function guardarPresupuestoDelReporte(
   // Fuera de los períodos habilitados solo entran ADMIN y FINANZAS.
   if (!puedeVerPeriodo(periodo, adminOFinanzas)) {
     return { ok: false, error: "El presupuesto de este mes todavía no está habilitado." };
+  }
+  // El gerente solo edita el mes en curso de carga (PERIODO_EN_CARGA_GERENTE); ADMIN y FINANZAS, todos.
+  if (!puedeEditarPeriodoComoGerente(periodo, adminOFinanzas)) {
+    return { ok: false, error: mensajePeriodoSoloLectura() };
   }
   // Interruptor por empresa (lib/config.ts): apagado, esta acción no hace nada.
   if (!cargaEnReporteActiva(empresaSlug)) {

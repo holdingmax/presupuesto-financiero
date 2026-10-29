@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PERIODOS_HABILITADOS, PERIODO_POR_DEFECTO } from "@/lib/config";
+import { PERIODOS_HABILITADOS, PERIODO_EN_CARGA_GERENTE, PERIODO_POR_DEFECTO } from "@/lib/config";
 import {
   PeriodoNoHabilitadoError,
   enlacesDePeriodos,
   esPeriodoHabilitado,
+  mensajePeriodoSoloLectura,
+  puedeEditarPeriodoComoGerente,
   puedeVerPeriodo,
 } from "@/lib/periodosHabilitados";
 
@@ -83,4 +85,33 @@ test("PeriodoNoHabilitadoError: es un Error identificable y guarda el período",
   assert.ok(error instanceof Error);
   assert.ok(error instanceof PeriodoNoHabilitadoError);
   assert.equal(error.periodo, "2026-08");
+});
+
+test("config: el período en carga del gerente es 2026-11 y está en la lista de habilitados", () => {
+  assert.equal(PERIODO_EN_CARGA_GERENTE, "2026-11");
+  assert.ok(PERIODOS_HABILITADOS.includes(PERIODO_EN_CARGA_GERENTE));
+});
+
+test("puedeEditarPeriodoComoGerente: ADMIN y FINANZAS editan cualquier período", () => {
+  for (const p of ["2026-09", "2026-10", "2026-11", "2026-08", "2027-01", "2026-13", ""]) {
+    assert.equal(puedeEditarPeriodoComoGerente(p, true), true, JSON.stringify(p));
+  }
+});
+
+test("puedeEditarPeriodoComoGerente: el gerente edita solo el período en curso", () => {
+  assert.equal(puedeEditarPeriodoComoGerente("2026-11", false), true);
+  for (const p of ["2026-09", "2026-10", "2026-12", "2026-08", "2027-11", "2026-1", " 2026-11", "2026-11 ", "2026-11-01", ""]) {
+    assert.equal(puedeEditarPeriodoComoGerente(p, false), false, JSON.stringify(p));
+  }
+});
+
+test("puedeEditarPeriodoComoGerente: usa el período que se le pase", () => {
+  assert.equal(puedeEditarPeriodoComoGerente("2026-12", false, "2026-12"), true);
+  assert.equal(puedeEditarPeriodoComoGerente("2026-11", false, "2026-12"), false);
+  assert.equal(puedeEditarPeriodoComoGerente("2026-11", true, "2026-12"), true);
+});
+
+test("mensajePeriodoSoloLectura: nombra el mes en curso", () => {
+  assert.match(mensajePeriodoSoloLectura(), /2026-11/);
+  assert.match(mensajePeriodoSoloLectura("2026-12"), /2026-12/);
 });
