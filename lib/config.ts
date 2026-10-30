@@ -67,6 +67,14 @@ export const EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE: readonly string[] = [
 // test, y el motor lo aplica igual: sin Disponibilidades, no hay Cierre).
 export const EMPRESAS_QUE_VEN_CIERRE_EN_REPORTE: readonly string[] = [];
 
+// Tipeo directo en el Reporte de los valores que en la planilla se tipean a mano (Real manual de
+// Ingresos / Egresos / de abajo y componentes de Disponibilidades), solo para ADMIN y FINANZAS. Lista de
+// SLUGS de empresa; vacía = ninguna celda editable (el Reporte se ve como siempre). Las celdas de
+// Disponibilidades además exigen que la empresa esté en EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE (lo
+// controla un test de subconjunto). El gerente nunca recibe estas celdas. /reporte/carga no depende de esto.
+// Ver lib/reporte/tipeoDirecto.ts.
+export const EMPRESAS_CON_TIPEO_DIRECTO: readonly string[] = ["brillante"];
+
 // Etiqueta del ciclo fiscal que se muestra en la portada de login (app/login/page.tsx).
 //
 // PENDIENTE: no está derivada de PERIODO todavía. "3 meses hacia atrás terminando en PERIODO"

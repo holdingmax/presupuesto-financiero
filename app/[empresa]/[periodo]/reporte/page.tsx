@@ -32,6 +32,9 @@ import PeriodoSelector from "../presupuesto/PeriodoSelector";
 import { ocultaPestanaPresupuesto } from "@/lib/navegacionEmpresa";
 import { cantidadDeMeses, resolverVista, type VistaReporte } from "@/lib/reporte/vistaReporte";
 import { accesoReservadosDelReporte } from "@/lib/reporte/visibilidad";
+import { armarVistaTipeo, tipeoDirectoActivo } from "@/lib/reporte/tipeoDirecto";
+import { periodoActual } from "@/lib/reporte/bloqueo";
+import { semanasDelPeriodo } from "@/lib/reporte/valoresManuales";
 import VistaSelector from "./VistaSelector";
 
 type Props = {
@@ -295,6 +298,22 @@ async function ReportePorPlantilla({
     carga = vistaDeCarga(plan, sugerido);
   }
 
+  // Tipeo directo del Real manual: solo ADMIN y FINANZAS y solo empresas del interruptor (lib/config.ts).
+  // armarVistaTipeo devuelve null a quien no es ADMIN ni FINANZAS; la consulta de semanas solo se hace si
+  // hay algo que armar.
+  const tipeo =
+    esAdminOFinanzas(usuario) && tipeoDirectoActivo(empresaSlug)
+      ? armarVistaTipeo({
+          empresaSlug,
+          plantilla,
+          esAdminOFinanzas: true,
+          periodo,
+          actual: periodoActual(),
+          semanas: (await semanasDelPeriodo([periodo])).get(periodo)!,
+          valoresReales: meses[meses.length - 1].manuales?.real ?? new Map(),
+        })
+      : null;
+
   return (
     <>
       {/* Sin la pestaña Presupuesto el gerente no tiene otro selector de mes (ver lib/navegacionEmpresa.ts). */}
@@ -311,6 +330,7 @@ async function ReportePorPlantilla({
       verControl={verControl}
       flujo={flujo}
       carga={carga}
+      tipeo={tipeo}
       avisoSoloLectura={avisoSoloLectura}
       sinUnidades={unidadesEmpresa.length === 0}
       noAsignado={noAsignado.porUnidad.map((n) => ({

@@ -12,6 +12,8 @@ import {
   CeldaPresupuestoEditable,
   ProveedorCarga,
 } from "./CargaPresupuesto";
+import { BarraGuardarTipeo, CeldaRealEditable, ConTipeo } from "./TipeoDirecto";
+import type { VistaTipeo } from "@/lib/reporte/tipeoDirecto";
 import { Fragment, type ReactNode } from "react";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -54,6 +56,9 @@ type Props = {
   // Carga del Presupuestado en el Reporte (Etapa 2): celdas editables de la última columna y
   // bloque "Sin fila". null = el Reporte es de solo lectura, como siempre.
   carga: VistaCarga | null;
+  // Tipeo directo del Real manual (solo ADMIN y FINANZAS, empresas del interruptor): celdas editables de la
+  // columna Real del último mes. null = ninguna, el Reporte se ve como siempre.
+  tipeo: VistaTipeo | null;
   // Cartel de mes en solo lectura para el gerente (null = sin cartel). Ver avisoPeriodoSoloLectura.
   avisoSoloLectura: string | null;
   sinUnidades: boolean;
@@ -70,6 +75,7 @@ export default function ReportePlantilla({
   verControl,
   flujo,
   carga,
+  tipeo,
   avisoSoloLectura,
   sinUnidades,
   noAsignado,
@@ -77,6 +83,7 @@ export default function ReportePlantilla({
 }: Props) {
   const { periodos, sinPresupuesto, sinEjecucion } = reporte;
   const idsEditables = new Set(carga?.celdas.map((c) => c.id));
+  const idsTipeables = new Set(tipeo?.celdas.map((c) => c.clave));
   // Meses que no se editan desde acá: los anteriores al último, y el último si el mes está en solo
   // lectura (cartel). Se marcan con la etiqueta «Solo lectura» y el fondo atenuado.
   const soloLecturaPorMes = periodos.map((_, i) => i < periodos.length - 1 || avisoSoloLectura !== null);
@@ -105,6 +112,7 @@ export default function ReportePlantilla({
         )}
       </div>
 
+      <ConTipeo tipeo={tipeo} empresaSlug={empresaSlug} periodo={periodo}>
       <ConCarga carga={carga} empresaSlug={empresaSlug} periodo={periodo}>
       {avisoSoloLectura && (
         <p className="mb-2 rounded-md bg-terracota-tint px-3 py-1 text-xs text-terracota" role="status">
@@ -137,6 +145,7 @@ export default function ReportePlantilla({
       )}
 
       {carga && <BarraGuardarPresupuesto />}
+      {tipeo && <BarraGuardarTipeo />}
 
       {/* Un solo mes entra sin scroll horizontal: sin contenedor con overflow, el encabezado fijo se pega a la
           ventana. Con varios meses el contenedor scrollea (en horizontal si la pantalla es angosta) y el
@@ -186,6 +195,7 @@ export default function ReportePlantilla({
                 verControl={verControl}
                 carga={carga}
                 idsEditables={idsEditables}
+                idsTipeables={idsTipeables}
                 soloLecturaPorMes={soloLecturaPorMes}
               />
             ))}
@@ -205,6 +215,7 @@ export default function ReportePlantilla({
         />
       )}
       </ConCarga>
+      </ConTipeo>
 
       {verPendientes && reporte.pendientes.length > 0 && (
         <div className="mt-4 rounded-md border border-line-strong bg-paper-raised px-5 py-4">
@@ -260,6 +271,7 @@ function FilaConControl({
   verControl,
   carga,
   idsEditables,
+  idsTipeables,
   soloLecturaPorMes,
 }: {
   filaReporte: FilaReporte;
@@ -268,6 +280,7 @@ function FilaConControl({
   verControl: boolean;
   carga: VistaCarga | null;
   idsEditables: Set<string>;
+  idsTipeables: Set<string>;
   soloLecturaPorMes: boolean[];
 }) {
   const meses = reporte.periodos.length;
@@ -281,6 +294,7 @@ function FilaConControl({
         verControl={verControl}
         carga={carga}
         idsEditables={idsEditables}
+        idsTipeables={idsTipeables}
         soloLecturaPorMes={soloLecturaPorMes}
         soloSaldo={reporte.sinBloquesReservados}
       />
@@ -339,6 +353,7 @@ function FilaTabla({
   verControl,
   carga,
   idsEditables,
+  idsTipeables,
   soloLecturaPorMes,
   soloSaldo,
 }: {
@@ -348,6 +363,7 @@ function FilaTabla({
   verControl: boolean;
   carga: VistaCarga | null;
   idsEditables: Set<string>;
+  idsTipeables: Set<string>;
   soloLecturaPorMes: boolean[];
   // El Reporte se armó sin acceso completo a los bloques reservados (el gerente): Disponibilidades, si
   // llega, se muestra como un solo valor «Saldo», bajo la columna Real y de solo lectura (ahí
@@ -395,6 +411,10 @@ function FilaTabla({
           ? `manual|${fila.clave}`
           : null;
   const editor = idCelda !== null ? <CeldaPresupuestoEditable id={idCelda} nombre={fila.texto.trim()} compacta /> : undefined;
+  const editorReal =
+    fila.tipo === "linea" && idsTipeables.has(fila.clave) ? (
+      <CeldaRealEditable clave={fila.clave} nombre={fila.texto.trim()} />
+    ) : undefined;
   const motivo =
     carga && fila.tipo === "linea" && Object.hasOwn(carga.motivosFilas, fila.clave)
       ? carga.motivosFilas[fila.clave]
@@ -432,6 +452,7 @@ function FilaTabla({
             soloP={soloP}
             atenuado={soloLecturaPorMes[i]}
             editor={i === celdas.length - 1 ? editor : undefined}
+            editorReal={i === celdas.length - 1 ? editorReal : undefined}
             motivo={i === celdas.length - 1 ? motivo : undefined}
           />
         )
@@ -508,6 +529,7 @@ function CeldasMes({
   soloP,
   atenuado,
   editor,
+  editorReal,
   motivo,
 }: {
   celda: Celda;
@@ -519,6 +541,8 @@ function CeldasMes({
   atenuado: boolean;
   // Carga del Presupuestado: input en lugar del número, o el motivo de solo lectura debajo de él.
   editor?: ReactNode;
+  // Tipeo directo del Real manual: input en lugar del número de la columna Real.
+  editorReal?: ReactNode;
   motivo?: string;
 }) {
   const claseNumero = `py-px px-2 text-right tabular whitespace-nowrap${atenuado ? " bg-black/[0.06]" : ""}`;
@@ -535,8 +559,8 @@ function CeldasMes({
         )}
       </td>
       <td className={`${claseNumero} ${realParcial ? "text-ink-muted" : ""}`}>
-        {soloP ? "" : celda.real === null ? "" : importe(celda.real)}
-        {esTotal && celda.realIncompleto && celda.real !== null && <Asterisco />}
+        {editorReal ?? (soloP ? "" : celda.real === null ? "" : importe(celda.real))}
+        {!editorReal && esTotal && celda.realIncompleto && celda.real !== null && <Asterisco />}
       </td>
       <td className={claseNumero}>
         {soloP || sinPorcentajes ? "" : celda.avance === null ? "" : `${formatearImporte(celda.avance)}%`}
