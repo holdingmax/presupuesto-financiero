@@ -3,18 +3,18 @@
 import { createContext, useContext, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { guardarTipeoDelReporte } from "./actionsTipeo";
-import { AVISO_UNA_VEZ } from "@/lib/reporte/bloqueo";
 import type { CeldaTipeo } from "@/lib/reporte/tipeoDirecto";
 
-// Tipeo directo del Real manual en el Reporte (solo ADMIN y FINANZAS: el servidor no manda estas celdas a
-// nadie más). Estado propio, separado de la carga del Presupuestado del gerente (CargaPresupuesto.tsx):
-// una sola acción, "Guardar valores reales", para todas las celdas que cambiaron.
+// Tipeo directo en el Reporte (solo ADMIN y FINANZAS: el servidor no manda estas celdas a nadie más): el Real
+// manual de las filas de la plantilla y el Presupuestado y el Real de las filas extra. Estado propio, separado
+// de la carga del Presupuestado del gerente (CargaPresupuesto.tsx): una sola acción, "Guardar valores", para
+// todas las celdas que cambiaron. Cada celda se identifica por «clave|columna».
 
 type Contexto = {
   valores: Record<string, string>;
   celdas: Map<string, CeldaTipeo>;
   guardando: boolean;
-  cambiar: (clave: string, texto: string) => void;
+  cambiar: (id: string, texto: string) => void;
   cantidadCambios: number;
   mensaje: { tipo: "ok" | "error"; texto: string } | null;
   guardar: () => Promise<void>;
@@ -23,7 +23,7 @@ type Contexto = {
 const TipeoContext = createContext<Contexto | null>(null);
 
 function valoresIniciales(celdas: CeldaTipeo[]): Record<string, string> {
-  return Object.fromEntries(celdas.map((c) => [c.clave, c.importeInicial]));
+  return Object.fromEntries(celdas.map((c) => [c.id, c.importeInicial]));
 }
 
 export function ProveedorTipeo({
@@ -53,12 +53,12 @@ export function ProveedorTipeo({
     setValores(valoresIniciales(celdas));
   }
 
-  const porClave = new Map(celdas.map((c) => [c.clave, c]));
-  const modificadas = celdas.filter((c) => (valores[c.clave] ?? "").trim() !== c.importeInicial.trim());
+  const porId = new Map(celdas.map((c) => [c.id, c]));
+  const modificadas = celdas.filter((c) => (valores[c.id] ?? "").trim() !== c.importeInicial.trim());
 
-  function cambiar(clave: string, texto: string) {
+  function cambiar(id: string, texto: string) {
     setMensaje(null);
-    setValores((prev) => ({ ...prev, [clave]: texto }));
+    setValores((prev) => ({ ...prev, [id]: texto }));
   }
 
   async function guardar() {
@@ -70,7 +70,7 @@ export function ProveedorTipeo({
       const r = await guardarTipeoDelReporte(
         empresaSlug,
         periodo,
-        modificadas.map((c) => ({ filaClave: c.clave, columna: "REAL" as const, texto: valores[c.clave] ?? "" }))
+        modificadas.map((c) => ({ filaClave: c.clave, columna: c.columna, texto: valores[c.id] ?? "" }))
       );
       if (!r.ok) {
         setMensaje({ tipo: "error", texto: r.error });
@@ -88,7 +88,7 @@ export function ProveedorTipeo({
 
   return (
     <TipeoContext.Provider
-      value={{ valores, celdas: porClave, guardando, cambiar, cantidadCambios: modificadas.length, mensaje, guardar }}
+      value={{ valores, celdas: porId, guardando, cambiar, cantidadCambios: modificadas.length, mensaje, guardar }}
     >
       {children}
     </TipeoContext.Provider>
@@ -111,12 +111,12 @@ export function BarraGuardarTipeo() {
         disabled={cantidadCambios === 0 || guardando}
         className="h-8 rounded-md bg-marino px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-marino-dark disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {guardando ? "Guardando..." : "Guardar valores reales"}
+        {guardando ? "Guardando..." : "Guardar valores"}
       </button>
       <span className="text-xs text-ink-muted">
         {cantidadCambios > 0
           ? `${cantidadCambios} ${cantidadCambios === 1 ? "cambio" : "cambios"} sin guardar`
-          : "Tipeá los valores reales en las celdas con borde de la columna Real. Se aceptan cuentas como 321.235,44+17.755,22."}
+          : "Tipeá los valores en las celdas con borde (Real, y Presupuestado en las filas agregadas). Se aceptan cuentas como 321.235,44+17.755,22."}
       </span>
       {mensaje && (
         <span className={`text-sm ${mensaje.tipo === "error" ? "text-terracota" : "text-verde"}`} role="status">
@@ -127,20 +127,29 @@ export function BarraGuardarTipeo() {
   );
 }
 
-// Input dentro de la columna Real del último mes.
-export function CeldaRealEditable({ clave, nombre }: { clave: string; nombre: string }) {
+// Input dentro de la columna Real o Presupuestado del último mes.
+export function CeldaTipeoEditable({
+  clave,
+  columna,
+  nombre,
+}: {
+  clave: string;
+  columna: "PRESUPUESTADO" | "REAL";
+  nombre: string;
+}) {
   const { valores, celdas, guardando, cambiar } = useTipeo();
-  const celda = celdas.get(clave);
+  const id = `${clave}|${columna}`;
+  const celda = celdas.get(id);
   if (!celda) return null;
   return (
     <input
-      value={valores[clave] ?? ""}
-      onChange={(e) => cambiar(clave, e.target.value)}
+      value={valores[id] ?? ""}
+      onChange={(e) => cambiar(id, e.target.value)}
       inputMode="decimal"
       placeholder="0"
       disabled={guardando}
-      aria-label={`Real: ${nombre}`}
-      title={celda.avisoUnaVez ? AVISO_UNA_VEZ : undefined}
+      aria-label={`${columna === "REAL" ? "Real" : "Presupuestado"}: ${nombre}`}
+      title={celda.aviso ?? undefined}
       className="h-5 w-28 rounded border border-line bg-paper px-1.5 text-right text-[11px] leading-none tabular outline-none focus:border-marino focus:ring-1 focus:ring-marino/30 disabled:opacity-60"
     />
   );

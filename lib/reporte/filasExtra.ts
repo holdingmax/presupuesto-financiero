@@ -117,6 +117,16 @@ const ROL_DE_BLOQUE = {
   ABAJO: "totalEgresos",
 } as const satisfies Record<BloqueExtra, NonNullable<FilaTotal["rol"]>>;
 
+// Al revés: a qué bloque de filas extra cierra un total (null = no es uno de los tres).
+export function bloqueDeRolTotal(rol: FilaTotal["rol"]): BloqueExtra | null {
+  return BLOQUES_EXTRA.find((b) => ROL_DE_BLOQUE[b] === rol) ?? null;
+}
+
+// "extra.<id>" → <id>.
+export function idDeClaveExtra(clave: string): string {
+  return clave.slice(PREFIJO_CLAVE_EXTRA.length);
+}
+
 function filaDeExtra(extra: FilaExtra): FilaLinea {
   return {
     clave: claveDeFilaExtra(extra.id),

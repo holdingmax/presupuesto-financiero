@@ -33,7 +33,8 @@ import PeriodoSelector from "../presupuesto/PeriodoSelector";
 import { ocultaPestanaPresupuesto } from "@/lib/navegacionEmpresa";
 import { cantidadDeMeses, resolverVista, type VistaReporte } from "@/lib/reporte/vistaReporte";
 import { accesoReservadosDelReporte } from "@/lib/reporte/visibilidad";
-import { armarVistaTipeo, tipeoDirectoActivo } from "@/lib/reporte/tipeoDirecto";
+import { armarVistaTipeo, tipeoDirectoActivo, type VistaTipeo } from "@/lib/reporte/tipeoDirecto";
+import { armarVistaFilasExtra, type VistaFilasExtra } from "@/lib/reporte/accionesFilasExtra";
 import { periodoActual } from "@/lib/reporte/bloqueo";
 import { semanasDelPeriodo } from "@/lib/reporte/valoresManuales";
 import VistaSelector from "./VistaSelector";
@@ -303,21 +304,52 @@ async function ReportePorPlantilla({
     carga = vistaDeCarga(plan, sugerido);
   }
 
-  // Tipeo directo del Real manual: solo ADMIN y FINANZAS y solo empresas del interruptor (lib/config.ts).
-  // armarVistaTipeo devuelve null a quien no es ADMIN ni FINANZAS; la consulta de semanas solo se hace si
-  // hay algo que armar.
-  const tipeo =
-    esAdminOFinanzas(usuario) && tipeoDirectoActivo(empresaSlug)
-      ? armarVistaTipeo({
-          empresaSlug,
-          plantilla,
-          esAdminOFinanzas: true,
-          periodo,
-          actual: periodoActual(),
-          semanas: (await semanasDelPeriodo([periodo])).get(periodo)!,
-          valoresReales: meses[meses.length - 1].manuales?.real ?? new Map(),
-        })
-      : null;
+  // Tipeo directo (Real manual y, en las filas extra, Presupuestado) y botones de filas extra: solo ADMIN y FINANZAS
+  // y solo empresas de los interruptores (lib/config.ts). Las dos vistas devuelven null a quien no es ADMIN ni
+  // FINANZAS; las consultas extra solo se hacen si hay algo que armar. Usan la plantilla del Reporte (con las filas
+  // extra); la carga del gerente de más arriba sigue con la estática.
+  let tipeo: VistaTipeo | null = null;
+  let filasExtra: VistaFilasExtra | null = null;
+  if (esAdminOFinanzas(usuario) && tipeoDirectoActivo(empresaSlug)) {
+    const ultimoMes = meses[meses.length - 1];
+    const hayFilasExtra = plantillaReporte.filas.some((f) => f.tipo === "linea" && f.extra === true);
+    const [semanas, presupuestoDelMes, valoresDeFilasExtra] = await Promise.all([
+      semanasDelPeriodo([periodo]),
+      prisma.presupuestoMensual.findUnique({
+        where: { empresaId_periodo: { empresaId, periodo } },
+        select: { estado: true },
+      }),
+      hayFilasExtra
+        ? prisma.valorManualReporte.findMany({
+            where: { empresaId, filaClave: { startsWith: "extra." } },
+            select: { filaClave: true },
+            distinct: ["filaClave"],
+          })
+        : Promise.resolve([] as { filaClave: string }[]),
+    ]);
+    const semanasDelMes = semanas.get(periodo)!;
+    tipeo = armarVistaTipeo({
+      empresaSlug,
+      plantilla: plantillaReporte,
+      esAdminOFinanzas: true,
+      periodo,
+      actual: periodoActual(),
+      semanas: semanasDelMes,
+      valoresReales: ultimoMes.manuales?.real ?? new Map(),
+      valoresPresupuesto: ultimoMes.manuales?.presupuesto ?? new Map(),
+      presupuestoValidado: presupuestoDelMes?.estado === "VALIDADO",
+    });
+    filasExtra = armarVistaFilasExtra({
+      empresaSlug,
+      plantillaEstatica: plantilla,
+      plantillaReporte,
+      esAdminOFinanzas: true,
+      periodo,
+      actual: periodoActual(),
+      semanas: semanasDelMes,
+      clavesConValores: new Set(valoresDeFilasExtra.map((v) => v.filaClave)),
+    });
+  }
 
   return (
     <>
@@ -336,6 +368,7 @@ async function ReportePorPlantilla({
       flujo={flujo}
       carga={carga}
       tipeo={tipeo}
+      filasExtra={filasExtra}
       avisoSoloLectura={avisoSoloLectura}
       sinUnidades={unidadesEmpresa.length === 0}
       noAsignado={noAsignado.porUnidad.map((n) => ({

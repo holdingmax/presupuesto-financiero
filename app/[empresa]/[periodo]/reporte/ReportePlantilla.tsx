@@ -12,8 +12,11 @@ import {
   CeldaPresupuestoEditable,
   ProveedorCarga,
 } from "./CargaPresupuesto";
-import { BarraGuardarTipeo, CeldaRealEditable, ConTipeo } from "./TipeoDirecto";
+import { BarraGuardarTipeo, CeldaTipeoEditable, ConTipeo } from "./TipeoDirecto";
+import { AgregarFila, BorrarFila } from "./FilasExtra";
 import type { VistaTipeo } from "@/lib/reporte/tipeoDirecto";
+import type { VistaFilasExtra } from "@/lib/reporte/accionesFilasExtra";
+import { bloqueDeRolTotal, idDeClaveExtra, type BloqueExtra } from "@/lib/reporte/filasExtra";
 import { Fragment, type ReactNode } from "react";
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -59,6 +62,9 @@ type Props = {
   // Tipeo directo del Real manual (solo ADMIN y FINANZAS, empresas del interruptor): celdas editables de la
   // columna Real del último mes. null = ninguna, el Reporte se ve como siempre.
   tipeo: VistaTipeo | null;
+  // Filas extra (solo ADMIN y FINANZAS, empresas del interruptor): en qué bloques va «Agregar una fila» y qué
+  // filas extra se pueden borrar. null = ni botones ni borrado; el gerente recibe null SIEMPRE.
+  filasExtra: VistaFilasExtra | null;
   // Cartel de mes en solo lectura para el gerente (null = sin cartel). Ver avisoPeriodoSoloLectura.
   avisoSoloLectura: string | null;
   sinUnidades: boolean;
@@ -76,6 +82,7 @@ export default function ReportePlantilla({
   flujo,
   carga,
   tipeo,
+  filasExtra,
   avisoSoloLectura,
   sinUnidades,
   noAsignado,
@@ -83,7 +90,7 @@ export default function ReportePlantilla({
 }: Props) {
   const { periodos, sinPresupuesto, sinEjecucion } = reporte;
   const idsEditables = new Set(carga?.celdas.map((c) => c.id));
-  const idsTipeables = new Set(tipeo?.celdas.map((c) => c.clave));
+  const idsTipeables = new Set(tipeo?.celdas.map((c) => c.id));
   // Meses que no se editan desde acá: los anteriores al último, y el último si el mes está en solo
   // lectura (cartel). Se marcan con la etiqueta «Solo lectura» y el fondo atenuado.
   const soloLecturaPorMes = periodos.map((_, i) => i < periodos.length - 1 || avisoSoloLectura !== null);
@@ -196,6 +203,9 @@ export default function ReportePlantilla({
                 carga={carga}
                 idsEditables={idsEditables}
                 idsTipeables={idsTipeables}
+                filasExtra={filasExtra}
+                empresaSlug={empresaSlug}
+                periodo={periodo}
                 soloLecturaPorMes={soloLecturaPorMes}
               />
             ))}
@@ -272,6 +282,9 @@ function FilaConControl({
   carga,
   idsEditables,
   idsTipeables,
+  filasExtra,
+  empresaSlug,
+  periodo,
   soloLecturaPorMes,
 }: {
   filaReporte: FilaReporte;
@@ -281,12 +294,25 @@ function FilaConControl({
   carga: VistaCarga | null;
   idsEditables: Set<string>;
   idsTipeables: Set<string>;
+  filasExtra: VistaFilasExtra | null;
+  empresaSlug: string;
+  periodo: string;
   soloLecturaPorMes: boolean[];
 }) {
   const meses = reporte.periodos.length;
   const { fila } = filaReporte;
+  // «Agregar una fila» va al final de cada bloque: justo antes de su total (las filas extra ya están antes).
+  const bloqueParaAgregar = fila.tipo === "total" ? bloqueDeRolTotal(fila.rol) : null;
   return (
     <>
+      {bloqueParaAgregar && filasExtra?.bloques.includes(bloqueParaAgregar) && (
+        <FilaAgregar
+          bloque={bloqueParaAgregar}
+          meses={meses}
+          empresaSlug={empresaSlug}
+          periodo={periodo}
+        />
+      )}
       <FilaTabla
         filaReporte={filaReporte}
         meses={meses}
@@ -295,6 +321,9 @@ function FilaConControl({
         carga={carga}
         idsEditables={idsEditables}
         idsTipeables={idsTipeables}
+        borrable={filasExtra !== null && filasExtra.borrables.includes(fila.clave)}
+        empresaSlug={empresaSlug}
+        periodo={periodo}
         soloLecturaPorMes={soloLecturaPorMes}
         soloSaldo={reporte.sinBloquesReservados}
       />
@@ -354,6 +383,9 @@ function FilaTabla({
   carga,
   idsEditables,
   idsTipeables,
+  borrable,
+  empresaSlug,
+  periodo,
   soloLecturaPorMes,
   soloSaldo,
 }: {
@@ -364,6 +396,10 @@ function FilaTabla({
   carga: VistaCarga | null;
   idsEditables: Set<string>;
   idsTipeables: Set<string>;
+  // Fila extra sin valores: se puede borrar (solo ADMIN y FINANZAS).
+  borrable: boolean;
+  empresaSlug: string;
+  periodo: string;
   soloLecturaPorMes: boolean[];
   // El Reporte se armó sin acceso completo a los bloques reservados (el gerente): Disponibilidades, si
   // llega, se muestra como un solo valor «Saldo», bajo la columna Real y de solo lectura (ahí
@@ -412,8 +448,13 @@ function FilaTabla({
           : null;
   const editor = idCelda !== null ? <CeldaPresupuestoEditable id={idCelda} nombre={fila.texto.trim()} compacta /> : undefined;
   const editorReal =
-    fila.tipo === "linea" && idsTipeables.has(fila.clave) ? (
-      <CeldaRealEditable clave={fila.clave} nombre={fila.texto.trim()} />
+    fila.tipo === "linea" && idsTipeables.has(`${fila.clave}|REAL`) ? (
+      <CeldaTipeoEditable clave={fila.clave} columna="REAL" nombre={fila.texto.trim()} />
+    ) : undefined;
+  // Presupuestado tipeado en el Reporte: solo las filas extra (las demás lo cargan el gerente o /reporte/carga).
+  const editorPresupuesto =
+    fila.tipo === "linea" && idsTipeables.has(`${fila.clave}|PRESUPUESTADO`) ? (
+      <CeldaTipeoEditable clave={fila.clave} columna="PRESUPUESTADO" nombre={fila.texto.trim()} />
     ) : undefined;
   const motivo =
     carga && fila.tipo === "linea" && Object.hasOwn(carga.motivosFilas, fila.clave)
@@ -423,6 +464,9 @@ function FilaTabla({
     <tr className={esTotal ? "border-t border-line-strong bg-[#D9D9D9] font-bold" : "border-t border-line-hairline"}>
       <td className={`sticky left-0 z-10 py-px pr-3 whitespace-nowrap ${esTotal ? "bg-[#D9D9D9]" : "bg-paper"}`}>
         <span title={verPendientes && fila.tipo === "linea" ? fila.nota : undefined}>{fila.texto}</span>
+        {borrable && (
+          <BorrarFila empresaSlug={empresaSlug} periodo={periodo} id={idDeClaveExtra(fila.clave)} nombre={fila.texto.trim()} />
+        )}
         {fila.tipo === "linea" && (
           <MarcasFila
             fila={fila}
@@ -451,12 +495,40 @@ function FilaTabla({
             sinPorcentajes={sinPorcentajes}
             soloP={soloP}
             atenuado={soloLecturaPorMes[i]}
-            editor={i === celdas.length - 1 ? editor : undefined}
+            editor={i === celdas.length - 1 ? (editor ?? editorPresupuesto) : undefined}
             editorReal={i === celdas.length - 1 ? editorReal : undefined}
             motivo={i === celdas.length - 1 ? motivo : undefined}
           />
         )
       )}
+    </tr>
+  );
+}
+
+const NOMBRE_DE_BLOQUE: Record<BloqueExtra, string> = {
+  INGRESOS: "Ingresos",
+  EGRESOS: "Egresos operativos",
+  ABAJO: "Egresos de abajo",
+};
+
+// Una fila de la tabla con el botón «Agregar una fila» al final de un bloque (solo ADMIN y FINANZAS).
+function FilaAgregar({
+  bloque,
+  meses,
+  empresaSlug,
+  periodo,
+}: {
+  bloque: BloqueExtra;
+  meses: number;
+  empresaSlug: string;
+  periodo: string;
+}) {
+  return (
+    <tr className="border-t border-line-hairline">
+      <td className="sticky left-0 z-10 bg-paper py-px pr-3">
+        <AgregarFila empresaSlug={empresaSlug} periodo={periodo} bloque={bloque} nombreBloque={NOMBRE_DE_BLOQUE[bloque]} />
+      </td>
+      <td colSpan={meses * 4} />
     </tr>
   );
 }

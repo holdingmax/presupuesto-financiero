@@ -53,3 +53,12 @@ prender el interruptor en Brillante.
 
 ### PENDIENTE: PDF de cierre
 No existe en el repo (sin librería ni código de PDF). Queda fuera de las filas extra; si hace falta, es un desarrollo aparte.
+
+## Filas extra — TANDA 2 hecha (2026-10-29), sin commit
+Interruptor `EMPRESAS_CON_FILAS_EXTRA = ["brillante"]` (subconjunto de `EMPRESAS_CON_TIPEO_DIRECTO`, test). Acciones `crearFilaExtra` y
+`borrarFilaExtra` (`reporte/actionsFilasExtra.ts`; reglas puras en `lib/reporte/accionesFilasExtra.ts`): solo ADMIN/FINANZAS, interruptor, bloque,
+nombre (`filasExtra.ts`), mes con flujo no bloqueado; borrado solo sin valores, conteo + delete en la misma transacción serializable.
+Tipeo directo ampliado: las filas extra aceptan Presupuestado y Real (`guardarTipeoDelReporte` → `guardarValoresManuales`; Presupuesto VALIDADO
+bloquea la columna P; carga única en cerrado). Interfaz: «+ Agregar una fila» al final de cada bloque (antes de su total) y «×» en filas extra sin
+valores. El gerente las ve en solo lectura: recibe `tipeo = null` y `filasExtra = null`; la carga del Presupuestado sigue con la plantilla estática.
+Sin probar (necesita sesión/base): render real, crear/borrar contra la base, serialización de la transacción, formato visual.

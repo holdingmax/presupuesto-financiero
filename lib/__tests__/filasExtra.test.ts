@@ -241,19 +241,25 @@ test("page.tsx: la carga del gerente sigue con la plantilla estática y el Repor
   assert.doesNotMatch(fuente, /planDeCarga\(plantillaReporte/);
   assert.match(fuente, /armarReporte\(plantillaReporte,/);
   assert.match(fuente, /cargarDatosMeses\(empresaId, unidadesEmpresa, plantillaReporte,/);
-  // El tipeo directo (Real) todavía no conoce las filas extra.
-  assert.doesNotMatch(fuente, /armarVistaTipeo\(\{[^}]*plantillaReporte/);
+  // Desde la Tanda 2 el tipeo directo SÍ conoce las filas extra (Presupuestado y Real): usa la plantilla del Reporte.
+  assert.match(fuente, /armarVistaTipeo\(\{\s*empresaSlug,\s*plantilla: plantillaReporte,/);
+  assert.match(fuente, /plantillaEstatica: plantilla,\s*plantillaReporte,/);
 });
 
 // ---- Resolver ---------------------------------------------------------------------------------------
 
-test("interruptor apagado (la configuración de hoy): NO consulta la base y devuelve la plantilla de siempre", async () => {
-  assert.deepEqual([...EMPRESAS_CON_FILAS_EXTRA], []);
+test("interruptor VACÍO: NO consulta la base y devuelve la plantilla de siempre, en todas las empresas", async () => {
   for (const slug of SLUGS) {
-    const r = await plantillaDeEmpresaConExtras("empresa-1", slug, "2026-10", { leer: noDebeLeer });
+    const r = await plantillaDeEmpresaConExtras("empresa-1", slug, "2026-10", { interruptores: [], leer: noDebeLeer });
     assert.equal(r, PLANTILLAS_POR_SLUG[slug], slug);
   }
-  assert.equal(await plantillaDeEmpresaConExtras("e", "no-existe", "2026-10", { leer: noDebeLeer }), null);
+  assert.equal(await plantillaDeEmpresaConExtras("e", "no-existe", "2026-10", { interruptores: [], leer: noDebeLeer }), null);
+});
+
+test("con la configuración real, solo Brillante consulta la base; las demás empresas no", async () => {
+  for (const slug of SLUGS.filter((s) => !EMPRESAS_CON_FILAS_EXTRA.includes(s))) {
+    assert.equal(await plantillaDeEmpresaConExtras("e", slug, "2026-10", { leer: noDebeLeer }), PLANTILLAS_POR_SLUG[slug], slug);
+  }
 });
 
 test("interruptor prendido y tabla vacía: la MISMA plantilla (misma referencia), sin cambio alguno", async () => {
@@ -282,8 +288,8 @@ test("interruptor prendido con filas: solo las que ya empezaron en el mes", asyn
 
 // ---- Configuración ----------------------------------------------------------------------------------
 
-test("config: el interruptor de filas extra está apagado y, si se prende, exige tipeo directo y plantilla con totales marcados", () => {
-  assert.deepEqual([...EMPRESAS_CON_FILAS_EXTRA], []);
+test("config: el interruptor de filas extra arranca en Brillante y es subconjunto del tipeo directo, con totales marcados", () => {
+  assert.deepEqual([...EMPRESAS_CON_FILAS_EXTRA], ["brillante"]);
   assert.equal(new Set(EMPRESAS_CON_FILAS_EXTRA).size, EMPRESAS_CON_FILAS_EXTRA.length);
   for (const slug of EMPRESAS_CON_FILAS_EXTRA) {
     assert.ok(EMPRESAS_CON_TIPEO_DIRECTO.includes(slug), `${slug} necesita el tipeo directo`);
