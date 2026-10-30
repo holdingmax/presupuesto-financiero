@@ -22,6 +22,7 @@ import {
 } from "@/lib/reporte/filasExtra";
 import { plantillaDeEmpresaConExtras, type LectorFilasExtra } from "@/lib/reporte/plantillaConExtras";
 import { mesesDePrueba } from "@/lib/reporte/__tests__/fixtures/datosGerente";
+import { CON_FILAS_EXTRA_HOY } from "./filasExtraEmpresasLista";
 
 // Tanda 1 de las filas extra del Reporte: modelo + migración, funciones puras, resolver y la lectura de
 // manuales. Todavía sin pantalla, sin acciones nuevas y con el interruptor apagado.
@@ -289,13 +290,11 @@ test("interruptor prendido con filas: solo las que ya empezaron en el mes", asyn
 
 // ---- Configuración ----------------------------------------------------------------------------------
 
-// Empresas con filas extra hoy: Brillante y la tanda 2. Fijada a propósito: activar otra empresa tiene que obligar a
-// tocar este test.
-const CON_FILAS_EXTRA_HOY = ["brillante", "fredy-publicidad", "hwc"];
-
-test("config: el interruptor de filas extra es Brillante + tanda 2 y es subconjunto del tipeo directo, con totales marcados", () => {
+// La lista fijada de empresas con filas extra está en filasExtraEmpresasLista.ts (compartida): activar otra empresa
+// tiene que obligar a tocarla.
+test("config: el interruptor de filas extra es la lista fijada y es subconjunto del tipeo directo, con totales marcados", () => {
   assert.ok(EMPRESAS_CON_FILAS_EXTRA.includes("brillante"));
-  assert.deepEqual([...EMPRESAS_CON_FILAS_EXTRA], CON_FILAS_EXTRA_HOY);
+  assert.deepEqual([...EMPRESAS_CON_FILAS_EXTRA], [...CON_FILAS_EXTRA_HOY]);
   assert.equal(new Set(EMPRESAS_CON_FILAS_EXTRA).size, EMPRESAS_CON_FILAS_EXTRA.length);
   for (const slug of EMPRESAS_CON_FILAS_EXTRA) {
     assert.ok(EMPRESAS_CON_TIPEO_DIRECTO.includes(slug), `${slug} necesita el tipeo directo`);

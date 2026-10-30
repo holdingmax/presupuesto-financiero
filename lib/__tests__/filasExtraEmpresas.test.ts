@@ -18,13 +18,17 @@ import { plantillaDeEmpresaConExtras, type LectorFilasExtra } from "@/lib/report
 import { armarVistaFilasExtra, ERROR_NO_HABILITADO, validarCreacionFilaExtra } from "@/lib/reporte/accionesFilasExtra";
 import { camposTipeables, motivoRechazoTipeo } from "@/lib/reporte/tipeoDirecto";
 import { mesesDePrueba } from "@/lib/reporte/__tests__/fixtures/datosGerente";
+import { CON_FILAS_EXTRA_HOY } from "./filasExtraEmpresasLista";
 
-// Filas extra del Reporte, tanda 2: Fredy Publicidad y HWC (Avianor queda afuera). Las claves y los importes están
-// escritos a mano, a propósito. Usan la configuración REAL de lib/config.ts.
+// Filas extra del Reporte, parametrizado por empresa: Fredy Publicidad, HWC y Avianor (Brillante tiene sus tests en
+// filasExtra.test.ts y filasExtraAcciones.test.ts). Sumar una empresa es una entrada más en ESPERADO. Las claves y los
+// importes están escritos a mano, a propósito. Usan la configuración REAL de lib/config.ts y la lista fijada de
+// filasExtraEmpresasLista.ts.
 //
-// Ojo con el Capital de trabajo: en estas dos sale de un total de Egresos (Fredy 50% de TOTAL EGRESOS OPERATIVOS,
+// Ojo con el Capital de trabajo: en Fredy y HWC sale de un total de Egresos (Fredy 50% de TOTAL EGRESOS OPERATIVOS,
 // HWC 100% del SUBTOTAL ESTRUCTURA), así que una fila extra de EGRESOS lo mueve — decisión confirmada, se deja la
-// fórmula como está. Una fila «de abajo» no lo mueve.
+// fórmula como está. Una fila «de abajo» no lo mueve. Avianor no tiene Capital ni Disponible (capital: null): una
+// fila extra solo mueve los totales, Disponible antes de gastos y Saldo.
 
 type Esperado = {
   ingresos: string;
@@ -32,10 +36,13 @@ type Esperado = {
   egresos: string;
   saldo: string;
   disponibleAntes: string;
-  capital: string;
-  disponible: string;
-  // Parte del Total egresos operativos que entra en el Capital, en centésimos (50% = 50, 100% = 100).
-  porcentajeCapital: number;
+  // null = sin Capital de trabajo ni Disponible (Avianor).
+  capital: {
+    capital: string;
+    disponible: string;
+    // Parte del Total egresos operativos que entra en el Capital, en centésimos (50% = 50, 100% = 100).
+    porcentaje: number;
+  } | null;
   // Una fila de la plantilla con ese texto: un nombre así tiene que rechazarse.
   textoExistente: string;
 };
@@ -47,9 +54,7 @@ const ESPERADO: Record<string, Esperado> = {
     egresos: "fr.totalEgresos",
     saldo: "fr.saldo",
     disponibleAntes: "fr.disponibleAntes",
-    capital: "fr.capital",
-    disponible: "fr.disponible",
-    porcentajeCapital: 50,
+    capital: { capital: "fr.capital", disponible: "fr.disponible", porcentaje: 50 },
     textoExistente: "COMPRA DE IVA",
   },
   hwc: {
@@ -58,10 +63,17 @@ const ESPERADO: Record<string, Esperado> = {
     egresos: "hw.totalPagado",
     saldo: "hw.saldo",
     disponibleAntes: "hw.disponibleAntes",
-    capital: "hw.capital",
-    disponible: "hw.disponible",
-    porcentajeCapital: 100,
+    capital: { capital: "hw.capital", disponible: "hw.disponible", porcentaje: 100 },
     textoExistente: "EXPENSAS",
+  },
+  avianor: {
+    ingresos: "av.totalIngresos",
+    operativos: "av.totalEgresosOperativos",
+    egresos: "av.totalEgresos",
+    saldo: "av.saldo",
+    disponibleAntes: "av.disponibleAntes",
+    capital: null,
+    textoExistente: "CUENTA PARTICULAR",
   },
 };
 
@@ -101,11 +113,14 @@ function proyeccion(r: Reporte) {
   return JSON.parse(JSON.stringify({ ...r, filas: r.filas.map((f) => [f.fila.clave, f.fila.tipo, f.celdas]) }));
 }
 
-// Datos de dos meses con el Capital por FÓRMULA (sin Capital tipeado, que lo reemplazaría) y sin filas extra.
+// Datos de dos meses con el Capital por FÓRMULA (sin Capital tipeado, que lo reemplazaría) y sin filas extra. Sin
+// Capital en la empresa (Avianor), los datos de prueba tal cual.
 function mesesSinCapitalManual(slug: string): DatosMes[] {
   const meses = mesesDePrueba(PLANTILLAS_POR_SLUG[slug]);
+  const cap = ESPERADO[slug].capital;
+  if (!cap) return meses;
   const presupuesto = new Map(meses[1].manuales!.presupuesto);
-  presupuesto.delete(ESPERADO[slug].capital);
+  presupuesto.delete(cap.capital);
   return [meses[0], { ...meses[1], manuales: { presupuesto, real: meses[1].manuales!.real } }];
 }
 
@@ -125,14 +140,18 @@ const celda = (r: Reporte, clave: string) => r.filas.find((f) => f.fila.clave ==
 
 // ---- Configuración -------------------------------------------------------------------------------
 
-test("config: Fredy y HWC están en filas extra y en tipeo directo; Avianor y el resto, afuera", () => {
+test("config: las empresas de este archivo están en filas extra y en tipeo directo; las demás, afuera", () => {
+  // La lista fijada es Brillante + las de ESPERADO: ninguna queda sin probar acá ni sobra una entrada.
+  assert.deepEqual([...CON_FILAS_EXTRA_HOY].filter((s) => s !== "brillante").sort(), [...SLUGS].sort());
+  assert.deepEqual([...EMPRESAS_CON_FILAS_EXTRA], [...CON_FILAS_EXTRA_HOY]);
   for (const slug of SLUGS) {
     assert.ok(EMPRESAS_CON_FILAS_EXTRA.includes(slug), slug);
     assert.ok(EMPRESAS_CON_TIPEO_DIRECTO.includes(slug), slug);
   }
-  for (const slug of ["avianor", "havanna", "radio", "conexion-logistica", "conexion-logistica-spp", "mantenor", "plate-silver", "bradenton"]) {
-    assert.equal(EMPRESAS_CON_FILAS_EXTRA.includes(slug), false, slug);
-  }
+  // «Afuera» se deriva del interruptor: todas las demás plantillas, sin una lista a mano.
+  const fuera = Object.keys(PLANTILLAS_POR_SLUG).filter((s) => !EMPRESAS_CON_FILAS_EXTRA.includes(s));
+  assert.ok(fuera.length > 0, "sanidad: el recorrido no está vacío");
+  for (const slug of fuera) assert.equal(EMPRESAS_CON_FILAS_EXTRA.includes(slug), false, slug);
 });
 
 // ---- Antes / después de agregar los roles, sin filas extra ---------------------------------------
@@ -140,6 +159,7 @@ test("config: Fredy y HWC están en filas extra y en tipeo directo; Avianor y el
 for (const slug of SLUGS) {
   const plantilla = PLANTILLAS_POR_SLUG[slug];
   const esperado = ESPERADO[slug];
+  const cap = esperado.capital;
   const antes = sinRolesDeFlujo(plantilla);
 
   test(`${slug}: la plantilla solo difiere de la de antes en los tres roles de total`, () => {
@@ -219,28 +239,42 @@ for (const slug of SLUGS) {
     assert.equal(celda(despuesR, "extra.a1").real, -700);
   });
 
-  test(`${slug}: una fila extra de EGRESOS mueve el Capital (${esperado.porcentajeCapital}%) y el Disponible; una «de abajo» no`, () => {
+  if (cap) test(`${slug}: una fila extra de EGRESOS mueve el Capital (${cap.porcentaje}%) y el Disponible; una «de abajo» no`, () => {
     const sin = mesesSinCapitalManual(slug);
     const antesR = armarReporte(plantilla, sin, 1);
     // Presupuestado del egreso extra: 1.500 → el Capital sube 1.500 × porcentaje, el Disponible baja lo mismo.
     const conEgreso = armarReporte(conFilasExtra(plantilla, [EGR]), conImportesExtra(sin, ["extra.e1"]), 1);
-    const subida = (1500 * esperado.porcentajeCapital) / 100;
-    assert.equal(celda(conEgreso, esperado.capital).presupuestado! - celda(antesR, esperado.capital).presupuestado!, subida, "capital");
-    assert.equal(celda(antesR, esperado.disponible).presupuestado! - celda(conEgreso, esperado.disponible).presupuestado!, subida, "disponible");
+    const subida = (1500 * cap.porcentaje) / 100;
+    assert.equal(celda(conEgreso, cap.capital).presupuestado! - celda(antesR, cap.capital).presupuestado!, subida, "capital");
+    assert.equal(celda(antesR, cap.disponible).presupuestado! - celda(conEgreso, cap.disponible).presupuestado!, subida, "disponible");
     // El Capital no tiene Real.
-    assert.equal(celda(conEgreso, esperado.capital).real, null);
+    assert.equal(celda(conEgreso, cap.capital).real, null);
     // Una fila «de abajo» o de ingresos no toca ni el Capital ni el Disponible.
     for (const extra of [ABA, ING]) {
       const k = extra.bloque === "ABAJO" ? "extra.a1" : "extra.i1";
       const r = armarReporte(conFilasExtra(plantilla, [extra]), conImportesExtra(sin, [k]), 1);
-      assert.deepEqual(celda(r, esperado.capital), celda(antesR, esperado.capital), `${k} capital`);
-      assert.deepEqual(celda(r, esperado.disponible), celda(antesR, esperado.disponible), `${k} disponible`);
+      assert.deepEqual(celda(r, cap.capital), celda(antesR, cap.capital), `${k} capital`);
+      assert.deepEqual(celda(r, cap.disponible), celda(antesR, cap.disponible), `${k} disponible`);
     }
     // Un Capital tipeado a mano reemplaza la fórmula: no se mueve con las filas extra.
     const manual = mesesDePrueba(plantilla);
-    const valorManual = manual[1].manuales!.presupuesto.get(esperado.capital)!;
+    const valorManual = manual[1].manuales!.presupuesto.get(cap.capital)!;
     const r = armarReporte(conFilasExtra(plantilla, [EGR]), conImportesExtra(manual, ["extra.e1"]), 1);
-    assert.equal(celda(r, esperado.capital).presupuestado, valorManual);
+    assert.equal(celda(r, cap.capital).presupuestado, valorManual);
+  });
+
+  // Sin Capital ni Disponible: las filas extra no los crean ni mueven las Disponibilidades.
+  if (!cap) test(`${slug}: sin Capital ni Disponible: las filas extra no los crean y las Disponibilidades no se mueven`, () => {
+    const sin = mesesSinCapitalManual(slug);
+    const antesR = armarReporte(plantilla, sin, 1);
+    const conExtras = armarReporte(conFilasExtra(plantilla, TRES), conImportesExtra(sin, ["extra.i1", "extra.e1", "extra.a1"]), 1);
+    const sinCapital = (r: Reporte) => r.filas.every((f) => f.fila.tipo !== "capital" && f.fila.tipo !== "disponible");
+    assert.equal(sinCapital(antesR) && sinCapital(conExtras), true);
+    assert.ok(conExtras.arrastre.every((x) => x === null), "sin control de arrastre");
+    // Las filas de Disponibilidades quedan idénticas.
+    const dispo = plantilla.filas.filter((x) => x.bloque === "DISPONIBILIDADES" && x.tipo === "linea");
+    assert.ok(dispo.length > 0, "sanidad: hay filas de Disponibilidades");
+    for (const f of dispo) assert.deepEqual(celda(conExtras, f.clave), celda(antesR, f.clave), f.clave);
   });
 
   test(`${slug}: el gerente ve las filas extra en solo lectura, con sus totales y sin Cierre`, () => {
@@ -327,9 +361,7 @@ for (const slug of SLUGS) {
 
 test("las empresas fuera del interruptor de filas extra no consultan la base ni pueden crear filas", async () => {
   const fuera = Object.keys(PLANTILLAS_POR_SLUG).filter((s) => !EMPRESAS_CON_FILAS_EXTRA.includes(s));
-  for (const slug of ["avianor", "havanna", "radio", "conexion-logistica", "mantenor", "plate-silver", "bradenton"]) {
-    assert.ok(fuera.includes(slug), slug);
-  }
+  assert.ok(fuera.length > 0, "sanidad: el recorrido no está vacío");
   for (const slug of fuera) {
     assert.equal(await plantillaDeEmpresaConExtras("e", slug, "2026-10", { leer: noDebeLeer }), PLANTILLAS_POR_SLUG[slug], slug);
     const alta = validarCreacionFilaExtra({
@@ -347,7 +379,7 @@ test("las empresas fuera del interruptor de filas extra no consultan la base ni 
   }
 });
 
-test("con el interruptor prendido y la tabla vacía, Fredy y HWC devuelven la MISMA plantilla; con filas, solo las que ya empezaron", async () => {
+test("con el interruptor prendido y la tabla vacía, estas empresas devuelven la MISMA plantilla; con filas, solo las que ya empezaron", async () => {
   for (const slug of SLUGS) {
     const base = PLANTILLAS_POR_SLUG[slug];
     assert.equal(await plantillaDeEmpresaConExtras("e", slug, "2026-10", { leer: async () => [] }), base);

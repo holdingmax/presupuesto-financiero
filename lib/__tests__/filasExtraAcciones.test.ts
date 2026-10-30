@@ -26,6 +26,7 @@ import {
   type InterruptoresTipeo,
 } from "@/lib/reporte/tipeoDirecto";
 import { CENTINELA, mesesDePrueba } from "@/lib/reporte/__tests__/fixtures/datosGerente";
+import { CON_FILAS_EXTRA_HOY } from "./filasExtraEmpresasLista";
 
 // Tanda 2 de las filas extra: crear y borrar (reglas puras de las acciones), tipeo directo de Presupuestado y Real
 // en las filas extra, y lo que recibe la pantalla. La base y el render no se prueban acá: las acciones consultan
@@ -49,9 +50,9 @@ const TIPEO_SIN_EXTRAS: InterruptoresTipeo = { ...TIPEO, filasExtra: [] };
 
 // ---- Interruptor ------------------------------------------------------------------------------------
 
-test("interruptor: Brillante + tanda 2, subconjunto del tipeo directo y con los totales marcados en su plantilla", () => {
+test("interruptor: la lista fijada, subconjunto del tipeo directo y con los totales marcados en su plantilla", () => {
   assert.ok(EMPRESAS_CON_FILAS_EXTRA.includes("brillante"));
-  assert.deepEqual([...EMPRESAS_CON_FILAS_EXTRA], ["brillante", "fredy-publicidad", "hwc"]);
+  assert.deepEqual([...EMPRESAS_CON_FILAS_EXTRA], [...CON_FILAS_EXTRA_HOY]);
   for (const slug of EMPRESAS_CON_FILAS_EXTRA) {
     assert.ok(EMPRESAS_CON_TIPEO_DIRECTO.includes(slug), slug);
     assert.equal(admiteFilasExtra(PLANTILLAS_POR_SLUG[slug]), true, slug);

@@ -25,6 +25,9 @@ import {
 // Sin control de arrastre en esta versión: Avianor tiene una sola fila de efectivo y
 // ningún total con rol "totalDisponibilidades" (el motor deja el arrastre en null).
 // Sin Capital de trabajo ni Disponible, como la planilla.
+//
+// Los tres totales de flujo llevan rol para admitir filas extra del Reporte (lib/reporte/filasExtra.ts). Sin rol
+// "saldo": con él el gerente pasaría a ver el Saldo, y no se pidió.
 
 const ingresos = [
   ingreso("av.cobranzaClientes", "Cobranza clientes", clasif("COBRANZAS"), cat("COBRANZAS")),
@@ -68,16 +71,20 @@ export const PLANTILLA_AVIANOR: Plantilla = {
     }),
     titulo("av.tituloIngresos", "INGRESOS", "INGRESOS"),
     ...ingresos,
-    total("av.totalIngresos", "INGRESOS", "TOTAL INGRESOS", ingresos.map((f) => f.clave)),
+    total("av.totalIngresos", "INGRESOS", "TOTAL INGRESOS", ingresos.map((f) => f.clave), { rol: "totalIngresos" }),
     total("av.disponibleAntes", "CIERRE", "DISPONIBLE ANTES DE GASTOS", ["av.dEfectivo", "av.totalIngresos"], {
       requiere: ["av.dEfectivo"],
       soloConPresupuesto: true,
     }),
     titulo("av.tituloEgresos", "EGRESOS", "EGRESOS"),
     ...egresos,
-    total("av.totalEgresosOperativos", "EGRESOS", "TOTAL EGRESOS OPERATIVOS", egresos.map((f) => f.clave)),
+    total("av.totalEgresosOperativos", "EGRESOS", "TOTAL EGRESOS OPERATIVOS", egresos.map((f) => f.clave), {
+      rol: "totalEgresosOperativos",
+    }),
     ...deAbajo,
-    total("av.totalEgresos", "ABAJO", "TOTAL EGRESOS", ["av.totalEgresosOperativos", ...deAbajo.map((f) => f.clave)]),
+    total("av.totalEgresos", "ABAJO", "TOTAL EGRESOS", ["av.totalEgresosOperativos", ...deAbajo.map((f) => f.clave)], {
+      rol: "totalEgresos",
+    }),
     total("av.saldo", "CIERRE", "SALDO INICIAL + INGRESOS - TOTAL EGRESOS", ["av.disponibleAntes"], {
       resta: ["av.totalEgresos"],
       requiere: ["av.disponibleAntes"],

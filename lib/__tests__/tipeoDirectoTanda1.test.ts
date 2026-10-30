@@ -3,14 +3,12 @@ import assert from "node:assert/strict";
 import { EMPRESAS_CON_FILAS_EXTRA } from "@/lib/config";
 import { camposManuales } from "@/lib/reporte/motor";
 import { PLANTILLAS_POR_SLUG } from "@/lib/reporte/plantillas";
-import { plantillaDeEmpresaConExtras, type LectorFilasExtra } from "@/lib/reporte/plantillaConExtras";
-import { ERROR_NO_HABILITADO, validarCreacionFilaExtra } from "@/lib/reporte/accionesFilasExtra";
 import { armarVistaTipeo, camposTipeables, motivoRechazoTipeo } from "@/lib/reporte/tipeoDirecto";
 import { mesesDePrueba } from "@/lib/reporte/__tests__/fixtures/datosGerente";
 
 // Tanda 1 del tipeo directo: Fredy Publicidad, HWC y Avianor. Flujo (Real manual de Ingresos, Egresos y de abajo)
 // y, desde la segunda tanda, también Disponibilidades (las ven en solo lectura sus gerentes: ver
-// tipeoDirectoDisponibilidades.test.ts). Sin filas extra. Las listas de claves están escritas a mano, a propósito:
+// tipeoDirectoDisponibilidades.test.ts). Las filas extra tienen su propio test (filasExtraEmpresas.test.ts). Las listas de claves están escritas a mano, a propósito:
 // si una plantilla cambia, este test lo avisa. Usan la configuración REAL de lib/config.ts.
 
 const ESPERADO: Record<string, { ingresos: string[]; egresos: string[]; abajo: string[]; disponibilidades: string[] }> = {
@@ -64,9 +62,6 @@ const ESPERADO: Record<string, { ingresos: string[]; egresos: string[]; abajo: s
 const CANTIDAD: Record<string, number> = { "fredy-publicidad": 11, hwc: 10, avianor: 15 };
 
 const ABIERTO = { abiertas: 1, cerradas: 0 };
-const noDebeLeer: LectorFilasExtra = async () => {
-  throw new Error("No tiene que consultar la base: la empresa no tiene filas extra.");
-};
 
 for (const slug of Object.keys(ESPERADO)) {
   const plantilla = PLANTILLAS_POR_SLUG[slug];
@@ -95,22 +90,9 @@ for (const slug of Object.keys(ESPERADO)) {
     }
   });
 
-  // Fredy y HWC tienen filas extra desde la tanda 2 (filasExtraTanda2.test.ts); Avianor queda afuera.
-  if (slug === "avianor") test(`${slug}: no tiene filas extra (ni interruptor, ni lectura de la base, ni alta)`, async () => {
-    assert.equal(EMPRESAS_CON_FILAS_EXTRA.includes(slug), false);
-    assert.equal(await plantillaDeEmpresaConExtras("e", slug, "2026-10", { leer: noDebeLeer }), plantilla);
-    const alta = validarCreacionFilaExtra({
-      empresaSlug: slug,
-      plantilla,
-      esAdminOFinanzas: true,
-      bloque: "INGRESOS",
-      nombre: "PRÉSTAMO COCOS",
-      extras: [],
-      periodo: "2026-10",
-      actual: "2026-10",
-      semanas: ABIERTO,
-    });
-    assert.deepEqual(alta, { ok: false, error: ERROR_NO_HABILITADO });
+  // Las tres tienen filas extra (filasExtraEmpresas.test.ts cubre el comportamiento).
+  test(`${slug}: tiene filas extra (el interruptor está prendido)`, () => {
+    assert.equal(EMPRESAS_CON_FILAS_EXTRA.includes(slug), true);
   });
 
   test(`${slug}: ADMIN tipea sus Disponibilidades; el servidor las acepta solo en Real`, () => {

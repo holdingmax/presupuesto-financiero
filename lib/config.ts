@@ -87,7 +87,9 @@ export const EMPRESAS_CON_TIPEO_DIRECTO: readonly string[] = ["brillante", "fred
 // Tanda 2: Fredy Publicidad y HWC. Ojo: en ellas el Capital de trabajo sale de un total de Egresos (Fredy 50% de
 // TOTAL EGRESOS OPERATIVOS, HWC 100% del SUBTOTAL ESTRUCTURA), así que una fila extra de Egresos lo mueve (decisión
 // confirmada). Un Capital tipeado a mano lo reemplaza.
-export const EMPRESAS_CON_FILAS_EXTRA: readonly string[] = ["brillante", "fredy-publicidad", "hwc"];
+// Avianor: no tiene Capital de trabajo ni Disponible; una fila extra solo mueve los totales, Disponible antes de
+// gastos y Saldo.
+export const EMPRESAS_CON_FILAS_EXTRA: readonly string[] = ["brillante", "fredy-publicidad", "hwc", "avianor"];
 
 // Etiqueta del ciclo fiscal que se muestra en la portada de login (app/login/page.tsx).
 //
