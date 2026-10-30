@@ -1,0 +1,145 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { EMPRESAS_CON_FILAS_EXTRA, EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE } from "@/lib/config";
+import { camposManuales } from "@/lib/reporte/motor";
+import { PLANTILLAS_POR_SLUG } from "@/lib/reporte/plantillas";
+import { accesoReservadosDelReporte } from "@/lib/reporte/visibilidad";
+import { plantillaDeEmpresaConExtras, type LectorFilasExtra } from "@/lib/reporte/plantillaConExtras";
+import { ERROR_NO_HABILITADO, validarCreacionFilaExtra } from "@/lib/reporte/accionesFilasExtra";
+import { armarVistaTipeo, camposTipeables, motivoRechazoTipeo } from "@/lib/reporte/tipeoDirecto";
+import { mesesDePrueba } from "@/lib/reporte/__tests__/fixtures/datosGerente";
+
+// Tanda 1 del tipeo directo: Fredy Publicidad, HWC y Avianor, solo flujo (Real manual de Ingresos, Egresos y
+// de abajo). Sin filas extra y sin Disponibilidades. Las listas de claves están escritas a mano, a propósito: si
+// una plantilla cambia, este test lo avisa. Usan la configuración REAL de lib/config.ts.
+
+const ESPERADO: Record<string, { ingresos: string[]; egresos: string[]; abajo: string[] }> = {
+  "fredy-publicidad": { ingresos: ["fr.resultadoFci"], egresos: ["fr.compraIva"], abajo: [] },
+  hwc: { ingresos: ["hw.resultadoFci"], egresos: ["hw.costoIva"], abajo: [] },
+  avianor: {
+    ingresos: [
+      "av.otrasOperaciones",
+      "av.ventaPropiedades",
+      "av.cobroCapitalPrestamos",
+      "av.prestamo",
+      "av.aporteMs",
+      "av.otroIngreso",
+    ],
+    egresos: ["av.comisiones", "av.tarjetas", "av.adicionales", "av.expensasNoSocios", "av.otroEgreso"],
+    abajo: ["av.reembolsosPrestamos", "av.cuentaParticular", "av.otroAbajo"],
+  },
+};
+
+const CANTIDAD: Record<string, number> = { "fredy-publicidad": 2, hwc: 2, avianor: 14 };
+
+const ABIERTO = { abiertas: 1, cerradas: 0 };
+const noDebeLeer: LectorFilasExtra = async () => {
+  throw new Error("No tiene que consultar la base: la empresa no tiene filas extra.");
+};
+
+for (const slug of Object.keys(ESPERADO)) {
+  const plantilla = PLANTILLAS_POR_SLUG[slug];
+  const esperado = ESPERADO[slug];
+
+  test(`${slug}: sus campos tipeables son exactamente los esperados (solo Real manual de flujo)`, () => {
+    const campos = camposTipeables(plantilla, slug);
+    assert.equal(campos.length, CANTIDAD[slug]);
+    assert.ok(campos.every((c) => c.columna === "REAL"), "solo la columna Real");
+    assert.deepEqual(campos.filter((c) => c.bloque === "INGRESOS").map((c) => c.clave), esperado.ingresos);
+    assert.deepEqual(campos.filter((c) => c.bloque === "EGRESOS").map((c) => c.clave), esperado.egresos);
+    assert.deepEqual(campos.filter((c) => c.bloque === "ABAJO").map((c) => c.clave), esperado.abajo);
+    assert.equal(campos.some((c) => c.bloque === "DISPONIBILIDADES" || c.bloque === "CIERRE"), false);
+    assert.equal(campos.some((c) => c.clave.startsWith("extra.")), false);
+  });
+
+  test(`${slug}: el Presupuestado y las filas sin Real o con Real calculado no se tipean`, () => {
+    const tipeables = new Set(camposTipeables(plantilla, slug).map((c) => `${c.clave}|${c.columna}`));
+    for (const f of plantilla.filas) {
+      if (f.tipo !== "linea") continue;
+      assert.equal(tipeables.has(`${f.clave}|PRESUPUESTADO`), false, `${f.clave} Presupuestado`);
+      if (f.real.tipo !== "manual" || f.bloque === "DISPONIBILIDADES") {
+        assert.equal(tipeables.has(`${f.clave}|REAL`), false, `${f.clave} Real`);
+      }
+    }
+  });
+
+  test(`${slug}: no tiene filas extra (ni interruptor, ni lectura de la base, ni alta)`, async () => {
+    assert.equal(EMPRESAS_CON_FILAS_EXTRA.includes(slug), false);
+    assert.equal(await plantillaDeEmpresaConExtras("e", slug, "2026-10", { leer: noDebeLeer }), plantilla);
+    const alta = validarCreacionFilaExtra({
+      empresaSlug: slug,
+      plantilla,
+      esAdminOFinanzas: true,
+      bloque: "INGRESOS",
+      nombre: "PRÉSTAMO COCOS",
+      extras: [],
+      periodo: "2026-10",
+      actual: "2026-10",
+      semanas: ABIERTO,
+    });
+    assert.deepEqual(alta, { ok: false, error: ERROR_NO_HABILITADO });
+  });
+
+  test(`${slug}: el gerente no ve Disponibilidades y ADMIN no las tipea`, () => {
+    assert.equal(EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE.includes(slug), false);
+    assert.equal(accesoReservadosDelReporte(false, slug), false);
+    const dispo = camposManuales(plantilla).find((c) => c.bloque === "DISPONIBILIDADES")!;
+    assert.ok(dispo, "la plantilla tiene Disponibilidades manuales");
+    const rechazo = motivoRechazoTipeo({
+      empresaSlug: slug,
+      plantilla,
+      esAdminOFinanzas: true,
+      entradas: [{ filaClave: dispo.clave, columna: "REAL", texto: "1.000,00" }],
+    });
+    assert.ok(rechazo, "el servidor rechaza Disponibilidades");
+    const valores = mesesDePrueba(plantilla)[1].manuales!.real;
+    const vista = armarVistaTipeo({
+      empresaSlug: slug,
+      plantilla,
+      esAdminOFinanzas: true,
+      periodo: "2026-10",
+      actual: "2026-10",
+      semanas: ABIERTO,
+      valoresReales: valores,
+    });
+    assert.ok(vista);
+    assert.equal(vista.celdas.length, CANTIDAD[slug]);
+    assert.equal(vista.celdas.some((c) => c.clave === dispo.clave), false);
+  });
+
+  test(`${slug}: el servidor acepta sus celdas de flujo y rechaza Presupuestado, fila extra y fila ajena`, () => {
+    const clave = [...esperado.ingresos, ...esperado.egresos, ...esperado.abajo][0];
+    const args = { empresaSlug: slug, plantilla, esAdminOFinanzas: true };
+    assert.equal(motivoRechazoTipeo({ ...args, entradas: [{ filaClave: clave, columna: "REAL", texto: "1.000,00" }] }), null);
+    assert.ok(motivoRechazoTipeo({ ...args, entradas: [{ filaClave: clave, columna: "PRESUPUESTADO", texto: "1.000,00" }] }));
+    assert.ok(motivoRechazoTipeo({ ...args, entradas: [{ filaClave: "extra.x", columna: "REAL", texto: "1.000,00" }] }));
+    assert.ok(motivoRechazoTipeo({ ...args, entradas: [{ filaClave: "no.existe", columna: "REAL", texto: "1.000,00" }] }));
+    assert.match(motivoRechazoTipeo({ ...args, esAdminOFinanzas: false, entradas: [] })!, /ADMIN y FINANZAS/);
+  });
+
+  test(`${slug}: el gerente no recibe vista de tipeo, con valores cargados`, () => {
+    const v = armarVistaTipeo({
+      empresaSlug: slug,
+      plantilla,
+      esAdminOFinanzas: false,
+      periodo: "2026-10",
+      actual: "2026-10",
+      semanas: ABIERTO,
+      valoresReales: mesesDePrueba(plantilla)[1].manuales!.real,
+    });
+    assert.equal(v, null);
+  });
+}
+
+test("Avianor: 6 de Ingresos + 5 de Egresos + 3 de abajo; su Presupuestado manual queda fuera del tipeo", () => {
+  const plantilla = PLANTILLAS_POR_SLUG["avianor"];
+  const campos = camposTipeables(plantilla, "avianor");
+  assert.deepEqual([6, 5, 3], [
+    campos.filter((c) => c.bloque === "INGRESOS").length,
+    campos.filter((c) => c.bloque === "EGRESOS").length,
+    campos.filter((c) => c.bloque === "ABAJO").length,
+  ]);
+  const presupuestoManual = camposManuales(plantilla).filter((c) => c.columna === "PRESUPUESTADO");
+  assert.equal(presupuestoManual.length, 14);
+  assert.deepEqual(presupuestoManual.map((c) => c.clave).sort(), campos.map((c) => c.clave).sort());
+});

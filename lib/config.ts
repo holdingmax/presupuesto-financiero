@@ -73,7 +73,9 @@ export const EMPRESAS_QUE_VEN_CIERRE_EN_REPORTE: readonly string[] = [];
 // Disponibilidades además exigen que la empresa esté en EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE (lo
 // controla un test de subconjunto). El gerente nunca recibe estas celdas. /reporte/carga no depende de esto.
 // Ver lib/reporte/tipeoDirecto.ts.
-export const EMPRESAS_CON_TIPEO_DIRECTO: readonly string[] = ["brillante"];
+//
+// Tanda 1: solo flujo (Real manual de Ingresos/Egresos/de abajo). Sin filas extra y sin Disponibilidades.
+export const EMPRESAS_CON_TIPEO_DIRECTO: readonly string[] = ["brillante", "fredy-publicidad", "hwc", "avianor"];
 
 // Filas extra del Reporte (las que agrega ADMIN/FINANZAS mientras revisa, lib/reporte/filasExtra.ts). Lista de
 // SLUGS de empresa; vacía = el Reporte no consulta ni muestra ninguna (ni siquiera lee la tabla) y no hay botón

@@ -35,8 +35,13 @@ const ABIERTO = { abiertas: 1, cerradas: 0 };
 
 // ---- Configuración -------------------------------------------------------------------------------
 
-test("config: el interruptor arranca en Brillante, sin repetidos y con plantilla", () => {
-  assert.deepEqual([...EMPRESAS_CON_TIPEO_DIRECTO], ["brillante"]);
+// Empresas con tipeo directo hoy: Brillante y la Tanda 1 (solo flujo). Fijada a propósito: activar otra empresa
+// tiene que obligar a tocar este test.
+const CON_TIPEO_HOY = ["brillante", "fredy-publicidad", "hwc", "avianor"];
+
+test("config: el interruptor es Brillante + Tanda 1, sin repetidos y con plantilla", () => {
+  assert.ok(EMPRESAS_CON_TIPEO_DIRECTO.includes("brillante"));
+  assert.deepEqual([...EMPRESAS_CON_TIPEO_DIRECTO], CON_TIPEO_HOY);
   assert.equal(new Set(EMPRESAS_CON_TIPEO_DIRECTO).size, EMPRESAS_CON_TIPEO_DIRECTO.length);
   for (const slug of EMPRESAS_CON_TIPEO_DIRECTO) assert.ok(Object.hasOwn(PLANTILLAS_POR_SLUG, slug), slug);
 });
@@ -81,8 +86,10 @@ test("sin Disponibilidades visibles, solo las 5 de flujo; sin interruptor, ningu
   assert.equal(tipeoDirectoActivo("brillante", VACIO), false);
 });
 
-test("las otras empresas no tienen celdas editables (no están en el interruptor)", () => {
-  for (const slug of SLUGS.filter((s) => s !== "brillante")) {
+test("las empresas fuera del interruptor no tienen celdas editables", () => {
+  const fuera = SLUGS.filter((s) => !EMPRESAS_CON_TIPEO_DIRECTO.includes(s));
+  assert.ok(fuera.includes("havanna") && fuera.includes("mantenor"), "sanidad: el recorrido no está vacío");
+  for (const slug of fuera) {
     assert.deepEqual(camposTipeables(PLANTILLAS_POR_SLUG[slug], slug), [], slug);
   }
 });
