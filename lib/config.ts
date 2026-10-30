@@ -62,7 +62,7 @@ export const EMPRESAS_CON_CARGA_EN_REPORTE: readonly string[] = [
 // espejen Disponibilidades). Conexión y Radio quedan fuera hasta que Kike confirme el efecto sobre
 // «Cheques en cartera despues del 10/15» y TOTAL INGRESOS (son espejos de Disponibilidades: hoy vacíos para el
 // gerente, al prender este interruptor pasarían a mostrarse). Sumar una empresa es agregar su slug acá.
-export const EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE: readonly string[] = ["brillante", "fredy-publicidad", "hwc", "avianor"];
+export const EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE: readonly string[] = ["brillante", "fredy-publicidad", "hwc", "avianor", "mantenor"];
 // Cierre: Saldo, Capital de trabajo y Disponible (NO «Disponible antes de gastos»). Se calculan con el total de
 // Disponibilidades: una empresa solo puede estar acá si también está en la lista de arriba (lo controla un
 // test, y el motor lo aplica igual: sin Disponibilidades, no hay Cierre).
@@ -76,7 +76,7 @@ export const EMPRESAS_QUE_VEN_CIERRE_EN_REPORTE: readonly string[] = [];
 // Ver lib/reporte/tipeoDirecto.ts.
 //
 // Tanda 1: solo flujo (Real manual de Ingresos/Egresos/de abajo). Sin filas extra y sin Disponibilidades.
-export const EMPRESAS_CON_TIPEO_DIRECTO: readonly string[] = ["brillante", "fredy-publicidad", "hwc", "avianor"];
+export const EMPRESAS_CON_TIPEO_DIRECTO: readonly string[] = ["brillante", "fredy-publicidad", "hwc", "avianor", "mantenor"];
 
 // Filas extra del Reporte (las que agrega ADMIN/FINANZAS mientras revisa, lib/reporte/filasExtra.ts). Lista de
 // SLUGS de empresa; vacía = el Reporte no consulta ni muestra ninguna (ni siquiera lee la tabla) y no hay botón
@@ -89,7 +89,9 @@ export const EMPRESAS_CON_TIPEO_DIRECTO: readonly string[] = ["brillante", "fred
 // confirmada). Un Capital tipeado a mano lo reemplaza.
 // Avianor: no tiene Capital de trabajo ni Disponible; una fila extra solo mueve los totales, Disponible antes de
 // gastos y Saldo.
-export const EMPRESAS_CON_FILAS_EXTRA: readonly string[] = ["brillante", "fredy-publicidad", "hwc", "avianor"];
+// Mantenor: el Capital de trabajo es manual (se tipea en /reporte/carga) y no depende de ningún total: las filas extra no
+// lo tocan. Sí mueven los totales, Disponible antes de gastos y Posición de efectivo.
+export const EMPRESAS_CON_FILAS_EXTRA: readonly string[] = ["brillante", "fredy-publicidad", "hwc", "avianor", "mantenor"];
 
 // Etiqueta del ciclo fiscal que se muestra en la portada de login (app/login/page.tsx).
 //

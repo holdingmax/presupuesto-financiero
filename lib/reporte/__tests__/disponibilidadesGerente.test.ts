@@ -59,7 +59,7 @@ function reporteDelGerente(slug: string): Reporte {
 
 // Empresas cuyo gerente ve Disponibilidades hoy: Brillante y la segunda tanda. Fijada a propósito: sumar otra
 // empresa tiene que obligar a tocar este test.
-const CON_DISPONIBILIDADES_HOY = ["brillante", "fredy-publicidad", "hwc", "avianor"];
+const CON_DISPONIBILIDADES_HOY = ["brillante", "fredy-publicidad", "hwc", "avianor", "mantenor"];
 
 test("interruptores: Disponibilidades en Brillante y la segunda tanda; Cierre todavía apagado", () => {
   assert.ok(EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE.includes("brillante"));
@@ -71,8 +71,8 @@ test("interruptores: Disponibilidades en Brillante y la segunda tanda; Cierre to
 
 const FUERA_DEL_INTERRUPTOR = Object.keys(PLANTILLAS_POR_SLUG).filter((s) => !EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE.includes(s));
 
-test("las empresas que siguen fuera incluyen a Havanna, Radio, Conexión, Mantenor, Plate Silver y Bradenton", () => {
-  for (const slug of ["havanna", "radio", "conexion-logistica", "conexion-logistica-spp", "mantenor", "plate-silver", "bradenton"]) {
+test("las empresas que siguen fuera incluyen a Havanna, Radio, Conexión, Plate Silver y Bradenton", () => {
+  for (const slug of ["havanna", "radio", "conexion-logistica", "conexion-logistica-spp", "plate-silver", "bradenton"]) {
     assert.ok(FUERA_DEL_INTERRUPTOR.includes(slug), slug);
   }
 });

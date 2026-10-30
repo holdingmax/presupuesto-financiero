@@ -36,13 +36,15 @@ type Esperado = {
   egresos: string;
   saldo: string;
   disponibleAntes: string;
-  // null = sin Capital de trabajo ni Disponible (Avianor).
+  // null = sin Capital de trabajo por fórmula (Avianor no tiene Capital; Mantenor lo tiene manual: ver capitalManual).
   capital: {
     capital: string;
     disponible: string;
     // Parte del Total egresos operativos que entra en el Capital, en centésimos (50% = 50, 100% = 100).
     porcentaje: number;
   } | null;
+  // Capital de trabajo MANUAL (Mantenor): no depende de ningún total, las filas extra no lo tocan.
+  capitalManual?: { capital: string; disponible: string };
   // Una fila de la plantilla con ese texto: un nombre así tiene que rechazarse.
   textoExistente: string;
 };
@@ -74,6 +76,16 @@ const ESPERADO: Record<string, Esperado> = {
     disponibleAntes: "av.disponibleAntes",
     capital: null,
     textoExistente: "CUENTA PARTICULAR",
+  },
+  mantenor: {
+    ingresos: "mn.totalIngresos",
+    operativos: "mn.totalGastosOperativos",
+    egresos: "mn.totalGastos",
+    saldo: "mn.saldo",
+    disponibleAntes: "mn.disponibleAntes",
+    capital: null,
+    capitalManual: { capital: "mn.capital", disponible: "mn.disponible" },
+    textoExistente: "Proveedores",
   },
 };
 
@@ -264,7 +276,34 @@ for (const slug of SLUGS) {
   });
 
   // Sin Capital ni Disponible: las filas extra no los crean ni mueven las Disponibilidades.
-  if (!cap) test(`${slug}: sin Capital ni Disponible: las filas extra no los crean y las Disponibilidades no se mueven`, () => {
+  if (esperado.capitalManual) test(`${slug}: Capital manual: las filas extra no mueven ni el Capital ni el Disponible, con o sin Capital tipeado`, () => {
+    const cm = esperado.capitalManual!;
+    const TODAS = ["extra.i1", "extra.e1", "extra.a1"];
+    const base = mesesDePrueba(plantilla);
+    const presupuestoSin = new Map(base[1].manuales!.presupuesto);
+    presupuestoSin.delete(cm.capital);
+    const sin = [base[0], { ...base[1], manuales: { presupuesto: presupuestoSin, real: base[1].manuales!.real } }];
+    // Con Capital tipeado a mano (6.000) y sin él.
+    const conCapital = [sin[0], { ...sin[1], manuales: { presupuesto: new Map(sin[1].manuales!.presupuesto).set(cm.capital, 600000), real: sin[1].manuales!.real } }];
+    for (const meses of [sin, conCapital]) {
+      const antesR = armarReporte(plantilla, meses, 1);
+      const conExtras = armarReporte(conFilasExtra(plantilla, TRES), conImportesExtra(meses, TODAS), 1);
+      assert.deepEqual(celda(conExtras, cm.capital), celda(antesR, cm.capital), "capital");
+      assert.deepEqual(celda(conExtras, cm.disponible), celda(antesR, cm.disponible), "disponible");
+      assert.equal(celda(conExtras, cm.capital).presupuestado, meses === sin ? null : 600000);
+      assert.equal(celda(conExtras, cm.capital).real, null);
+      // Las Disponibilidades tampoco se mueven.
+      for (const f of plantilla.filas.filter((x) => x.bloque === "DISPONIBILIDADES" && x.tipo !== "titulo")) {
+        assert.deepEqual(celda(conExtras, f.clave), celda(antesR, f.clave), f.clave);
+      }
+    }
+    // Los totales de flujo y el Saldo SÍ se mueven (las filas suman).
+    const antesR = armarReporte(plantilla, conCapital, 1);
+    const conExtras = armarReporte(conFilasExtra(plantilla, TRES), conImportesExtra(conCapital, TODAS), 1);
+    assert.equal(celda(conExtras, esperado.ingresos).real! - celda(antesR, esperado.ingresos).real!, 5000);
+  });
+
+  if (!cap && !esperado.capitalManual) test(`${slug}: sin Capital ni Disponible: las filas extra no los crean y las Disponibilidades no se mueven`, () => {
     const sin = mesesSinCapitalManual(slug);
     const antesR = armarReporte(plantilla, sin, 1);
     const conExtras = armarReporte(conFilasExtra(plantilla, TRES), conImportesExtra(sin, ["extra.i1", "extra.e1", "extra.a1"]), 1);

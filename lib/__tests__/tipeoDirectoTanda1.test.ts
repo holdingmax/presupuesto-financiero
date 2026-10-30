@@ -56,10 +56,17 @@ const ESPERADO: Record<string, { ingresos: string[]; egresos: string[]; abajo: s
     abajo: ["av.reembolsosPrestamos", "av.cuentaParticular", "av.otroAbajo"],
     disponibilidades: ["av.dEfectivo"],
   },
+  // Mantenor: solo 3 Real manual de Ingresos (el resto de sus filas sale de Ejecución o es «Sin Real») + 4 de Disponibilidades.
+  mantenor: {
+    ingresos: ["mn.traspasoSaldoInicial", "mn.traspasoPrestamoMs", "mn.resultadoFci"],
+    egresos: [],
+    abajo: [],
+    disponibilidades: ["mn.dBancoFci", "mn.dEfectivo", "mn.dDolares", "mn.dChequesNegociados"],
+  },
 };
 
-// Flujo + Disponibilidades: Fredy 2 + 9, HWC 2 + 8, Avianor 14 + 1.
-const CANTIDAD: Record<string, number> = { "fredy-publicidad": 11, hwc: 10, avianor: 15 };
+// Flujo + Disponibilidades: Fredy 2 + 9, HWC 2 + 8, Avianor 14 + 1, Mantenor 3 + 4.
+const CANTIDAD: Record<string, number> = { "fredy-publicidad": 11, hwc: 10, avianor: 15, mantenor: 7 };
 
 const ABIERTO = { abiertas: 1, cerradas: 0 };
 

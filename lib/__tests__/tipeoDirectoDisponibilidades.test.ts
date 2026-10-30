@@ -51,6 +51,13 @@ const ESPERADO: Record<string, { prefijo: string; lineas: string[]; titulo: stri
   },
   // Avianor lleva una sola fila de Disponibilidades, sin título ni total.
   avianor: { prefijo: "av.", lineas: ["av.dEfectivo"], titulo: null, total: null },
+  // Mantenor: 4 componentes y su total, sin título (como la planilla). El gerente ve también el Efectivo (K9 pendiente).
+  mantenor: {
+    prefijo: "mn.",
+    lineas: ["mn.dBancoFci", "mn.dEfectivo", "mn.dDolares", "mn.dChequesNegociados"],
+    titulo: null,
+    total: "mn.totalDisponibilidades",
+  },
 };
 
 const SLUGS = Object.keys(ESPERADO);
@@ -172,7 +179,7 @@ test("accesoReservadosDelReporte: vale solo para el slug exacto, no para otro pa
     assert.deepEqual(accesoReservadosDelReporte(false, slug), { disponibilidades: true, cierre: false }, slug);
     assert.equal(accesoReservadosDelReporte(false, `${slug}-peru`), false);
   }
-  for (const otra of ["havanna", "radio", "conexion-logistica", "conexion-logistica-spp", "mantenor", "plate-silver", "bradenton"]) {
+  for (const otra of ["havanna", "radio", "conexion-logistica", "conexion-logistica-spp", "plate-silver", "bradenton"]) {
     assert.equal(accesoReservadosDelReporte(false, otra), false, otra);
   }
   assert.equal(accesoReservadosDelReporte(true, "havanna"), true, "ADMIN y FINANZAS ven todo");

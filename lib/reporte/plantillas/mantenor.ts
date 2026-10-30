@@ -107,16 +107,20 @@ export const PLANTILLA_MANTENOR: Plantilla = {
     }),
     titulo("mn.tituloIngresos", "INGRESOS", "INGRESOS"),
     ...ingresos,
-    total("mn.totalIngresos", "INGRESOS", "TOTAL INGRESOS", ingresos.map((f) => f.clave)),
+    total("mn.totalIngresos", "INGRESOS", "TOTAL INGRESOS", ingresos.map((f) => f.clave), { rol: "totalIngresos" }),
     total("mn.disponibleAntes", "CIERRE", "DISPONIBLE ANTES DE GASTOS", ["mn.totalDisponibilidades", "mn.totalIngresos"], {
       requiere: ["mn.totalDisponibilidades"],
       soloConPresupuesto: true,
     }),
     titulo("mn.tituloGastos", "EGRESOS", "GASTOS"),
     ...egresos,
-    total("mn.totalGastosOperativos", "EGRESOS", "TOTAL GASTOS OPERATIVOS", egresos.map((f) => f.clave)),
+    total("mn.totalGastosOperativos", "EGRESOS", "TOTAL GASTOS OPERATIVOS", egresos.map((f) => f.clave), {
+      rol: "totalEgresosOperativos",
+    }),
     ...deAbajo,
-    total("mn.totalGastos", "ABAJO", "TOTAL GASTOS", ["mn.totalGastosOperativos", ...deAbajo.map((f) => f.clave)]),
+    total("mn.totalGastos", "ABAJO", "TOTAL GASTOS", ["mn.totalGastosOperativos", ...deAbajo.map((f) => f.clave)], {
+      rol: "totalEgresos",
+    }),
     total("mn.saldo", "CIERRE", "POSICIÓN DE EFECTIVO (fin de mes)", ["mn.disponibleAntes"], {
       resta: ["mn.totalGastos"],
       requiere: ["mn.disponibleAntes"],
