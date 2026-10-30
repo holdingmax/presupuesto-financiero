@@ -1,12 +1,12 @@
+import { leerImporte } from "@/lib/importes";
+
 // Parsea un importe tipeado a mano por un usuario en formato argentino
 // ("1.500.000" = un millón y medio, no 1,5). Distinto del parseo de celdas
 // de archivo (ver extraerImporteCelda en lib/importeCelda.ts): ahí un texto
-// ambiguo ("150.000", "1,500") se rechaza con error en vez de adivinar. Acá el usuario está
-// tipeando en un <input> de texto, y en este proyecto los importes siempre
-// se muestran/piensan en pesos enteros (ver formatearImporte,
-// maximumFractionDigits: 0) — así que un punto sin coma es SIEMPRE
-// separador de miles, nunca decimal. Con coma, la coma es el decimal y
-// cualquier punto sigue siendo separador de miles (ej. "1.500.000,50").
+// ambiguo ("150.000", "1,500") se rechaza con error en vez de adivinar. Desde que lo tipeado se
+// interpreta en lib/importes.ts, acá pasa lo mismo: el punto es separador de miles SOLO si lo que
+// sigue son grupos de exactamente 3 dígitos ("1.500.000"); "100.5" o "12.34.56" se rechazan. Con coma,
+// la coma es el decimal (hasta 2) y los puntos de la parte entera siguen siendo miles ("1.500.000,50").
 //
 // Bug real que motivó esto (2026-09-02, reportado por Kike en testing):
 // un <input type="number"> nativo, al tipear "1.500.000", descarta en
@@ -22,11 +22,12 @@
 // descarta "$" y espacios acá — además de sacar el "$" de la vista como
 // texto editable en el input (ver CampoImporte más abajo).
 export function parsearImporteArgentino(texto: string): number {
-  const limpio = texto.trim().replace(/[$\s]/g, "");
-  if (limpio.includes(",")) {
-    return Number(limpio.replace(/\./g, "").replace(",", "."));
-  }
-  return Number(limpio.replace(/\./g, ""));
+  // Vacío = 0 (cada pantalla trata el vacío por su cuenta); lo que no se entiende = NaN. Las reglas
+  // (punto = miles solo en grupos de 3, coma = hasta 2 decimales, sin adivinar) viven en lib/importes.ts;
+  // para el mensaje de por qué no se entendió, mensajeDeImporte.
+  if (texto.replace(/[$\s]/g, "") === "") return 0;
+  const lectura = leerImporte(texto);
+  return lectura.ok ? lectura.centavos / 100 : NaN;
 }
 
 // Inverso de parsearImporteArgentino para precargar un <input> de edición con un

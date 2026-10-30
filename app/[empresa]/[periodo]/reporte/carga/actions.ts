@@ -7,7 +7,8 @@ import { resolverEmpresaPorSlug } from "@/lib/slug";
 import { decimalTextoDeCentavos, centavosDeDecimalTexto } from "@/lib/conteoMovimientos";
 import { camposManuales } from "@/lib/reporte/motor";
 import { plantillaDeEmpresa } from "@/lib/reporte/plantillas";
-import { motivoBloqueo, motivoRechazoCambio, parsearCuenta, periodoActual } from "@/lib/reporte/bloqueo";
+import { motivoBloqueo, motivoRechazoCambio, periodoActual } from "@/lib/reporte/bloqueo";
+import { leerCuenta } from "@/lib/importes";
 import { semanasDelPeriodo } from "@/lib/reporte/valoresManuales";
 
 export type EntradaCarga = { filaClave: string; columna: "PRESUPUESTADO" | "REAL"; texto: string };
@@ -46,8 +47,8 @@ export async function guardarValoresManuales(
       cambios.push({ filaClave: e.filaClave, columna: e.columna, centavos: null, nota: null });
       continue;
     }
-    const cuenta = parsearCuenta(e.texto);
-    if (!cuenta) return { ok: false, error: `No entiendo el importe de "${campo.texto.trim()}": ${e.texto}` };
+    const cuenta = leerCuenta(e.texto);
+    if (!cuenta.ok) return { ok: false, error: `${campo.texto.trim()}: ${cuenta.error}` };
     cambios.push({ filaClave: e.filaClave, columna: e.columna, centavos: cuenta.centavos, nota: cuenta.nota });
   }
 

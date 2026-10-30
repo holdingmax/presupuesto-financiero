@@ -18,6 +18,7 @@ import {
 } from "@/lib/presupuestoAcceso";
 import { normalizarClasificacion, esElegibleParaDesglose } from "@/lib/clasificaciones";
 import { parsearImporteArgentino } from "@/lib/numero";
+import { mensajeDeImporte } from "@/lib/importes";
 import { extraerImporteCelda } from "@/lib/importeCelda";
 import { validarMensajePedido, puedePedirCambios } from "@/lib/pedidoCambiosPresupuesto";
 import {
@@ -77,8 +78,10 @@ function validarCamposLinea(datos: {
   const errores: Record<string, string> = {};
   if (!concepto) errores.concepto = "Completá el concepto.";
   if (!detalle) errores.detalle = "Completá el detalle.";
-  if (!datos.importe.trim() || importe === 0 || Number.isNaN(importe)) {
+  if (!datos.importe.trim() || importe === 0) {
     errores.importe = "El importe no puede estar vacío ni ser 0.";
+  } else if (Number.isNaN(importe)) {
+    errores.importe = mensajeDeImporte(datos.importe) ?? "El importe no se entiende.";
   }
   if (!clasificacion) errores.clasificacion = "Elegí una clasificación.";
   // "Otros" sin explicación no le sirve a nadie (decisión 2026-10-07): el detalle
@@ -319,8 +322,10 @@ export async function guardarDesglose(
   }
   limpias.forEach((s, i) => {
     if (!s.detalle) errores[`detalle_${i}`] = "Completá el detalle.";
-    if (!s.importeCrudo.trim() || s.importe === 0 || Number.isNaN(s.importe)) {
+    if (!s.importeCrudo.trim() || s.importe === 0) {
       errores[`importe_${i}`] = "El importe no puede estar vacío ni ser 0.";
+    } else if (Number.isNaN(s.importe)) {
+      errores[`importe_${i}`] = mensajeDeImporte(s.importeCrudo) ?? "El importe no se entiende.";
     }
   });
 

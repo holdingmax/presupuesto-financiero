@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { agregarLinea, eliminarLinea, subirLineasMasivo } from "./actions";
 import { esElegibleParaDesglose } from "@/lib/clasificaciones";
+import { parsearImporteArgentino } from "@/lib/numero";
 import {
   CLASIFICACIONES_PRESUPUESTO_INGRESO,
   CLASIFICACIONES_PRESUPUESTO_EGRESO,
@@ -152,7 +153,7 @@ export default function PresupuestoForm({
   const lineas = lineasIniciales.filter((l) => !eliminando.has(l.id));
   const totalCargado = lineas.reduce((acc, l) => acc + l.importe, 0);
 
-  const totalReferenciaNumero = totalReferencia.trim() === "" ? null : Number(totalReferencia);
+  const totalReferenciaNumero = totalReferencia.trim() === "" ? null : parsearImporteArgentino(totalReferencia);
   const coincideTotal =
     totalReferenciaNumero !== null && !Number.isNaN(totalReferenciaNumero)
       ? Math.abs(totalReferenciaNumero - totalCargado) < 0.01

@@ -3,6 +3,7 @@ import {
   type OpcionClasificacionPresupuesto,
 } from "@/app/[empresa]/[periodo]/presupuesto/clasificacionesPresupuesto";
 import { formatearCentavos, parsearCuenta } from "@/lib/reporte/bloqueo";
+import { leerCuenta } from "@/lib/importes";
 import {
   claveEquivalencia,
   type Bloque,
@@ -45,8 +46,8 @@ export type ImporteCarga =
 
 export function validarImporteCarga(texto: string, esAdminOFinanzas: boolean): ImporteCarga {
   if (typeof texto !== "string" || texto.trim() === "") return { ok: true, centavos: null, nota: null };
-  const cuenta = parsearCuenta(texto);
-  if (!cuenta) return { ok: false, error: `No entiendo el importe: ${texto.trim()}` };
+  const cuenta = leerCuenta(texto);
+  if (!cuenta.ok) return { ok: false, error: cuenta.error };
   if (cuenta.centavos === 0) return { ok: true, centavos: null, nota: null };
   if (cuenta.centavos < 0 && !permiteNegativos(esAdminOFinanzas)) {
     return { ok: false, error: MENSAJE_IMPORTE_NEGATIVO };

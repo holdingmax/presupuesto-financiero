@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { guardarDesgloseMovimiento, eliminarDesgloseMovimiento } from "./actions";
 import CampoImporte from "@/components/CampoImporte";
+import { mensajeDeImporte } from "@/lib/importes";
 import { opcionesUnidad } from "@/lib/unidadesNegocio";
 import {
   CIEN_POR_CIENTO,
@@ -310,6 +311,9 @@ export default function PanelDesgloseMovimiento({
                   </p>
                 )}
                 {errorImporte && <p className="mt-1 text-xs text-terracota">{errorImporte}</p>}
+                {!errorImporte && modo === "monto" && mensajeDeImporte(l.monto) && (
+                  <p className="mt-1 text-xs text-terracota">{mensajeDeImporte(l.monto)}</p>
+                )}
               </div>
 
               <button

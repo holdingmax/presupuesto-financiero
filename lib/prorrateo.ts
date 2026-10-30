@@ -1,4 +1,4 @@
-import { parsearImporteArgentino } from "@/lib/numero";
+import { leerImporte } from "@/lib/importes";
 
 // Aritmética del prorrateo de un movimiento entre unidades de negocio (panel
 // PanelDesgloseMovimiento + guardarDesgloseMovimiento). Todo en ENTEROS para que
@@ -22,12 +22,10 @@ export function aCentavos(importe: number): number {
 // silencio un monto que el usuario escribió).
 export function parsearMontoACentavos(texto: string): number | null {
   if (!texto.trim()) return null;
-  const n = parsearImporteArgentino(texto);
-  if (!Number.isFinite(n)) return null;
-  const centavos = Math.abs(n) * 100;
-  const redondeado = Math.round(centavos);
-  if (Math.abs(centavos - redondeado) > 1e-6) return null;
-  return Number.isSafeInteger(redondeado) ? redondeado : null;
+  const lectura = leerImporte(texto);
+  if (!lectura.ok) return null;
+  const centavos = Math.abs(lectura.centavos);
+  return Number.isSafeInteger(centavos) ? centavos : null;
 }
 
 // "33,33" / "33.33" / "33,33 %" → 3333. Acá un punto es decimal (un porcentaje
