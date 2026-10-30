@@ -38,3 +38,18 @@ contra el archivo. Foto del gerente: `fixtures/gerenteBrillante.json` (tomada an
 1. K8: "Otras operaciones (MANTENOR JUJUY)" de Brillante vs. "Cobranza Mantenor Jujuy" de Mantenor: posible doble lectura de la misma plata.
 2. Signo del Presupuestado de Recupero Gastos: el gerente carga en positivo y el Real va en negativo (el % de avance quedaría negativo).
 3. Origen de Expensas (Real 12.959.207 en el Excel): no sabemos de dónde sale; sigue sin Real.
+
+## Filas extra del Reporte (pedido de Kike, 28/10) — TANDA 1 hecha (2026-10-29), sin commit
+Que ADMIN/FINANZAS agreguen filas al Reporte mientras revisan. Aprobado con ajustes: nombre rechazado solo si ya existe una FILA con esa
+clave en la empresa (estática o extra), NO por coincidir con una categoría de Presupuesto sin fila (Préstamo Cocos, Pagos especiales…);
+se rechazan OTRO, OTROS, VARIOS. Crear solo en mes con flujo no bloqueado. `hastaPeriodo` en el modelo, sin interfaz.
+Tanda 1 (sin interfaz, sin acciones, interruptor apagado): modelo `FilaExtraReporte` + migración a mano
+(`prisma/migrations/20261029120000_agregar_fila_extra_reporte`, NO aplicada), `lib/reporte/filasExtra.ts` (nombres, visibilidad,
+`conFilasExtra`), `lib/reporte/plantillaConExtras.ts` (resolver), `EMPRESAS_CON_FILAS_EXTRA = []`, roles de totales en Brillante,
+`guardarValoresManuales` valida claves con el resolver (test con hash que cuida que solo cambió esa línea).
+La carga del Presupuestado del gerente sigue con la plantilla ESTÁTICA (con la otra, `esFilaManualEditable` le abriría la celda).
+Faltan (Tanda 2+): acciones crear/borrar, ampliar el tipeo directo a la columna Presupuestado y a las filas extra, interfaz (botón por bloque),
+prender el interruptor en Brillante.
+
+### PENDIENTE: PDF de cierre
+No existe en el repo (sin librería ni código de PDF). Queda fuera de las filas extra; si hace falta, es un desarrollo aparte.

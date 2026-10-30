@@ -155,16 +155,20 @@ export const PLANTILLA_BRILLANTE: Plantilla = {
     ),
     titulo("br.tituloIngresos", "INGRESOS", "INGRESOS"),
     ...ingresos,
-    total("br.totalIngresos", "INGRESOS", "TOTAL INGRESOS", ingresos.map((f) => f.clave)),
+    total("br.totalIngresos", "INGRESOS", "TOTAL INGRESOS", ingresos.map((f) => f.clave), { rol: "totalIngresos" }),
     total("br.disponibleAntes", "CIERRE", "DISPONIBLE ANTES DE GASTOS", ["br.totalDisponibilidades", "br.totalIngresos"], {
       requiere: ["br.totalDisponibilidades"],
       soloConPresupuesto: true,
     }),
     titulo("br.tituloEgresos", "EGRESOS", "EGRESOS"),
     ...egresos,
-    total("br.totalEgresosOperativos", "EGRESOS", "TOTAL EGRESOS OPERATIVOS", egresos.map((f) => f.clave)),
+    total("br.totalEgresosOperativos", "EGRESOS", "TOTAL EGRESOS OPERATIVOS", egresos.map((f) => f.clave), {
+      rol: "totalEgresosOperativos",
+    }),
     ...deAbajo,
-    total("br.totalEgresos", "ABAJO", "TOTAL EGRESOS", ["br.totalEgresosOperativos", ...deAbajo.map((f) => f.clave)]),
+    total("br.totalEgresos", "ABAJO", "TOTAL EGRESOS", ["br.totalEgresosOperativos", ...deAbajo.map((f) => f.clave)], {
+      rol: "totalEgresos",
+    }),
     total("br.saldo", "CIERRE", "SALDO INICIAL + INGRESOS - TOTAL EGRESOS", ["br.disponibleAntes"], {
       resta: ["br.totalEgresos"],
       requiere: ["br.disponibleAntes"],

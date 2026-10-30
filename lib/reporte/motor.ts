@@ -142,6 +142,8 @@ export type FilaLinea = {
   // La planilla de Macchi no la incluye en el total (E1 del plan 2b §6). Un valor
   // cargado acá no entra en el total y la pantalla lo marca.
   excluidaDelTotal?: boolean;
+  // Fila extra agregada por ADMIN/FINANZAS (lib/reporte/filasExtra.ts): no está en la plantilla estática.
+  extra?: true;
 };
 export type FilaTotal = {
   clave: string;
@@ -157,7 +159,8 @@ export type FilaTotal = {
   // Su Presupuestado depende de que el mes tenga PresupuestoMensual.
   soloConPresupuesto?: boolean;
   // Filas que el control de arrastre necesita encontrar.
-  rol?: "totalDisponibilidades" | "saldo";
+  // Los tres últimos marcan el total de cada bloque de flujo: ahí se suman las filas extra (filasExtra.ts).
+  rol?: "totalDisponibilidades" | "saldo" | "totalIngresos" | "totalEgresosOperativos" | "totalEgresos";
 };
 export type ReglaCapital = { terminos: { fila: string; factor: number }[]; fijo?: number };
 export type FilaCapital = {

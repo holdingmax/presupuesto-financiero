@@ -46,6 +46,7 @@ model Empresa {
   presupuestos PresupuestoMensual[]
   usuarios     UsuarioEmpresa[]
   valoresManualesReporte ValorManualReporte[]
+  filasExtraReporte      FilaExtraReporte[]
   cuentasBancarias       CuentaBancaria[]
 
   @@index([cuit])
@@ -67,6 +68,7 @@ model Usuario {
   empresas UsuarioEmpresa[]
   sesiones Sesion[]
   valoresManualesReporte ValorManualReporte[]
+  filasExtraReporte      FilaExtraReporte[]
 }
 
 // Sesión en base (no JWT sin estado): borrar la fila invalida esa sesión al
@@ -412,4 +414,34 @@ model CuentaBancaria {
   updatedAt   DateTime @updatedAt
 
   empresa Empresa? @relation(fields: [empresaId], references: [id], onDelete: Restrict)
+}
+
+// Bloque del Reporte en el que va una fila extra (las que agrega ADMIN/FINANZAS mientras revisa).
+enum BloqueFilaExtra {
+  INGRESOS
+  EGRESOS
+  ABAJO
+}
+
+// Fila extra del Reporte por plantilla: la agrega ADMIN/FINANZAS a UNA empresa (lib/reporte/filasExtra.ts).
+// Se muestra desde `desdePeriodo` en adelante (y hasta `hastaPeriodo` inclusive, si lo tiene; todavía sin
+// pantalla para fijarlo). Es siempre manual: Presupuestado y Real viven en ValorManualReporte con
+// filaClave = "extra." + id (el id, no el nombre: renombrar no rompe nada). Se borra solo si no tiene
+// valores. `nombreClave` = texto normalizado (lib/texto.ts) para no repetir nombres dentro de la empresa.
+model FilaExtraReporte {
+  id           String          @id @default(uuid())
+  empresaId    String
+  bloque       BloqueFilaExtra
+  nombre       String
+  nombreClave  String
+  desdePeriodo String          // "YYYY-MM"
+  hastaPeriodo String?         // "YYYY-MM", inclusive; null = sin fin
+  creadoPorId  String
+  createdAt    DateTime        @default(now())
+
+  empresa   Empresa @relation(fields: [empresaId], references: [id])
+  creadoPor Usuario @relation(fields: [creadoPorId], references: [id])
+
+  @@unique([empresaId, nombreClave])
+  @@index([empresaId, desdePeriodo])
 }

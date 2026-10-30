@@ -6,7 +6,7 @@ import { requireAdminOFinanzas, requireAccesoEmpresa } from "@/lib/auth";
 import { resolverEmpresaPorSlug } from "@/lib/slug";
 import { decimalTextoDeCentavos, centavosDeDecimalTexto } from "@/lib/conteoMovimientos";
 import { camposManuales } from "@/lib/reporte/motor";
-import { plantillaDeEmpresa } from "@/lib/reporte/plantillas";
+import { plantillaDeEmpresaConExtras } from "@/lib/reporte/plantillaConExtras";
 import { motivoBloqueo, motivoRechazoCambio, periodoActual } from "@/lib/reporte/bloqueo";
 import { leerCuenta } from "@/lib/importes";
 import { semanasDelPeriodo } from "@/lib/reporte/valoresManuales";
@@ -31,7 +31,7 @@ export async function guardarValoresManuales(
   const empresa = await resolverEmpresaPorSlug(empresaSlug);
   if (!empresa) return { ok: false, error: "No encontré esa empresa." };
   await requireAccesoEmpresa(empresa.id);
-  const plantilla = plantillaDeEmpresa(empresaSlug);
+  const plantilla = await plantillaDeEmpresaConExtras(empresa.id, empresaSlug, periodo);
   if (!plantilla) return { ok: false, error: "Esta empresa no tiene reporte por plantilla." };
 
   const campos = new Map(camposManuales(plantilla).map((c) => [`${c.clave}|${c.columna}`, c]));

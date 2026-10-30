@@ -75,6 +75,12 @@ export const EMPRESAS_QUE_VEN_CIERRE_EN_REPORTE: readonly string[] = [];
 // Ver lib/reporte/tipeoDirecto.ts.
 export const EMPRESAS_CON_TIPEO_DIRECTO: readonly string[] = ["brillante"];
 
+// Filas extra del Reporte (las que agrega ADMIN/FINANZAS mientras revisa, lib/reporte/filasExtra.ts). Lista de
+// SLUGS de empresa; vacía = el Reporte no consulta ni muestra ninguna (ni siquiera lee la tabla). Una empresa solo
+// puede estar acá si también tiene el tipeo directo (EMPRESAS_CON_TIPEO_DIRECTO) y los roles de totales en su
+// plantilla; un test lo controla. Todavía sin pantalla: no hay forma de crear una fila.
+export const EMPRESAS_CON_FILAS_EXTRA: readonly string[] = [];
+
 // Etiqueta del ciclo fiscal que se muestra en la portada de login (app/login/page.tsx).
 //
 // PENDIENTE: no está derivada de PERIODO todavía. "3 meses hacia atrás terminando en PERIODO"
