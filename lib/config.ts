@@ -83,7 +83,11 @@ export const EMPRESAS_CON_TIPEO_DIRECTO: readonly string[] = ["brillante", "fred
 // «Agregar una fila». Una empresa solo puede estar acá si también tiene el tipeo directo
 // (EMPRESAS_CON_TIPEO_DIRECTO) y los roles de totales en su plantilla; un test lo controla. Solo ADMIN y FINANZAS
 // agregan y borran filas; el gerente las ve en solo lectura.
-export const EMPRESAS_CON_FILAS_EXTRA: readonly string[] = ["brillante"];
+//
+// Tanda 2: Fredy Publicidad y HWC. Ojo: en ellas el Capital de trabajo sale de un total de Egresos (Fredy 50% de
+// TOTAL EGRESOS OPERATIVOS, HWC 100% del SUBTOTAL ESTRUCTURA), así que una fila extra de Egresos lo mueve (decisión
+// confirmada). Un Capital tipeado a mano lo reemplaza.
+export const EMPRESAS_CON_FILAS_EXTRA: readonly string[] = ["brillante", "fredy-publicidad", "hwc"];
 
 // Etiqueta del ciclo fiscal que se muestra en la portada de login (app/login/page.tsx).
 //

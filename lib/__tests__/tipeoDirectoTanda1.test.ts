@@ -95,7 +95,8 @@ for (const slug of Object.keys(ESPERADO)) {
     }
   });
 
-  test(`${slug}: no tiene filas extra (ni interruptor, ni lectura de la base, ni alta)`, async () => {
+  // Fredy y HWC tienen filas extra desde la tanda 2 (filasExtraTanda2.test.ts); Avianor queda afuera.
+  if (slug === "avianor") test(`${slug}: no tiene filas extra (ni interruptor, ni lectura de la base, ni alta)`, async () => {
     assert.equal(EMPRESAS_CON_FILAS_EXTRA.includes(slug), false);
     assert.equal(await plantillaDeEmpresaConExtras("e", slug, "2026-10", { leer: noDebeLeer }), plantilla);
     const alta = validarCreacionFilaExtra({

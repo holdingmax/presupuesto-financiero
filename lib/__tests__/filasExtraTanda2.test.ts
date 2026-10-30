@@ -1,0 +1,359 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { EMPRESAS_CON_FILAS_EXTRA, EMPRESAS_CON_TIPEO_DIRECTO } from "@/lib/config";
+import {
+  armarReporte,
+  clavesCalculables,
+  validarPlantilla,
+  type DatosMes,
+  type Fila,
+  type Plantilla,
+  type Reporte,
+} from "@/lib/reporte/motor";
+import { PLANTILLAS_POR_SLUG } from "@/lib/reporte/plantillas";
+import { accesoReservadosDelReporte } from "@/lib/reporte/visibilidad";
+import { planDeCarga, vistaDeCarga } from "@/lib/reporte/cargaGerente";
+import { admiteFilasExtra, conFilasExtra, type FilaExtra } from "@/lib/reporte/filasExtra";
+import { plantillaDeEmpresaConExtras, type LectorFilasExtra } from "@/lib/reporte/plantillaConExtras";
+import { armarVistaFilasExtra, ERROR_NO_HABILITADO, validarCreacionFilaExtra } from "@/lib/reporte/accionesFilasExtra";
+import { camposTipeables, motivoRechazoTipeo } from "@/lib/reporte/tipeoDirecto";
+import { mesesDePrueba } from "@/lib/reporte/__tests__/fixtures/datosGerente";
+
+// Filas extra del Reporte, tanda 2: Fredy Publicidad y HWC (Avianor queda afuera). Las claves y los importes están
+// escritos a mano, a propósito. Usan la configuración REAL de lib/config.ts.
+//
+// Ojo con el Capital de trabajo: en estas dos sale de un total de Egresos (Fredy 50% de TOTAL EGRESOS OPERATIVOS,
+// HWC 100% del SUBTOTAL ESTRUCTURA), así que una fila extra de EGRESOS lo mueve — decisión confirmada, se deja la
+// fórmula como está. Una fila «de abajo» no lo mueve.
+
+type Esperado = {
+  ingresos: string;
+  operativos: string;
+  egresos: string;
+  saldo: string;
+  disponibleAntes: string;
+  capital: string;
+  disponible: string;
+  // Parte del Total egresos operativos que entra en el Capital, en centésimos (50% = 50, 100% = 100).
+  porcentajeCapital: number;
+  // Una fila de la plantilla con ese texto: un nombre así tiene que rechazarse.
+  textoExistente: string;
+};
+
+const ESPERADO: Record<string, Esperado> = {
+  "fredy-publicidad": {
+    ingresos: "fr.totalIngresos",
+    operativos: "fr.totalEgresosOperativos",
+    egresos: "fr.totalEgresos",
+    saldo: "fr.saldo",
+    disponibleAntes: "fr.disponibleAntes",
+    capital: "fr.capital",
+    disponible: "fr.disponible",
+    porcentajeCapital: 50,
+    textoExistente: "COMPRA DE IVA",
+  },
+  hwc: {
+    ingresos: "hw.totalIngresos",
+    operativos: "hw.subtotalEstructura",
+    egresos: "hw.totalPagado",
+    saldo: "hw.saldo",
+    disponibleAntes: "hw.disponibleAntes",
+    capital: "hw.capital",
+    disponible: "hw.disponible",
+    porcentajeCapital: 100,
+    textoExistente: "EXPENSAS",
+  },
+};
+
+const SLUGS = Object.keys(ESPERADO);
+const ABIERTO = { abiertas: 1, cerradas: 0 };
+const CERRADO = { abiertas: 0, cerradas: 4 };
+
+const ING: FilaExtra = { id: "i1", bloque: "INGRESOS", nombre: "PRÉSTAMO COCOS", desdePeriodo: "2026-10", hastaPeriodo: null };
+const EGR: FilaExtra = { id: "e1", bloque: "EGRESOS", nombre: "PAGOS ESPECIALES", desdePeriodo: "2026-10", hastaPeriodo: null };
+const ABA: FilaExtra = { id: "a1", bloque: "ABAJO", nombre: "RETIRO SOCIOS", desdePeriodo: "2026-10", hastaPeriodo: null };
+const TRES = [ING, EGR, ABA];
+
+const noDebeLeer: LectorFilasExtra = async () => {
+  throw new Error("No tiene que consultar la base.");
+};
+
+const ROLES_DE_FLUJO = ["totalIngresos", "totalEgresosOperativos", "totalEgresos"];
+
+// La plantilla de ANTES de agregar los roles: la misma, sin los tres roles de flujo.
+function sinRolesDeFlujo(p: Plantilla): Plantilla {
+  return {
+    ...p,
+    filas: p.filas.map((f): Fila => {
+      if (f.tipo === "total" && f.rol && ROLES_DE_FLUJO.includes(f.rol)) {
+        const { rol: _rol, ...resto } = f;
+        void _rol;
+        return resto;
+      }
+      return f;
+    }),
+  };
+}
+
+// Todo el Reporte menos el objeto `fila` de la plantilla (que es justo lo que difiere: lleva el rol del total):
+// la clave de cada fila y todas sus celdas, el arrastre, los avisos y las listas de meses.
+function proyeccion(r: Reporte) {
+  return JSON.parse(JSON.stringify({ ...r, filas: r.filas.map((f) => [f.fila.clave, f.fila.tipo, f.celdas]) }));
+}
+
+// Datos de dos meses con el Capital por FÓRMULA (sin Capital tipeado, que lo reemplazaría) y sin filas extra.
+function mesesSinCapitalManual(slug: string): DatosMes[] {
+  const meses = mesesDePrueba(PLANTILLAS_POR_SLUG[slug]);
+  const presupuesto = new Map(meses[1].manuales!.presupuesto);
+  presupuesto.delete(ESPERADO[slug].capital);
+  return [meses[0], { ...meses[1], manuales: { presupuesto, real: meses[1].manuales!.real } }];
+}
+
+// Real: ingreso 5.000, egreso 2.000, de abajo −700 (un recupero: baja los egresos). Presupuestado: 3.000 / 1.500 / −400.
+function conImportesExtra(meses: DatosMes[], cuales: string[]): DatosMes[] {
+  const real = new Map(meses[1].manuales!.real);
+  const presupuesto = new Map(meses[1].manuales!.presupuesto);
+  const todos: [string, number, number][] = [["extra.i1", 5000, 3000], ["extra.e1", 2000, 1500], ["extra.a1", -700, -400]];
+  for (const [k, r, p] of todos.filter(([k]) => cuales.includes(k))) {
+    real.set(k, r);
+    presupuesto.set(k, p);
+  }
+  return [meses[0], { ...meses[1], manuales: { presupuesto, real } }];
+}
+
+const celda = (r: Reporte, clave: string) => r.filas.find((f) => f.fila.clave === clave)!.celdas[0];
+
+// ---- Configuración -------------------------------------------------------------------------------
+
+test("config: Fredy y HWC están en filas extra y en tipeo directo; Avianor y el resto, afuera", () => {
+  for (const slug of SLUGS) {
+    assert.ok(EMPRESAS_CON_FILAS_EXTRA.includes(slug), slug);
+    assert.ok(EMPRESAS_CON_TIPEO_DIRECTO.includes(slug), slug);
+  }
+  for (const slug of ["avianor", "havanna", "radio", "conexion-logistica", "conexion-logistica-spp", "mantenor", "plate-silver", "bradenton"]) {
+    assert.equal(EMPRESAS_CON_FILAS_EXTRA.includes(slug), false, slug);
+  }
+});
+
+// ---- Antes / después de agregar los roles, sin filas extra ---------------------------------------
+
+for (const slug of SLUGS) {
+  const plantilla = PLANTILLAS_POR_SLUG[slug];
+  const esperado = ESPERADO[slug];
+  const antes = sinRolesDeFlujo(plantilla);
+
+  test(`${slug}: la plantilla solo difiere de la de antes en los tres roles de total`, () => {
+    const conRol = plantilla.filas.filter((f) => f.tipo === "total" && f.rol && ROLES_DE_FLUJO.includes(f.rol));
+    assert.deepEqual(
+      conRol.map((f) => [f.clave, (f as { rol: string }).rol]),
+      [
+        [esperado.ingresos, "totalIngresos"],
+        [esperado.operativos, "totalEgresosOperativos"],
+        [esperado.egresos, "totalEgresos"],
+      ]
+    );
+    assert.equal(antes.filas.some((f) => f.tipo === "total" && f.rol && ROLES_DE_FLUJO.includes(f.rol)), false);
+    assert.deepEqual(validarPlantilla(plantilla), []);
+    assert.equal(admiteFilasExtra(plantilla), true);
+    assert.equal(admiteFilasExtra(antes), false, "sin los roles no admitía filas extra");
+  });
+
+  test(`${slug}: SIN filas extra el Reporte es idéntico al de antes de agregar los roles (ADMIN, gerente y carga)`, () => {
+    const juegos: DatosMes[][] = [mesesDePrueba(plantilla), mesesSinCapitalManual(slug)];
+    // Y un par de meses sin ningún valor manual.
+    juegos.push(juegos[0].map((m) => ({ ...m, manuales: { presupuesto: new Map(), real: new Map() } })));
+    for (const meses of juegos) {
+      for (const acceso of [true, accesoReservadosDelReporte(false, slug), false] as const) {
+        assert.deepEqual(
+          proyeccion(armarReporte(plantilla, meses, 1, { verBloquesReservados: acceso })),
+          proyeccion(armarReporte(antes, meses, 1, { verBloquesReservados: acceso })),
+          `${slug} acceso=${JSON.stringify(acceso)}`
+        );
+      }
+    }
+    // Con tabla vacía el resolver devuelve la MISMA plantilla (misma referencia).
+    assert.equal(conFilasExtra(plantilla, []), plantilla);
+    // La carga del Presupuestado del gerente tampoco cambia.
+    assert.deepEqual(vistaDeCarga(planDeCarga(plantilla, [], [])), vistaDeCarga(planDeCarga(antes, [], [])));
+  });
+
+  test(`${slug}: el arrastre y el «cuadra» no cambian sin filas extra`, () => {
+    const meses = mesesDePrueba(plantilla);
+    assert.deepEqual(armarReporte(plantilla, meses, 1).arrastre, armarReporte(antes, meses, 1).arrastre);
+  });
+
+  // ---- Con filas extra ---------------------------------------------------------------------------
+
+  test(`${slug}: cada fila extra va antes del total de su bloque y el total la suma`, () => {
+    const p = conFilasExtra(plantilla, TRES);
+    assert.deepEqual(validarPlantilla(p), []);
+    assert.equal(new Set(p.filas.map((f) => f.clave)).size, p.filas.length);
+    const idx = (clave: string) => p.filas.findIndex((f) => f.clave === clave);
+    assert.equal(idx("extra.i1") + 1, idx(esperado.ingresos));
+    assert.equal(idx("extra.e1") + 1, idx(esperado.operativos));
+    assert.equal(idx("extra.a1") + 1, idx(esperado.egresos));
+    const suma = (clave: string) => (p.filas[idx(clave)] as { suma: string[] }).suma;
+    assert.ok(suma(esperado.ingresos).includes("extra.i1"));
+    assert.ok(suma(esperado.operativos).includes("extra.e1") && !suma(esperado.operativos).includes("extra.a1"));
+    assert.ok(suma(esperado.egresos).includes("extra.a1") && suma(esperado.egresos).includes(esperado.operativos));
+    // La plantilla estática no se tocó.
+    assert.equal(plantilla.filas.some((f) => f.clave.startsWith("extra.")), false);
+  });
+
+  test(`${slug}: los totales suman las filas extra con el signo del bloque`, () => {
+    const sin = mesesSinCapitalManual(slug);
+    const con = conImportesExtra(sin, ["extra.i1", "extra.e1", "extra.a1"]);
+    const antesR = armarReporte(plantilla, sin, 1);
+    const despuesR = armarReporte(conFilasExtra(plantilla, TRES), con, 1);
+    // [ingreso, egreso, de abajo] por columna.
+    const importes = { real: [5000, 2000, -700], presupuestado: [3000, 1500, -400] } as const;
+    for (const col of ["real", "presupuestado"] as const) {
+      const [i, e, a] = importes[col];
+      assert.equal(celda(despuesR, esperado.ingresos)[col]! - celda(antesR, esperado.ingresos)[col]!, i, `ingresos ${col}`);
+      assert.equal(celda(despuesR, esperado.operativos)[col]! - celda(antesR, esperado.operativos)[col]!, e, `operativos ${col}`);
+      assert.equal(celda(despuesR, esperado.egresos)[col]! - celda(antesR, esperado.egresos)[col]!, e + a, `egresos ${col}`);
+      assert.equal(celda(despuesR, esperado.disponibleAntes)[col]! - celda(antesR, esperado.disponibleAntes)[col]!, i, `antes de gastos ${col}`);
+      assert.equal(celda(despuesR, esperado.saldo)[col]! - celda(antesR, esperado.saldo)[col]!, i - (e + a), `saldo ${col}`);
+    }
+    // Un negativo en «de abajo» se muestra tal cual y baja los egresos.
+    assert.equal(celda(despuesR, "extra.a1").real, -700);
+  });
+
+  test(`${slug}: una fila extra de EGRESOS mueve el Capital (${esperado.porcentajeCapital}%) y el Disponible; una «de abajo» no`, () => {
+    const sin = mesesSinCapitalManual(slug);
+    const antesR = armarReporte(plantilla, sin, 1);
+    // Presupuestado del egreso extra: 1.500 → el Capital sube 1.500 × porcentaje, el Disponible baja lo mismo.
+    const conEgreso = armarReporte(conFilasExtra(plantilla, [EGR]), conImportesExtra(sin, ["extra.e1"]), 1);
+    const subida = (1500 * esperado.porcentajeCapital) / 100;
+    assert.equal(celda(conEgreso, esperado.capital).presupuestado! - celda(antesR, esperado.capital).presupuestado!, subida, "capital");
+    assert.equal(celda(antesR, esperado.disponible).presupuestado! - celda(conEgreso, esperado.disponible).presupuestado!, subida, "disponible");
+    // El Capital no tiene Real.
+    assert.equal(celda(conEgreso, esperado.capital).real, null);
+    // Una fila «de abajo» o de ingresos no toca ni el Capital ni el Disponible.
+    for (const extra of [ABA, ING]) {
+      const k = extra.bloque === "ABAJO" ? "extra.a1" : "extra.i1";
+      const r = armarReporte(conFilasExtra(plantilla, [extra]), conImportesExtra(sin, [k]), 1);
+      assert.deepEqual(celda(r, esperado.capital), celda(antesR, esperado.capital), `${k} capital`);
+      assert.deepEqual(celda(r, esperado.disponible), celda(antesR, esperado.disponible), `${k} disponible`);
+    }
+    // Un Capital tipeado a mano reemplaza la fórmula: no se mueve con las filas extra.
+    const manual = mesesDePrueba(plantilla);
+    const valorManual = manual[1].manuales!.presupuesto.get(esperado.capital)!;
+    const r = armarReporte(conFilasExtra(plantilla, [EGR]), conImportesExtra(manual, ["extra.e1"]), 1);
+    assert.equal(celda(r, esperado.capital).presupuestado, valorManual);
+  });
+
+  test(`${slug}: el gerente ve las filas extra en solo lectura, con sus totales y sin Cierre`, () => {
+    const p = conFilasExtra(plantilla, TRES);
+    const acceso = accesoReservadosDelReporte(false, slug);
+    for (const k of ["extra.i1", "extra.e1", "extra.a1"]) assert.equal(clavesCalculables(p, acceso).has(k), true, k);
+    const r = armarReporte(p, conImportesExtra(mesesDePrueba(plantilla), ["extra.i1", "extra.e1", "extra.a1"]), 1, { verBloquesReservados: acceso });
+    assert.equal(celda(r, "extra.i1").real, 5000);
+    assert.equal(celda(r, "extra.i1").presupuestado, 3000);
+    assert.equal(r.filas.some((f) => f.fila.bloque === "CIERRE"), false);
+    assert.ok(r.arrastre.every((a) => a === null));
+    // La vista de pantalla de las filas extra es solo para ADMIN y FINANZAS.
+    const vista = (esAdminOFinanzas: boolean) =>
+      armarVistaFilasExtra({
+        empresaSlug: slug,
+        plantillaEstatica: plantilla,
+        plantillaReporte: p,
+        esAdminOFinanzas,
+        periodo: "2026-10",
+        actual: "2026-10",
+        semanas: ABIERTO,
+        clavesConValores: new Set(),
+      });
+    assert.equal(vista(false), null);
+    assert.deepEqual(vista(true), { bloques: ["INGRESOS", "EGRESOS", "ABAJO"], borrables: ["extra.i1", "extra.e1", "extra.a1"] });
+    // En un mes bloqueado no hay botones de agregar.
+    const cerrado = armarVistaFilasExtra({
+      empresaSlug: slug,
+      plantillaEstatica: plantilla,
+      plantillaReporte: p,
+      esAdminOFinanzas: true,
+      periodo: "2026-08",
+      actual: "2026-10",
+      semanas: CERRADO,
+      clavesConValores: new Set(),
+    })!;
+    assert.deepEqual(cerrado.bloques, []);
+  });
+
+  test(`${slug}: crear una fila funciona con la configuración real; el nombre de una fila existente se rechaza`, () => {
+    const crear = (nombre: string, bloque = "INGRESOS") =>
+      validarCreacionFilaExtra({
+        empresaSlug: slug,
+        plantilla,
+        esAdminOFinanzas: true,
+        bloque,
+        nombre,
+        extras: [],
+        periodo: "2026-10",
+        actual: "2026-10",
+        semanas: ABIERTO,
+      });
+    for (const bloque of ["INGRESOS", "EGRESOS", "ABAJO"]) {
+      assert.deepEqual(crear("  préstamo   cocos ", bloque), { ok: true, bloque, nombre: "PRÉSTAMO COCOS", nombreClave: "PRESTAMO COCOS" });
+    }
+    assert.equal(crear(esperado.textoExistente).ok, false);
+    assert.equal(crear("otros").ok, false, "nombre genérico");
+    assert.equal(
+      validarCreacionFilaExtra({ empresaSlug: slug, plantilla, esAdminOFinanzas: false, bloque: "INGRESOS", nombre: "PRÉSTAMO COCOS", extras: [], periodo: "2026-10", actual: "2026-10", semanas: ABIERTO }).ok,
+      false,
+      "el gerente no crea"
+    );
+  });
+
+  test(`${slug}: el tipeo directo acepta Presupuestado y Real de sus filas extra y rechaza lo demás`, () => {
+    const p = conFilasExtra(plantilla, TRES);
+    const campos = camposTipeables(p, slug).map((c) => `${c.clave}|${c.columna}`);
+    for (const k of ["extra.i1", "extra.e1", "extra.a1"]) {
+      assert.ok(campos.includes(`${k}|REAL`) && campos.includes(`${k}|PRESUPUESTADO`), k);
+    }
+    // El Presupuestado de las filas de la plantilla no se tipea desde acá.
+    assert.equal(campos.some((k) => !k.startsWith("extra.") && k.endsWith("|PRESUPUESTADO")), false);
+    const args = { empresaSlug: slug, plantilla: p, esAdminOFinanzas: true };
+    for (const columna of ["REAL", "PRESUPUESTADO"] as const) {
+      assert.equal(motivoRechazoTipeo({ ...args, entradas: [{ filaClave: "extra.e1", columna, texto: "1.000,00" }] }), null);
+    }
+    assert.ok(motivoRechazoTipeo({ ...args, entradas: [{ filaClave: "extra.zzz", columna: "REAL", texto: "1" }] }), "fila extra que no existe");
+    assert.ok(motivoRechazoTipeo({ ...args, entradas: [{ filaClave: esperado.ingresos, columna: "REAL", texto: "1" }] }), "total");
+    assert.match(motivoRechazoTipeo({ ...args, esAdminOFinanzas: false, entradas: [] })!, /ADMIN y FINANZAS/);
+  });
+}
+
+// ---- Las que siguen afuera -----------------------------------------------------------------------
+
+test("las empresas fuera del interruptor de filas extra no consultan la base ni pueden crear filas", async () => {
+  const fuera = Object.keys(PLANTILLAS_POR_SLUG).filter((s) => !EMPRESAS_CON_FILAS_EXTRA.includes(s));
+  for (const slug of ["avianor", "havanna", "radio", "conexion-logistica", "mantenor", "plate-silver", "bradenton"]) {
+    assert.ok(fuera.includes(slug), slug);
+  }
+  for (const slug of fuera) {
+    assert.equal(await plantillaDeEmpresaConExtras("e", slug, "2026-10", { leer: noDebeLeer }), PLANTILLAS_POR_SLUG[slug], slug);
+    const alta = validarCreacionFilaExtra({
+      empresaSlug: slug,
+      plantilla: PLANTILLAS_POR_SLUG[slug],
+      esAdminOFinanzas: true,
+      bloque: "INGRESOS",
+      nombre: "PRÉSTAMO COCOS",
+      extras: [],
+      periodo: "2026-10",
+      actual: "2026-10",
+      semanas: ABIERTO,
+    });
+    assert.deepEqual(alta, { ok: false, error: ERROR_NO_HABILITADO }, slug);
+  }
+});
+
+test("con el interruptor prendido y la tabla vacía, Fredy y HWC devuelven la MISMA plantilla; con filas, solo las que ya empezaron", async () => {
+  for (const slug of SLUGS) {
+    const base = PLANTILLAS_POR_SLUG[slug];
+    assert.equal(await plantillaDeEmpresaConExtras("e", slug, "2026-10", { leer: async () => [] }), base);
+    const futura: FilaExtra = { ...ING, id: "f1", desdePeriodo: "2026-11" };
+    const p = await plantillaDeEmpresaConExtras("e", slug, "2026-10", { leer: async () => [ING, futura] });
+    assert.equal(p!.filas.some((f) => f.clave === "extra.i1"), true);
+    assert.equal(p!.filas.some((f) => f.clave === "extra.f1"), false);
+  }
+});

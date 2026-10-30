@@ -7,7 +7,7 @@ import { PLANTILLAS_POR_SLUG } from "@/lib/reporte/plantillas";
 import { accesoReservadosDelReporte } from "@/lib/reporte/visibilidad";
 import { planDeCarga, vistaDeCarga } from "@/lib/reporte/cargaGerente";
 import { AVISO_UNA_VEZ } from "@/lib/reporte/bloqueo";
-import { conFilasExtra, type FilaExtra } from "@/lib/reporte/filasExtra";
+import { admiteFilasExtra, conFilasExtra, type FilaExtra } from "@/lib/reporte/filasExtra";
 import { plantillaDeEmpresaConExtras } from "@/lib/reporte/plantillaConExtras";
 import {
   armarVistaFilasExtra,
@@ -49,9 +49,13 @@ const TIPEO_SIN_EXTRAS: InterruptoresTipeo = { ...TIPEO, filasExtra: [] };
 
 // ---- Interruptor ------------------------------------------------------------------------------------
 
-test("interruptor: Brillante, subconjunto del tipeo directo y con los totales marcados en su plantilla", () => {
-  assert.deepEqual([...EMPRESAS_CON_FILAS_EXTRA], ["brillante"]);
-  for (const slug of EMPRESAS_CON_FILAS_EXTRA) assert.ok(EMPRESAS_CON_TIPEO_DIRECTO.includes(slug), slug);
+test("interruptor: Brillante + tanda 2, subconjunto del tipeo directo y con los totales marcados en su plantilla", () => {
+  assert.ok(EMPRESAS_CON_FILAS_EXTRA.includes("brillante"));
+  assert.deepEqual([...EMPRESAS_CON_FILAS_EXTRA], ["brillante", "fredy-publicidad", "hwc"]);
+  for (const slug of EMPRESAS_CON_FILAS_EXTRA) {
+    assert.ok(EMPRESAS_CON_TIPEO_DIRECTO.includes(slug), slug);
+    assert.equal(admiteFilasExtra(PLANTILLAS_POR_SLUG[slug]), true, slug);
+  }
 });
 
 // ---- Crear ------------------------------------------------------------------------------------------

@@ -93,16 +93,20 @@ export const PLANTILLA_HWC: Plantilla = {
     }),
     titulo("hw.tituloIngresos", "INGRESOS", "INGRESOS"),
     ...ingresos,
-    total("hw.totalIngresos", "INGRESOS", "TOTAL DE INGRESOS", ingresos.map((f) => f.clave)),
+    total("hw.totalIngresos", "INGRESOS", "TOTAL DE INGRESOS", ingresos.map((f) => f.clave), { rol: "totalIngresos" }),
     total("hw.disponibleAntes", "CIERRE", "DISPONIBLE ANTES DE GASTOS", ["hw.totalDisponibilidades", "hw.totalIngresos"], {
       requiere: ["hw.totalDisponibilidades"],
       soloConPresupuesto: true,
     }),
     titulo("hw.tituloGastos", "EGRESOS", "GASTOS"),
     ...egresos,
-    total("hw.subtotalEstructura", "EGRESOS", "SUBTOTAL ESTRUCTURA DE GASTOS", egresos.map((f) => f.clave)),
+    total("hw.subtotalEstructura", "EGRESOS", "SUBTOTAL ESTRUCTURA DE GASTOS", egresos.map((f) => f.clave), {
+      rol: "totalEgresosOperativos",
+    }),
     ...deAbajo,
-    total("hw.totalPagado", "ABAJO", "TOTAL EN EFECTIVO PAGADO", ["hw.subtotalEstructura", ...deAbajo.map((f) => f.clave)]),
+    total("hw.totalPagado", "ABAJO", "TOTAL EN EFECTIVO PAGADO", ["hw.subtotalEstructura", ...deAbajo.map((f) => f.clave)], {
+      rol: "totalEgresos",
+    }),
     total("hw.saldo", "CIERRE", "POSICIÓN DE EFECTIVO (fin de mes)", ["hw.disponibleAntes"], {
       resta: ["hw.totalPagado"],
       requiere: ["hw.disponibleAntes"],

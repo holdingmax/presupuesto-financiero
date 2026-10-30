@@ -256,7 +256,8 @@ test("interruptor VACÍO: NO consulta la base y devuelve la plantilla de siempre
   assert.equal(await plantillaDeEmpresaConExtras("e", "no-existe", "2026-10", { interruptores: [], leer: noDebeLeer }), null);
 });
 
-test("con la configuración real, solo Brillante consulta la base; las demás empresas no", async () => {
+test("con la configuración real, solo las empresas del interruptor consultan la base; las demás no", async () => {
+  assert.ok(SLUGS.filter((s) => !EMPRESAS_CON_FILAS_EXTRA.includes(s)).includes("havanna"), "sanidad: el recorrido no está vacío");
   for (const slug of SLUGS.filter((s) => !EMPRESAS_CON_FILAS_EXTRA.includes(s))) {
     assert.equal(await plantillaDeEmpresaConExtras("e", slug, "2026-10", { leer: noDebeLeer }), PLANTILLAS_POR_SLUG[slug], slug);
   }
@@ -288,8 +289,13 @@ test("interruptor prendido con filas: solo las que ya empezaron en el mes", asyn
 
 // ---- Configuración ----------------------------------------------------------------------------------
 
-test("config: el interruptor de filas extra arranca en Brillante y es subconjunto del tipeo directo, con totales marcados", () => {
-  assert.deepEqual([...EMPRESAS_CON_FILAS_EXTRA], ["brillante"]);
+// Empresas con filas extra hoy: Brillante y la tanda 2. Fijada a propósito: activar otra empresa tiene que obligar a
+// tocar este test.
+const CON_FILAS_EXTRA_HOY = ["brillante", "fredy-publicidad", "hwc"];
+
+test("config: el interruptor de filas extra es Brillante + tanda 2 y es subconjunto del tipeo directo, con totales marcados", () => {
+  assert.ok(EMPRESAS_CON_FILAS_EXTRA.includes("brillante"));
+  assert.deepEqual([...EMPRESAS_CON_FILAS_EXTRA], CON_FILAS_EXTRA_HOY);
   assert.equal(new Set(EMPRESAS_CON_FILAS_EXTRA).size, EMPRESAS_CON_FILAS_EXTRA.length);
   for (const slug of EMPRESAS_CON_FILAS_EXTRA) {
     assert.ok(EMPRESAS_CON_TIPEO_DIRECTO.includes(slug), `${slug} necesita el tipeo directo`);

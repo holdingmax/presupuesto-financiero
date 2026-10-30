@@ -103,16 +103,20 @@ export const PLANTILLA_FREDY: Plantilla = {
     }),
     titulo("fr.tituloIngresos", "INGRESOS", "INGRESOS"),
     ...ingresos,
-    total("fr.totalIngresos", "INGRESOS", "TOTAL INGRESOS", ingresos.map((f) => f.clave)),
+    total("fr.totalIngresos", "INGRESOS", "TOTAL INGRESOS", ingresos.map((f) => f.clave), { rol: "totalIngresos" }),
     total("fr.disponibleAntes", "CIERRE", "DISPONIBLE ANTES DE GASTOS", ["fr.totalDisponibilidades", "fr.totalIngresos"], {
       requiere: ["fr.totalDisponibilidades"],
       soloConPresupuesto: true,
     }),
     titulo("fr.tituloEgresos", "EGRESOS", "EGRESOS"),
     ...egresos,
-    total("fr.totalEgresosOperativos", "EGRESOS", "TOTAL EGRESOS OPERATIVOS", egresos.map((f) => f.clave)),
+    total("fr.totalEgresosOperativos", "EGRESOS", "TOTAL EGRESOS OPERATIVOS", egresos.map((f) => f.clave), {
+      rol: "totalEgresosOperativos",
+    }),
     ...deAbajo,
-    total("fr.totalEgresos", "ABAJO", "TOTAL EGRESOS", ["fr.totalEgresosOperativos", ...deAbajo.map((f) => f.clave)]),
+    total("fr.totalEgresos", "ABAJO", "TOTAL EGRESOS", ["fr.totalEgresosOperativos", ...deAbajo.map((f) => f.clave)], {
+      rol: "totalEgresos",
+    }),
     total("fr.saldo", "CIERRE", "SALDO INICIAL + INGRESOS - TOTAL EGRESOS", ["fr.disponibleAntes"], {
       resta: ["fr.totalEgresos"],
       requiere: ["fr.disponibleAntes"],
