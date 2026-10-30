@@ -7,7 +7,8 @@ const OPCIONES: { vista: VistaReporte; texto: string }[] = [
 ];
 
 // Filtro de columnas del Reporte: un mes o los meses anteriores también. Son links (?vista=), sin
-// estado en el cliente; el mes lo sigue eligiendo el selector de mes.
+// estado en el cliente; el mes lo sigue eligiendo el selector de mes. Control segmentado: un
+// rectángulo con borde y etiqueta «Vista»; la opción activa va en marino lleno (aria-current="page").
 export default function VistaSelector({
   empresaSlug,
   periodo,
@@ -18,13 +19,19 @@ export default function VistaSelector({
   vista: VistaReporte;
 }) {
   return (
-    <nav aria-label="Vista del reporte" className="flex w-full items-center gap-1 px-3 pt-1 text-xs">
+    <nav
+      aria-label="Vista del reporte"
+      className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-line-strong bg-paper-raised p-1 text-xs"
+    >
+      <span aria-hidden="true" className="px-2 text-[11px] font-medium tracking-[0.12em] text-ink-secondary uppercase">
+        Vista
+      </span>
       {OPCIONES.map((o) => (
         <Link
           key={o.vista}
           href={`/${empresaSlug}/${periodo}/reporte?vista=${o.vista}`}
           aria-current={o.vista === vista ? "page" : undefined}
-          className={`rounded-md px-2.5 py-1 transition ${
+          className={`inline-flex min-h-9 items-center rounded-md px-3 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-marino ${
             o.vista === vista
               ? "bg-marino text-white font-medium"
               : "text-ink-secondary hover:text-ink hover:bg-paper-cool"

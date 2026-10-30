@@ -18,14 +18,19 @@ import { useHayCambiosSinGuardar } from "./CargaPresupuestoContexto";
 // avisos arriba y los botones abajo. Las reglas de quién puede qué las repite el servidor (ver
 // las acciones de presupuesto/actions.ts); acá solo se muestra u oculta.
 
-export function EstadoBadge({ estado }: { estado: string }) {
+// variante "reporte": chip más grande para el encabezado del Reporte, con el "Validado" en un terracota
+// más oscuro (AA sobre terracota-tint). Sin la variante se ve exactamente como siempre.
+export function EstadoBadge({ estado, variante }: { estado: string; variante?: "reporte" }) {
   const validado = estado === "VALIDADO";
   const enRevision = estado === "EN_REVISION";
+  const reporte = variante === "reporte";
   return (
     <span
-      className={`text-xs px-2.5 py-1 rounded-md ${
+      className={`${reporte ? "text-sm font-medium px-3 py-1 rounded-full" : "text-xs px-2.5 py-1 rounded-md"} ${
         validado
-          ? "bg-terracota-tint text-terracota"
+          ? reporte
+            ? "bg-terracota-tint text-[#a63f1c]"
+            : "bg-terracota-tint text-terracota"
           : enRevision
             ? "bg-plata/20 text-ink-secondary"
             : "bg-marino-tint text-marino"

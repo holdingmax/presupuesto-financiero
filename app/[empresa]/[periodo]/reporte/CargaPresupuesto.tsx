@@ -126,16 +126,16 @@ export function ProveedorCarga({
 export function BarraGuardarPresupuesto() {
   const { guardando, cantidadCambios, mensaje, guardar } = useCarga();
   return (
-    <div className="mb-2 flex flex-wrap items-center gap-3">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <button
         type="button"
         onClick={guardar}
         disabled={cantidadCambios === 0 || guardando}
-        className="h-8 rounded-md bg-marino px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-marino-dark disabled:cursor-not-allowed disabled:opacity-40"
+        className="h-9 rounded-md bg-marino px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-marino-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-marino disabled:cursor-not-allowed disabled:opacity-40"
       >
         {guardando ? "Guardando..." : "Guardar presupuesto"}
       </button>
-      <span className="text-xs text-ink-muted">
+      <span className="text-xs text-ink-secondary">
         {cantidadCambios > 0
           ? `${cantidadCambios} ${cantidadCambios === 1 ? "cambio" : "cambios"} sin guardar`
           : "Tipeá tu presupuesto en la última columna (Presupuestado) y guardá."}

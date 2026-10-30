@@ -357,7 +357,6 @@ async function ReportePorPlantilla({
       {ocultaPestanaPresupuesto(esAdminOFinanzas(usuario), empresaSlug) && (
         <PeriodoSelector empresaSlug={empresaSlug} periodo={periodo} segmento="reporte" vista={vista} compacto />
       )}
-      <VistaSelector empresaSlug={empresaSlug} periodo={periodo} vista={vista} />
     <ReportePlantilla
       empresaNombre={empresaNombre}
       empresaSlug={empresaSlug}
@@ -377,6 +376,7 @@ async function ReportePorPlantilla({
         movimientos: n.movimientos,
       }))}
       semanasConNoAsignado={noAsignado.semanas}
+      controlVista={<VistaSelector empresaSlug={empresaSlug} periodo={periodo} vista={vista} />}
     />
     </>
   );
