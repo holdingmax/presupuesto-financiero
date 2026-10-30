@@ -697,7 +697,7 @@ export async function subirExtracto(
   await resolverParaOperar(periodo);
 
   // Frenos de memoria (lib/extractos/limites.ts), ANTES de leer el archivo con ExcelJS: la madre
-  // real (16.521 filas) superó los 512 MB de Render. Mismo tope para todos los roles; sin cuenta
+  // real (16.521 filas) superó los 512 MB que tenía Render. Mismo tope para todos los roles; sin cuenta
   // elegida podría ser una madre subida por el camino equivocado (se le indica cuál es el suyo).
   const frenoCuenta = verificarCuentaElegida(cuentaElegida);
   if (!frenoCuenta.ok) return { ok: false, error: frenoCuenta.error };
@@ -1118,9 +1118,24 @@ type FilaConClaveMadre = {
 
 type DbLectura = typeof prisma | Prisma.TransactionClient;
 
-// Una sola carga de madre a la vez por instancia: la lectura cuesta ~13,5 KB de memoria por fila y
-// el servidor de testing tiene 512 MB (ver lib/extractos/limites.ts).
+// Una sola carga de madre a la vez por instancia: la lectura cuesta ~13,5 KB de memoria por fila
+// (ver lib/extractos/limites.ts).
 const cargaDeMadre = crearExclusionMutua();
+
+// Log simple de tiempos por fase y RSS máximo de la carga de madre, para medir en las pruebas.
+function crearMarcaMadre() {
+  const inicio = Date.now();
+  let anterior = inicio;
+  return (fase: string, filas?: number) => {
+    const ahora = Date.now();
+    const rssMaxMb = Math.round(process.resourceUsage().maxRSS / 1024);
+    console.info(
+      `[madre] ${fase}: ${((ahora - anterior) / 1000).toFixed(1)} s (total ${((ahora - inicio) / 1000).toFixed(1)} s)` +
+        `${filas === undefined ? "" : ` · ${filas} filas`} · RSS máx ${rssMaxMb} MB`
+    );
+    anterior = ahora;
+  };
+}
 
 function armarFilasConClaveMadre(filas: FilaMadre[]): FilaConClaveMadre[] {
   return filas.map((fila) => {
@@ -1287,7 +1302,9 @@ async function procesarMadre(
   archivo: File,
   { hoja: hojaElegida, confirmarVistaPrevia = false, confirmoClasificacionesNuevas = false }: OpcionesMadre
 ): Promise<ResultadoMadre> {
+  const marca = crearMarcaMadre();
   const leido = await leerArchivoSubido(new Uint8Array(await archivo.arrayBuffer()), hojaElegida);
+  marca("lectura", leido.tipo === "madre" ? leido.filas.length : undefined);
   if (leido.tipo === "error") return { ok: false, error: leido.error };
   if (leido.tipo === "seleccionHoja") return { ok: false, requiereSeleccionHoja: true, hojas: leido.hojas };
   if (leido.tipo === "crudo") {
@@ -1327,6 +1344,7 @@ async function procesarMadre(
   // Primero se muestra qué se va a cargar: nada se escribe todavía, ni se toman locks.
   if (!confirmarVistaPrevia) {
     const c = await calcularCargaMadre(prisma, filasConClave, ejecucion.periodo);
+    marca("vista previa (cotejo con la base)");
     if (c.bloqueados.length > 0) return { ok: false, error: mensajeMesesCerrados(c.bloqueados) };
     if (c.nuevas.length === 0) return sinNovedades(c);
     const resumen = resumirMadre(c.nuevas.map((n) => n.fila), conocidas);
@@ -1355,6 +1373,9 @@ async function procesarMadre(
   // subirExtracto, así que una carga de madre y una de extracto de esa cuenta no se pisan.
   const resultado = await prisma.$transaction(
     async (tx) => {
+      // Si otra carga tiene el lock de un período o de una cuenta, esperar a lo sumo 20 s y fallar
+      // (la transacción se deshace entera) en vez de colgarse.
+      await tx.$executeRaw`SET LOCAL lock_timeout = '20s'`;
       const cuentas = Array.from(new Set(filasConClave.map((f) => f.cuenta))).sort();
       for (const cuenta of cuentas) {
         await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${"ejecucion:cuenta:" + cuenta}))`;
@@ -1445,8 +1466,10 @@ async function procesarMadre(
         cuentasOmitidas: c.cuentasOmitidas,
       };
     },
-    { maxWait: 10_000, timeout: 120_000 }
+    // timeout 180 s: la madre completa (16.521 filas) va en una sola transacción.
+    { maxWait: 10_000, timeout: 180_000 }
   );
+  marca("transacción (cotejo + carga)", resultado.ok ? resultado.filasNuevas : undefined);
 
   if (resultado.ok && resultado.filasNuevas > 0) revalidarSemana(periodo, numeroSemana);
   return resultado;

@@ -601,7 +601,7 @@ export default function PanelImputacion({
             Santander, Santiago del Estero: .xls, .xlsx o .csv, hasta 1 MB y 1.000 filas). Primero
             elegí la cuenta.
             {puedeCargarMadre &&
-              ` Para un archivo madre (varias cuentas, con su clasificación y unidad) elegí «Archivo madre»: .xlsx, hasta ${MAX_FILAS_MADRE.toLocaleString("es-AR")} filas y ${Math.round(MAX_BYTES_MADRE / 1024)} KB; el histórico se carga por script.`}
+              ` Para un archivo madre (varias cuentas, con su clasificación y unidad) elegí «Archivo madre»: .xlsx, hasta ${MAX_FILAS_MADRE.toLocaleString("es-AR")} filas y ${MAX_BYTES_MADRE / (1024 * 1024)} MB.`}
           </p>
           <div className="mb-3 flex items-center gap-3">
             <label htmlFor="cuenta-extracto" className="text-xs text-ink-secondary whitespace-nowrap">
@@ -647,6 +647,11 @@ export default function PanelImputacion({
               {subiendo ? "Subiendo..." : esMadre ? "Subir archivo madre" : "Subir extracto"}
             </button>
           </div>
+          {esMadre && (
+            <p className="text-xs text-ink-muted mb-3">
+              Un archivo madre grande puede tardar hasta un minuto, no cierres la pantalla.
+            </p>
+          )}
           {hojasDisponibles.length > 0 && (
             <div className="mt-3 text-sm bg-marino-tint text-marino rounded-md px-3 py-2">
               <p>

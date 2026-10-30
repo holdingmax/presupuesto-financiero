@@ -7,7 +7,7 @@ import {
   MAX_FILAS_EXTRACTO,
   MAX_BYTES_MADRE,
   MAX_FILAS_MADRE,
-  MENSAJE_MADRE_POR_SCRIPT,
+  MENSAJE_MADRE_DIVIDIR,
   verificarCantidadFilas,
   verificarCantidadFilasMadre,
   verificarCuentaElegida,
@@ -20,21 +20,21 @@ import { leerArchivoSubido } from "@/lib/extractos/archivo";
 const MADRE_BYTES = 1280281;
 const MADRE_FILAS = 16521;
 
-test("constantes: extracto 1 MB / 1.000 filas; madre 512 KB / 3.000 filas, iguales para todos los roles", () => {
+test("constantes: extracto 1 MB / 1.000 filas; madre 2 MB / 20.000 filas, iguales para todos los roles", () => {
   assert.equal(MAX_BYTES_EXTRACTO, 1048576);
   assert.equal(MAX_FILAS_EXTRACTO, 1000);
-  assert.equal(MAX_BYTES_MADRE, 524288);
-  assert.equal(MAX_FILAS_MADRE, 3000);
+  assert.equal(MAX_BYTES_MADRE, 2097152);
+  assert.equal(MAX_FILAS_MADRE, 20000);
   assert.ok(MADRE_BYTES > MAX_BYTES_EXTRACTO && MADRE_FILAS > MAX_FILAS_EXTRACTO);
 });
 
-test("tamaño de extracto: justo en el límite pasa, +1 byte no, y el mensaje señala la opción madre y el script", () => {
+test("tamaño de extracto: justo en el límite pasa, +1 byte no, y el mensaje señala la opción madre", () => {
   assert.deepEqual(verificarTamanoArchivo(MAX_BYTES_EXTRACTO), { ok: true });
   const r = verificarTamanoArchivo(MAX_BYTES_EXTRACTO + 1);
   assert.equal(r.ok, false);
   if (!r.ok) {
     assert.ok(r.error.includes("«Archivo madre»"));
-    assert.ok(r.error.includes(MENSAJE_MADRE_POR_SCRIPT));
+    assert.ok(!r.error.includes("script"));
   }
 });
 
@@ -55,30 +55,33 @@ test("cuenta elegida: obligatoria en el camino del extracto (vacía o en blanco 
   assert.deepEqual(verificarCuentaElegida("MACRO 599"), { ok: true });
 });
 
-// --- Archivo madre por la web (topes de uso diario) ------------------------------------------
+// --- Archivo madre por la web (incluido el histórico) ------------------------------------------
 
-test("madre, tamaño: 512 KB pasa, +1 byte no; el mensaje manda al script para el histórico", () => {
+test("madre, tamaño: 2 MB pasa, +1 byte no; el mensaje pide dividir y no menciona el script", () => {
   assert.deepEqual(verificarTamanoMadre(MAX_BYTES_MADRE), { ok: true });
   const r = verificarTamanoMadre(MAX_BYTES_MADRE + 1);
   assert.equal(r.ok, false);
-  if (!r.ok) assert.ok(r.error.includes(MENSAJE_MADRE_POR_SCRIPT));
+  if (!r.ok) {
+    assert.ok(r.error.includes(MENSAJE_MADRE_DIVIDIR));
+    assert.ok(r.error.includes("2,00 MB"));
+    assert.ok(!r.error.includes("script"));
+  }
 });
 
-test("madre, tamaño: la madre real histórica (1,28 MB) NO entra por la web", () => {
-  const r = verificarTamanoMadre(MADRE_BYTES);
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.ok(r.error.includes("se cargan por script"));
+test("madre, tamaño: la madre real histórica (1,28 MB) entra por la web", () => {
+  assert.deepEqual(verificarTamanoMadre(MADRE_BYTES), { ok: true });
 });
 
-test("madre, filas: 3.000 pasa, 3.001 no, y la histórica (16.521) no; el mensaje manda al script", () => {
+test("madre, filas: 20.000 pasa, 20.001 no; la histórica (16.521) pasa", () => {
   assert.deepEqual(verificarCantidadFilasMadre(MAX_FILAS_MADRE), { ok: true });
   const r = verificarCantidadFilasMadre(MAX_FILAS_MADRE + 1);
   assert.equal(r.ok, false);
   if (!r.ok) {
-    assert.match(r.error, /3\.001/);
-    assert.ok(r.error.includes(MENSAJE_MADRE_POR_SCRIPT));
+    assert.match(r.error, /20\.001/);
+    assert.ok(r.error.includes(MENSAJE_MADRE_DIVIDIR));
+    assert.ok(!r.error.includes("script"));
   }
-  assert.equal(verificarCantidadFilasMadre(MADRE_FILAS).ok, false);
+  assert.deepEqual(verificarCantidadFilasMadre(MADRE_FILAS), { ok: true });
 });
 
 // --- Contra archivos reales (se omiten si falta la variable; se leen en SOLO LECTURA) --------
@@ -108,19 +111,18 @@ for (const nombre of REALES) {
 const MADRE_REAL = process.env.MADRE_REAL_PATH;
 
 test(
-  "madre real histórica: se frena por tamaño ANTES de leerla y, de leerla, también por filas (se carga por script)",
+  "madre real histórica: pasa los topes de tamaño y de filas de la web",
   { skip: MADRE_REAL ? false : "MADRE_REAL_PATH no está definida" },
   async () => {
     const bytes = statSync(MADRE_REAL!).size;
     assert.equal(bytes, MADRE_BYTES);
-    assert.equal(verificarTamanoMadre(bytes).ok, false);
+    assert.deepEqual(verificarTamanoMadre(bytes), { ok: true });
 
-    // La lectura de la madre sigue existiendo (la usa el script): lee, y los topes de la web la frenan.
     const leido = await leerArchivoSubido(new Uint8Array(readFileSync(MADRE_REAL!)));
     assert.equal(leido.tipo, "madre");
     if (leido.tipo === "madre") {
       assert.equal(leido.filas.length, MADRE_FILAS);
-      assert.equal(verificarCantidadFilasMadre(leido.filas.length).ok, false);
+      assert.deepEqual(verificarCantidadFilasMadre(leido.filas.length), { ok: true });
     }
   }
 );
