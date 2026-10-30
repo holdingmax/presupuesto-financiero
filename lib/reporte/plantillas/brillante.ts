@@ -47,8 +47,9 @@ const ingresos = [
     nota: "Planilla: COBRANZAS de la unidad sin las de Gold Seguridad. Hasta resolver K7 incluye las de Gold.",
   }),
   ingreso("br.cobranzaChequeDiferido", "Cobranza Cheque Diferido", SIN_REAL, PRESUPUESTO_MANUAL),
-  ingreso("br.otrasOperacionesJujuy", "Otras operaciones (MANTENOR JUJUY)", SIN_REAL, PRESUPUESTO_MANUAL, {
+  ingreso("br.otrasOperacionesJujuy", "Otras operaciones (MANTENOR JUJUY)", REAL_MANUAL, PRESUPUESTO_MANUAL, {
     pendiente: "K8",
+    nota: "Real tipeado a mano.",
   }),
   ingreso("br.goldSalta", "Otros Operaciones (GOLD SALTA)", SIN_REAL, PRESUPUESTO_MANUAL, {
     pendiente: "K7",
@@ -134,7 +135,9 @@ const deAbajo = [
   abajo("br.ajusteCaja", "Ajuste Caja -  A conciliar", SIN_REAL, PRESUPUESTO_MANUAL),
   abajo("br.devolucionLuque", "Devolucion Luque - Aporte MS", SIN_REAL, PRESUPUESTO_MANUAL),
   abajo("br.aporteBlanqueo", "Aporte para blanqueo", SIN_REAL, PRESUPUESTO_MANUAL),
-  abajo("br.recuperoGastos", "Recupero Gastos", SIN_REAL, PRESUPUESTO_MANUAL),
+  abajo("br.recuperoGastos", "Recupero Gastos", REAL_MANUAL, PRESUPUESTO_MANUAL, {
+    nota: "Real tipeado a mano, con el signo del Excel (negativo = recupero que baja los egresos).",
+  }),
   abajo("br.inversiones", "Inversiones", clasif("INVERSIONES"), cat("INVERSIONES")),
 ];
 

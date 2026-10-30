@@ -61,12 +61,12 @@ test("subconjunto: aunque el interruptor de tipeo esté prendido en TODAS, Dispo
 
 // ---- Qué se puede tipear -------------------------------------------------------------------------
 
-test("Brillante: 11 de Disponibilidades + 3 de flujo, todas de la columna REAL y ninguna de Cierre", () => {
+test("Brillante: 11 de Disponibilidades + 5 de flujo, todas de la columna REAL y ninguna de Cierre", () => {
   const campos = camposTipeables(BRILLANTE, "brillante");
   assert.equal(campos.filter((c) => c.bloque === "DISPONIBILIDADES").length, 11);
   assert.deepEqual(
     campos.filter((c) => c.bloque !== "DISPONIBILIDADES").map((c) => c.clave),
-    ["br.resultadoFci", "br.otroMsnt", "br.traspasoSaldoInicial"]
+    ["br.otrasOperacionesJujuy", "br.resultadoFci", "br.otroMsnt", "br.traspasoSaldoInicial", "br.recuperoGastos"]
   );
   assert.ok(campos.every((c) => c.columna === "REAL" && c.bloque !== "CIERRE"));
   // Ninguna fila "Sin Real" ni de Presupuestado manual entra.
@@ -75,8 +75,8 @@ test("Brillante: 11 de Disponibilidades + 3 de flujo, todas de la columna REAL y
   assert.equal(claves.has("br.cobranzaChequeDiferido"), false);
 });
 
-test("sin Disponibilidades visibles, solo las 3 de flujo; sin interruptor, ninguna", () => {
-  assert.equal(camposTipeables(BRILLANTE, "brillante", SOLO_FLUJO).length, 3);
+test("sin Disponibilidades visibles, solo las 5 de flujo; sin interruptor, ninguna", () => {
+  assert.equal(camposTipeables(BRILLANTE, "brillante", SOLO_FLUJO).length, 5);
   assert.equal(camposTipeables(BRILLANTE, "brillante", VACIO).length, 0);
   assert.equal(tipeoDirectoActivo("brillante", VACIO), false);
 });
@@ -103,10 +103,10 @@ function vista(interruptores: InterruptoresTipeo, over: Partial<Parameters<typeo
   });
 }
 
-test("mes en curso: las 14 celdas son editables, sin aviso de una sola vez", () => {
+test("mes en curso: las 16 celdas son editables, sin aviso de una sola vez", () => {
   const v = vista(CON_DISP);
   assert.ok(v);
-  assert.equal(v.celdas.length, 14);
+  assert.equal(v.celdas.length, 16);
   assert.ok(v.celdas.every((c) => c.importeInicial === "" && !c.avisoUnaVez));
 });
 
@@ -123,7 +123,7 @@ test("período cerrado: carga única — lo cargado queda afuera, lo vacío se p
   const claves = v.celdas.map((c) => c.clave);
   assert.equal(claves.includes("br.resultadoFci"), false);
   assert.equal(claves.includes("br.dBancoFci"), false);
-  assert.equal(v.celdas.length, 12);
+  assert.equal(v.celdas.length, 14);
   assert.ok(v.celdas.every((c) => c.avisoUnaVez && c.importeInicial === ""));
 });
 
@@ -135,13 +135,13 @@ test("período cerrado con todo cargado: no queda ninguna celda editable (sin ov
 test("mismas reglas de bloqueo de siempre: con semanas abiertas el flujo se edita, Disponibilidades no si ya hay cerradas", () => {
   const todo = new Map(camposTipeables(BRILLANTE, "brillante", CON_DISP).map((c) => [c.clave, 1]));
   const v = vista(CON_DISP, { periodo: "2026-09", semanas: { abiertas: 1, cerradas: 2 }, valoresReales: todo })!;
-  assert.deepEqual(v.celdas.map((c) => c.clave), ["br.resultadoFci", "br.otroMsnt", "br.traspasoSaldoInicial"]);
+  assert.deepEqual(v.celdas.map((c) => c.clave), ["br.otrasOperacionesJujuy", "br.resultadoFci", "br.otroMsnt", "br.traspasoSaldoInicial", "br.recuperoGastos"]);
   assert.ok(v.celdas.every((c) => !c.avisoUnaVez));
 });
 
 test("sin Disponibilidades visibles la vista no lleva ninguna de ese bloque", () => {
   const v = vista(SOLO_FLUJO)!;
-  assert.deepEqual(v.celdas.map((c) => c.clave), ["br.resultadoFci", "br.otroMsnt", "br.traspasoSaldoInicial"]);
+  assert.deepEqual(v.celdas.map((c) => c.clave), ["br.otrasOperacionesJujuy", "br.resultadoFci", "br.otroMsnt", "br.traspasoSaldoInicial", "br.recuperoGastos"]);
 });
 
 test("interruptor vacío: nadie recibe celdas, tampoco ADMIN (el Reporte queda como siempre)", () => {
@@ -252,7 +252,7 @@ test("/reporte/carga no depende del tipeo directo (queda como estaba)", () => {
 });
 
 // La pantalla de carga sigue ofreciendo los mismos campos manuales que antes.
-test("camposManuales no cambió: Brillante sigue con sus campos de siempre", () => {
+test("camposManuales: Brillante tiene 16 campos de Real (11 de Disponibilidades y 5 de flujo)", () => {
   const campos = camposManuales(BRILLANTE);
-  assert.equal(campos.filter((c) => c.columna === "REAL").length, 14);
+  assert.equal(campos.filter((c) => c.columna === "REAL").length, 16);
 });
