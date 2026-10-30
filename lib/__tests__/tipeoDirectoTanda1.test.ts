@@ -1,21 +1,50 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { EMPRESAS_CON_FILAS_EXTRA, EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE } from "@/lib/config";
+import { EMPRESAS_CON_FILAS_EXTRA } from "@/lib/config";
 import { camposManuales } from "@/lib/reporte/motor";
 import { PLANTILLAS_POR_SLUG } from "@/lib/reporte/plantillas";
-import { accesoReservadosDelReporte } from "@/lib/reporte/visibilidad";
 import { plantillaDeEmpresaConExtras, type LectorFilasExtra } from "@/lib/reporte/plantillaConExtras";
 import { ERROR_NO_HABILITADO, validarCreacionFilaExtra } from "@/lib/reporte/accionesFilasExtra";
 import { armarVistaTipeo, camposTipeables, motivoRechazoTipeo } from "@/lib/reporte/tipeoDirecto";
 import { mesesDePrueba } from "@/lib/reporte/__tests__/fixtures/datosGerente";
 
-// Tanda 1 del tipeo directo: Fredy Publicidad, HWC y Avianor, solo flujo (Real manual de Ingresos, Egresos y
-// de abajo). Sin filas extra y sin Disponibilidades. Las listas de claves están escritas a mano, a propósito: si
-// una plantilla cambia, este test lo avisa. Usan la configuración REAL de lib/config.ts.
+// Tanda 1 del tipeo directo: Fredy Publicidad, HWC y Avianor. Flujo (Real manual de Ingresos, Egresos y de abajo)
+// y, desde la segunda tanda, también Disponibilidades (las ven en solo lectura sus gerentes: ver
+// tipeoDirectoDisponibilidades.test.ts). Sin filas extra. Las listas de claves están escritas a mano, a propósito:
+// si una plantilla cambia, este test lo avisa. Usan la configuración REAL de lib/config.ts.
 
-const ESPERADO: Record<string, { ingresos: string[]; egresos: string[]; abajo: string[] }> = {
-  "fredy-publicidad": { ingresos: ["fr.resultadoFci"], egresos: ["fr.compraIva"], abajo: [] },
-  hwc: { ingresos: ["hw.resultadoFci"], egresos: ["hw.costoIva"], abajo: [] },
+const ESPERADO: Record<string, { ingresos: string[]; egresos: string[]; abajo: string[]; disponibilidades: string[] }> = {
+  "fredy-publicidad": {
+    ingresos: ["fr.resultadoFci"],
+    egresos: ["fr.compraIva"],
+    abajo: [],
+    disponibilidades: [
+      "fr.dBancosFci",
+      "fr.dEfectivo",
+      "fr.dDolar",
+      "fr.dChequesNegociados",
+      "fr.dReservaCapitalTrabajo",
+      "fr.dReservaAguinaldo",
+      "fr.dComisionesPendientes",
+      "fr.dDividendosPendientes",
+      "fr.dRecuperoBlanqueo",
+    ],
+  },
+  hwc: {
+    ingresos: ["hw.resultadoFci"],
+    egresos: ["hw.costoIva"],
+    abajo: [],
+    disponibilidades: [
+      "hw.dBancosFci",
+      "hw.dCaja",
+      "hw.dTransferenciaSaife",
+      "hw.dChequesEnCartera",
+      "hw.dChequesPendientes",
+      "hw.dDolaresEnCaja",
+      "hw.dPrevisionSac",
+      "hw.dPagoLatamPendiente",
+    ],
+  },
   avianor: {
     ingresos: [
       "av.otrasOperaciones",
@@ -27,10 +56,12 @@ const ESPERADO: Record<string, { ingresos: string[]; egresos: string[]; abajo: s
     ],
     egresos: ["av.comisiones", "av.tarjetas", "av.adicionales", "av.expensasNoSocios", "av.otroEgreso"],
     abajo: ["av.reembolsosPrestamos", "av.cuentaParticular", "av.otroAbajo"],
+    disponibilidades: ["av.dEfectivo"],
   },
 };
 
-const CANTIDAD: Record<string, number> = { "fredy-publicidad": 2, hwc: 2, avianor: 14 };
+// Flujo + Disponibilidades: Fredy 2 + 9, HWC 2 + 8, Avianor 14 + 1.
+const CANTIDAD: Record<string, number> = { "fredy-publicidad": 11, hwc: 10, avianor: 15 };
 
 const ABIERTO = { abiertas: 1, cerradas: 0 };
 const noDebeLeer: LectorFilasExtra = async () => {
@@ -41,23 +72,24 @@ for (const slug of Object.keys(ESPERADO)) {
   const plantilla = PLANTILLAS_POR_SLUG[slug];
   const esperado = ESPERADO[slug];
 
-  test(`${slug}: sus campos tipeables son exactamente los esperados (solo Real manual de flujo)`, () => {
+  test(`${slug}: sus campos tipeables son exactamente los esperados (Real manual de flujo y de Disponibilidades)`, () => {
     const campos = camposTipeables(plantilla, slug);
     assert.equal(campos.length, CANTIDAD[slug]);
     assert.ok(campos.every((c) => c.columna === "REAL"), "solo la columna Real");
     assert.deepEqual(campos.filter((c) => c.bloque === "INGRESOS").map((c) => c.clave), esperado.ingresos);
     assert.deepEqual(campos.filter((c) => c.bloque === "EGRESOS").map((c) => c.clave), esperado.egresos);
     assert.deepEqual(campos.filter((c) => c.bloque === "ABAJO").map((c) => c.clave), esperado.abajo);
-    assert.equal(campos.some((c) => c.bloque === "DISPONIBILIDADES" || c.bloque === "CIERRE"), false);
+    assert.deepEqual(campos.filter((c) => c.bloque === "DISPONIBILIDADES").map((c) => c.clave), esperado.disponibilidades);
+    assert.equal(campos.some((c) => c.bloque === "CIERRE"), false);
     assert.equal(campos.some((c) => c.clave.startsWith("extra.")), false);
   });
 
-  test(`${slug}: el Presupuestado y las filas sin Real o con Real calculado no se tipean`, () => {
+  test(`${slug}: el Presupuestado y las filas sin Real manual no se tipean`, () => {
     const tipeables = new Set(camposTipeables(plantilla, slug).map((c) => `${c.clave}|${c.columna}`));
     for (const f of plantilla.filas) {
       if (f.tipo !== "linea") continue;
       assert.equal(tipeables.has(`${f.clave}|PRESUPUESTADO`), false, `${f.clave} Presupuestado`);
-      if (f.real.tipo !== "manual" || f.bloque === "DISPONIBILIDADES") {
+      if (f.real.tipo !== "manual") {
         assert.equal(tipeables.has(`${f.clave}|REAL`), false, `${f.clave} Real`);
       }
     }
@@ -80,19 +112,11 @@ for (const slug of Object.keys(ESPERADO)) {
     assert.deepEqual(alta, { ok: false, error: ERROR_NO_HABILITADO });
   });
 
-  test(`${slug}: el gerente no ve Disponibilidades y ADMIN no las tipea`, () => {
-    assert.equal(EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE.includes(slug), false);
-    assert.equal(accesoReservadosDelReporte(false, slug), false);
-    const dispo = camposManuales(plantilla).find((c) => c.bloque === "DISPONIBILIDADES")!;
-    assert.ok(dispo, "la plantilla tiene Disponibilidades manuales");
-    const rechazo = motivoRechazoTipeo({
-      empresaSlug: slug,
-      plantilla,
-      esAdminOFinanzas: true,
-      entradas: [{ filaClave: dispo.clave, columna: "REAL", texto: "1.000,00" }],
-    });
-    assert.ok(rechazo, "el servidor rechaza Disponibilidades");
-    const valores = mesesDePrueba(plantilla)[1].manuales!.real;
+  test(`${slug}: ADMIN tipea sus Disponibilidades; el servidor las acepta solo en Real`, () => {
+    const dispo = esperado.disponibilidades[0];
+    const args = { empresaSlug: slug, plantilla, esAdminOFinanzas: true };
+    assert.equal(motivoRechazoTipeo({ ...args, entradas: [{ filaClave: dispo, columna: "REAL", texto: "1.000,00" }] }), null);
+    assert.ok(motivoRechazoTipeo({ ...args, entradas: [{ filaClave: dispo, columna: "PRESUPUESTADO", texto: "1.000,00" }] }));
     const vista = armarVistaTipeo({
       empresaSlug: slug,
       plantilla,
@@ -100,11 +124,11 @@ for (const slug of Object.keys(ESPERADO)) {
       periodo: "2026-10",
       actual: "2026-10",
       semanas: ABIERTO,
-      valoresReales: valores,
+      valoresReales: mesesDePrueba(plantilla)[1].manuales!.real,
     });
     assert.ok(vista);
     assert.equal(vista.celdas.length, CANTIDAD[slug]);
-    assert.equal(vista.celdas.some((c) => c.clave === dispo.clave), false);
+    assert.deepEqual(vista.celdas.filter((c) => c.clave === dispo).length, 1);
   });
 
   test(`${slug}: el servidor acepta sus celdas de flujo y rechaza Presupuestado, fila extra y fila ajena`, () => {
@@ -131,9 +155,10 @@ for (const slug of Object.keys(ESPERADO)) {
   });
 }
 
-test("Avianor: 6 de Ingresos + 5 de Egresos + 3 de abajo; su Presupuestado manual queda fuera del tipeo", () => {
+test("Avianor: 6 de Ingresos + 5 de Egresos + 3 de abajo + 1 de Disponibilidades; su Presupuestado manual queda fuera del tipeo", () => {
   const plantilla = PLANTILLAS_POR_SLUG["avianor"];
   const campos = camposTipeables(plantilla, "avianor");
+  assert.equal(campos.filter((c) => c.bloque === "DISPONIBILIDADES").length, 1);
   assert.deepEqual([6, 5, 3], [
     campos.filter((c) => c.bloque === "INGRESOS").length,
     campos.filter((c) => c.bloque === "EGRESOS").length,
@@ -141,5 +166,8 @@ test("Avianor: 6 de Ingresos + 5 de Egresos + 3 de abajo; su Presupuestado manua
   ]);
   const presupuestoManual = camposManuales(plantilla).filter((c) => c.columna === "PRESUPUESTADO");
   assert.equal(presupuestoManual.length, 14);
-  assert.deepEqual(presupuestoManual.map((c) => c.clave).sort(), campos.map((c) => c.clave).sort());
+  assert.deepEqual(
+    presupuestoManual.map((c) => c.clave).sort(),
+    campos.filter((c) => c.bloque !== "DISPONIBILIDADES").map((c) => c.clave).sort()
+  );
 });

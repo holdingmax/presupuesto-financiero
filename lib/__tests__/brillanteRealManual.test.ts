@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { armarReporte, camposManuales, esBloqueReservado, type DatosMes, type Reporte } from "@/lib/reporte/motor";
+import { EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE } from "@/lib/config";
 import { PLANTILLAS_POR_SLUG } from "@/lib/reporte/plantillas";
 import { accesoReservadosDelReporte } from "@/lib/reporte/visibilidad";
 import { armarVistaTipeo, motivoRechazoTipeo } from "@/lib/reporte/tipeoDirecto";
@@ -110,7 +111,13 @@ test("gerente de Brillante: con las dos filas vacías el Reporte es idéntico a 
 });
 
 test("las otras plantillas no cambian: foto del gerente y claves manuales idénticas", () => {
-  for (const slug of Object.keys(PLANTILLAS_POR_SLUG).filter((s) => s !== "brillante")) {
+  // La foto es la del gerente SIN Disponibilidades: solo vale para las empresas que no las ven (las que sí, tienen
+  // su propio test en tipeoDirectoDisponibilidades.test.ts).
+  const sinDisponibilidades = Object.keys(PLANTILLAS_POR_SLUG).filter(
+    (s) => s !== "brillante" && !EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE.includes(s)
+  );
+  assert.ok(sinDisponibilidades.includes("havanna") && sinDisponibilidades.includes("mantenor"), "sanidad");
+  for (const slug of sinDisponibilidades) {
     const p = PLANTILLAS_POR_SLUG[slug];
     const r = armarReporte(p, mesesDePrueba(p), 1, { verBloquesReservados: accesoReservadosDelReporte(false, slug) });
     assert.deepEqual(proyeccion(r), fotoDeLasOtras[slug], slug);

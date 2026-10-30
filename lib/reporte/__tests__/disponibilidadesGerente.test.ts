@@ -57,14 +57,27 @@ function reporteDelGerente(slug: string): Reporte {
   });
 }
 
-test("interruptores: Disponibilidades solo en Brillante; Cierre todavía apagado", () => {
-  assert.deepEqual([...EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE], ["brillante"]);
+// Empresas cuyo gerente ve Disponibilidades hoy: Brillante y la segunda tanda. Fijada a propósito: sumar otra
+// empresa tiene que obligar a tocar este test.
+const CON_DISPONIBILIDADES_HOY = ["brillante", "fredy-publicidad", "hwc", "avianor"];
+
+test("interruptores: Disponibilidades en Brillante y la segunda tanda; Cierre todavía apagado", () => {
+  assert.ok(EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE.includes("brillante"));
+  assert.deepEqual([...EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE], CON_DISPONIBILIDADES_HOY);
   assert.deepEqual([...EMPRESAS_QUE_VEN_CIERRE_EN_REPORTE], []);
 });
 
-// ---- Las otras empresas no cambian ---------------------------------------------------------------
+// ---- Las empresas que siguen fuera no cambian ----------------------------------------------------
 
-for (const slug of Object.keys(PLANTILLAS_POR_SLUG).filter((s) => s !== "brillante")) {
+const FUERA_DEL_INTERRUPTOR = Object.keys(PLANTILLAS_POR_SLUG).filter((s) => !EMPRESAS_QUE_VEN_DISPONIBILIDADES_EN_REPORTE.includes(s));
+
+test("las empresas que siguen fuera incluyen a Havanna, Radio, Conexión, Mantenor, Plate Silver y Bradenton", () => {
+  for (const slug of ["havanna", "radio", "conexion-logistica", "conexion-logistica-spp", "mantenor", "plate-silver", "bradenton"]) {
+    assert.ok(FUERA_DEL_INTERRUPTOR.includes(slug), slug);
+  }
+});
+
+for (const slug of FUERA_DEL_INTERRUPTOR) {
   test(`${slug}: con el interruptor apagado el Reporte del gerente sigue idéntico a la foto del commit 3`, () => {
     assert.equal(accesoReservadosDelReporte(false, slug), false);
     assert.deepEqual(proyeccion(reporteDelGerente(slug)), GOLDEN[slug]);
