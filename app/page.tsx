@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireUsuarioAlDia, esAdminOFinanzas, veTodoEjecucion } from "@/lib/auth";
 import { logout } from "@/app/login/actions";
 import { prisma } from "@/lib/prisma";
-import { listarEmpresas, slugify } from "@/lib/slug";
+import { listarEmpresas, slugDeEmpresa } from "@/lib/slug";
 import { PERIODO_POR_DEFECTO } from "@/lib/config";
 import { enlaceDeEmpresa } from "@/lib/navegacionEmpresa";
 import { iniciales } from "@/lib/iniciales";
@@ -150,7 +150,7 @@ export default async function MisEmpresasPage() {
             {empresas.map((empresa) => (
               <li key={empresa.id}>
                 <Link
-                  href={enlaceDeEmpresa(esAdminOFinanzas(usuario), slugify(empresa.nombre))}
+                  href={enlaceDeEmpresa(esAdminOFinanzas(usuario), slugDeEmpresa(empresa.nombre))}
                   className={`group flex min-h-16 items-center gap-4 rounded-lg border border-line bg-paper-raised px-4 py-3 shadow-sm shadow-ink/5 transition hover:border-marino hover:shadow-md hover:shadow-ink/10 focus-visible:border-marino focus-visible:shadow-md focus-visible:shadow-ink/10 motion-safe:hover:-translate-y-0.5 motion-safe:focus-visible:-translate-y-0.5 ${FOCO}`}
                 >
                   <span

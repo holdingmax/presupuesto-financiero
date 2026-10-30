@@ -9,7 +9,7 @@ import { TEXTOS_MACCHI } from "./fixtures/textosMacchi";
 // categoría en dos filas, totales que apuntan a claves existentes y pendientes
 // del catálogo (validarPlantilla), y textos iguales a los de la planilla.
 
-test("hay plantilla para las 7 empresas de formato completo, para Avianor, Plate Silver y Bradenton", () => {
+test("hay plantilla para las 7 empresas de formato completo, para Avianor, Havanna Perú, Plate Silver y Bradenton", () => {
   assert.deepEqual(Object.keys(PLANTILLAS_POR_SLUG).sort(), [
     "avianor",
     "bradenton",
@@ -18,6 +18,7 @@ test("hay plantilla para las 7 empresas de formato completo, para Avianor, Plate
     "conexion-logistica-spp",
     "fredy-publicidad",
     "havanna",
+    "havanna-peru",
     "hwc",
     "mantenor",
     "plate-silver",
@@ -29,8 +30,14 @@ test("el slug de testing de Conexión usa la misma plantilla", () => {
   assert.equal(plantillaDeEmpresa("conexion-logistica-spp"), PLANTILLAS_POR_SLUG["conexion-logistica"]);
 });
 
-test("no hay match por prefijo: havanna-peru no devuelve plantilla", () => {
-  assert.equal(plantillaDeEmpresa("havanna-peru"), null);
+test("havanna-peru tiene plantilla propia, distinta de la de Havanna", () => {
+  assert.ok(plantillaDeEmpresa("havanna-peru"));
+  assert.notEqual(plantillaDeEmpresa("havanna-peru"), PLANTILLAS_POR_SLUG["havanna"]);
+});
+
+test("no hay match por prefijo: un slug que solo empieza como otro no devuelve plantilla", () => {
+  assert.equal(plantillaDeEmpresa("havanna-peru-x"), null);
+  assert.equal(plantillaDeEmpresa("hwc-cargo"), null);
 });
 
 for (const [slug, plantilla] of Object.entries(PLANTILLAS_POR_SLUG)) {

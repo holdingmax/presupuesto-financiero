@@ -19,6 +19,17 @@ export function slugify(texto: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+// Slug que se usa en las URLs de una empresa. Es slugify(nombre) salvo las excepciones de
+// SLUG_FIJO_POR_NOMBRE: empresas renombradas cuyo slug no puede cambiar (las plantillas del Reporte y las
+// listas de config.ts van por slug). Handyway Cargo era "HWC" y sigue siendo `hwc`.
+const SLUG_FIJO_POR_NOMBRE: Record<string, string> = {
+  "Handyway Cargo": "hwc",
+};
+
+export function slugDeEmpresa(nombre: string): string {
+  return SLUG_FIJO_POR_NOMBRE[nombre] ?? slugify(nombre);
+}
+
 // cache() de React deduplica esta consulta dentro de un mismo request —
 // el layout y cada página pueden llamarla sin pegarle dos veces a la base.
 export const listarEmpresas = cache(async () => {
@@ -33,5 +44,5 @@ export const listarEmpresas = cache(async () => {
 // "todavía no existe" — el llamador decide qué hacer (típicamente notFound()).
 export const resolverEmpresaPorSlug = cache(async (slug: string) => {
   const empresas = await listarEmpresas();
-  return empresas.find((empresa) => slugify(empresa.nombre) === slug) ?? null;
+  return empresas.find((empresa) => slugDeEmpresa(empresa.nombre) === slug) ?? null;
 });

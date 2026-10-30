@@ -7,15 +7,18 @@ import { hashPassword } from "../lib/password";
 
 const prisma = new PrismaClient();
 
+// PENDIENTE: la lista sigue incluyendo Cielos, Tucson y "Logística / CREAR", que scripts/consolidar-empresas-2026-08.ts
+// eliminó (no son entidades separadas). Un db:seed las vuelve a crear; limpiarlas queda para otro cambio.
 const EMPRESAS = [
   "Havanna",
   "Fredy Publicidad",
-  "Correo / SPP",
+  "Conexión Logística",
   "Brillante",
   "Mantenor",
   "Logística / CREAR",
   "Radio",
-  "HWC",
+  "Handyway Cargo",
+  "Havanna Perú",
   "Avianor",
   "Plate Silver",
   "Gold Seguridad",

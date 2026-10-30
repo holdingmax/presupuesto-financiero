@@ -121,6 +121,7 @@ test("Capital de trabajo: qué plantilla lo abre y cómo (fórmula, tipeado o na
     mantenor: { clave: "mn.capital", conFormula: false }, // tipeado, sin fórmula
     "plate-silver": null, // su Capital es un total (fórmula pura): no editable
     bradenton: { clave: "bd.capital", conFormula: false }, // tipeado en P y en R; solo P se abre
+    "havanna-peru": { clave: "hp.capital", conFormula: false }, // tipeado en P y en R, como Bradenton
   };
   for (const [slug, plantilla] of Object.entries(PLANTILLAS_POR_SLUG)) {
     const capital = planDeCarga(plantilla, []).capital;

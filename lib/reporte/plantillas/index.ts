@@ -5,6 +5,7 @@ import { PLANTILLA_BRILLANTE } from "./brillante";
 import { PLANTILLA_CONEXION } from "./conexion";
 import { PLANTILLA_FREDY } from "./fredy";
 import { PLANTILLA_HAVANNA } from "./havanna";
+import { PLANTILLA_HAVANNA_PERU } from "./havanna-peru";
 import { PLANTILLA_HWC } from "./hwc";
 import { PLANTILLA_MANTENOR } from "./mantenor";
 import { PLANTILLA_PLATE_SILVER } from "./plateSilver";
@@ -23,6 +24,7 @@ export const PLANTILLAS_POR_SLUG: Record<string, Plantilla> = {
   "conexion-logistica-spp": PLANTILLA_CONEXION, // slug en testing
   brillante: PLANTILLA_BRILLANTE,
   havanna: PLANTILLA_HAVANNA,
+  "havanna-peru": PLANTILLA_HAVANNA_PERU,
   radio: PLANTILLA_RADIO,
   "fredy-publicidad": PLANTILLA_FREDY,
   hwc: PLANTILLA_HWC,

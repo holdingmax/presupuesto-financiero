@@ -365,6 +365,41 @@ export const TEXTOS_MACCHI: Record<string, string[]> = {
     "CAPITAL DE TRABAJO PROPUESTO (SUELDOS)", // A38
     "DISPONIBLE SI - CAPITAL DE TRABAJO", // A39
   ],
+  // `PF - HAVANNA PERU - AGOSTO 2026.xlsx`, hoja PRESUPUESTO MES A MES, columna A, filas 4 a 37 (sin las filas en blanco; fila 40 CONTROL SF fuera)
+  "havanna-peru": [
+    "EFECTIVO DISPONIBLE (principios de mes)", // A4
+    "INGRESOS", // A6
+    "Cobranza clientes", // A7
+    "Otras operaciones (APORTES)", // A8
+    "Venta de Propiedades y Equipos", // A9
+    "Cobro de Capital de Préstamos", // A10
+    "Préstamo", // A11
+    "DEVOLUCION PERCEPCION IGV", // A12
+    "Otro", // A13
+    "TOTAL INGRESOS", // A14
+    "DISPONIBLE ANTES DE GASTOS", // A15
+    "GASTOS", // A17
+    "Gratificaciones", // A18
+    "Sueldos", // A19
+    "Prestamos", // A20
+    "Tarjetas", // A21
+    "Adicionales", // A22
+    "Impuestos", // A23
+    "Expensas", // A24
+    "Gastos Bancarios", // A25
+    "Proveedores", // A26
+    "Regalias", // A27
+    "Otro", // A28
+    "TOTAL GASTOS OPERATIVOS", // A29
+    "Importacion Havanna", // A30
+    "Soles a Dolares", // A31
+    "Dividendos", // A32
+    "Implementacion nuevos locales", // A33
+    "TOTAL GASTOS", // A34
+    "POSICIÓN DE EFECTIVO (fin de mes)", // A35
+    "Capital de trabajo propuesto", // A36
+    "Excedente (+) / Faltante (-)", // A37
+  ],
   // `PF - AVIANOR AGOSTO 2026.xlsx`, hoja PRESUPUESTO MES A MES, columna A, filas 4 a 37 (sin las filas en blanco; Avianor no tiene bloque de componentes de Disponibilidades)
   "avianor": [
     "EFECTIVO DISPONIBLE (principios de mes)", // A4
