@@ -11,6 +11,7 @@ import {
   puedeEditarPeriodoComoGerente,
   puedeVerPeriodo,
 } from "@/lib/periodosHabilitados";
+import { ocultaPestanaPresupuesto } from "@/lib/navegacionEmpresa";
 
 test("config: los períodos habilitados son septiembre, octubre y noviembre de 2026", () => {
   assert.deepEqual([...PERIODOS_HABILITADOS], ["2026-09", "2026-10", "2026-11"]);
@@ -157,6 +158,15 @@ test("avisoPeriodoSoloLectura: hay cartel si y solo si puedeEditarPeriodoComoGer
       );
     }
   }
+});
+
+test("selector de mes del Reporte: aparece cuando la pestaña está oculta, para todos los roles (interruptor encendido), y sus links van al Reporte", () => {
+  for (const admin of [true, false]) {
+    assert.equal(ocultaPestanaPresupuesto(admin, "hwc", undefined, undefined, true), true, `admin=${admin}`);
+  }
+  // Apagado, ADMIN y FINANZAS conservan la pestaña y no necesitan el selector del Reporte.
+  assert.equal(ocultaPestanaPresupuesto(true, "hwc", undefined, undefined, false), false);
+  assert.ok(enlacesDePeriodos("hwc", "2026-11", undefined, "reporte").every((e) => e.href.endsWith("/reporte")));
 });
 
 test("enlacesDePeriodos: con segmento reporte los links van al Reporte; sin segmento, a Presupuesto", () => {
